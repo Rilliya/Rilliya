@@ -617,10 +617,6 @@ struct RoutingCanvasView: View {
   }
 }
 
-private enum RoutingNodePaletteMetrics {
-  static let listHeight: CGFloat = 300
-}
-
 struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
 
   let applicationCatalog: InstalledApplicationCatalogController
@@ -689,11 +685,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       }
       .scrollContentBackground(.hidden)
       .background(Color.clear)
-      .frame(height: RoutingNodePaletteMetrics.listHeight)
-
-      NativeWindowDragRegion()
-        .frame(maxWidth: .infinity, maxHeight: .infinity)
-        .accessibilityHidden(true)
+      .frame(maxHeight: .infinity, alignment: .top)
+      .layoutPriority(1)
     }
     .padding(.horizontal, 14)
     .padding(.bottom, 14)
