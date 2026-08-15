@@ -110,6 +110,8 @@ struct RoutingMetalScene {
   struct Edge: Identifiable {
     let id: RoutingCanvasElementID
     let route: FlowingGraphEdgeRoute
+    let sourceNodeID: RoutingCanvasElementID
+    let targetNodeID: RoutingCanvasElementID
   }
 
   let contentID: FlowingLayoutInputID
@@ -170,8 +172,20 @@ struct RoutingMetalScene {
     nodes = nextNodes
     portByID = nextPortsByID
     edges = content.presentation.edges.compactMap { presentationEdge in
-      guard let route = content.route(for: presentationEdge.localID) else { return nil }
-      return Edge(id: presentationEdge.id, route: route)
+      guard let route = content.route(for: presentationEdge.localID),
+        case .directed(.port(let sourcePortID), .port(let targetPortID)) =
+          presentationEdge.endpoints,
+        let sourceNodeID = nextPortsByID[sourcePortID]?.nodeID,
+        let targetNodeID = nextPortsByID[targetPortID]?.nodeID
+      else {
+        return nil
+      }
+      return Edge(
+        id: presentationEdge.id,
+        route: route,
+        sourceNodeID: sourceNodeID,
+        targetNodeID: targetNodeID
+      )
     }
     contentBounds =
       nextNodes.map(\.frame).reduce(nil) { bounds, frame in
@@ -212,5 +226,83 @@ struct RoutingMetalScene {
     case (.all, .channel):
       return false
     }
+  }
+}
+
+enum RoutingMetalEdgeRouteProjection {
+  static func route(
+    _ route: FlowingGraphEdgeRoute,
+    sourceMoves: Bool,
+    targetMoves: Bool,
+    translation: CGSize
+  ) -> FlowingGraphEdgeRoute {
+    guard translation != .zero, sourceMoves || targetMoves else { return route }
+    if sourceMoves, targetMoves {
+      return translated(route, by: translation)
+    }
+
+    let finalIndex = route.segments.indices.last
+    let segments: [FlowingGraphEdgePathSegment] = route.segments.enumerated().map {
+      index, segment in
+      switch segment {
+      case .line(let end):
+        return FlowingGraphEdgePathSegment.line(
+          end: targetMoves && index == finalIndex ? end.translated(by: translation) : end
+        )
+      case .quadratic(let control, let end):
+        return FlowingGraphEdgePathSegment.quadratic(
+          control: (sourceMoves && index == 0) || (targetMoves && index == finalIndex)
+            ? control.translated(by: translation)
+            : control,
+          end: targetMoves && index == finalIndex ? end.translated(by: translation) : end
+        )
+      case .cubic(let control1, let control2, let end):
+        return FlowingGraphEdgePathSegment.cubic(
+          control1: sourceMoves && index == 0
+            ? control1.translated(by: translation)
+            : control1,
+          control2: targetMoves && index == finalIndex
+            ? control2.translated(by: translation)
+            : control2,
+          end: targetMoves && index == finalIndex ? end.translated(by: translation) : end
+        )
+      }
+    }
+    return FlowingGraphEdgeRoute(
+      start: sourceMoves ? route.start.translated(by: translation) : route.start,
+      segments: segments
+    )
+  }
+
+  private static func translated(
+    _ route: FlowingGraphEdgeRoute,
+    by translation: CGSize
+  ) -> FlowingGraphEdgeRoute {
+    FlowingGraphEdgeRoute(
+      start: route.start.translated(by: translation),
+      segments: route.segments.map { segment -> FlowingGraphEdgePathSegment in
+        switch segment {
+        case .line(let end):
+          return .line(end: end.translated(by: translation))
+        case .quadratic(let control, let end):
+          return .quadratic(
+            control: control.translated(by: translation),
+            end: end.translated(by: translation)
+          )
+        case .cubic(let control1, let control2, let end):
+          return .cubic(
+            control1: control1.translated(by: translation),
+            control2: control2.translated(by: translation),
+            end: end.translated(by: translation)
+          )
+        }
+      }
+    )
+  }
+}
+
+extension CGPoint {
+  fileprivate func translated(by translation: CGSize) -> CGPoint {
+    CGPoint(x: x + translation.width, y: y + translation.height)
   }
 }

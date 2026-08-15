@@ -1,4 +1,5 @@
 import CoreGraphics
+import FlowingDayGraphLayout
 import Testing
 
 @testable import Rilliya
@@ -126,5 +127,73 @@ struct RoutingMetalSceneTests {
     )
 
     #expect(scene.nodes.first?.status == "Shared capture · 3 nodes")
+  }
+
+  @Test
+  func existingRouteFollowsTheSourceDuringAnInteractiveDrag() throws {
+    let route = FlowingGraphEdgeRoute(
+      start: CGPoint(x: 0, y: 10),
+      segments: [
+        .cubic(
+          control1: CGPoint(x: 40, y: 10),
+          control2: CGPoint(x: 160, y: 90),
+          end: CGPoint(x: 200, y: 90)
+        )
+      ]
+    )
+
+    let projected = RoutingMetalEdgeRouteProjection.route(
+      route,
+      sourceMoves: true,
+      targetMoves: false,
+      translation: CGSize(width: 25, height: -5)
+    )
+
+    #expect(projected.start == CGPoint(x: 25, y: 5))
+    guard
+      case .cubic(let control1, let control2, let end) = try #require(
+        projected.segments.first
+      )
+    else {
+      Issue.record("Expected a cubic route")
+      return
+    }
+    #expect(control1 == CGPoint(x: 65, y: 5))
+    #expect(control2 == CGPoint(x: 160, y: 90))
+    #expect(end == CGPoint(x: 200, y: 90))
+  }
+
+  @Test
+  func existingRouteFollowsTheTargetDuringAnInteractiveDrag() throws {
+    let route = FlowingGraphEdgeRoute(
+      start: CGPoint(x: 0, y: 10),
+      segments: [
+        .cubic(
+          control1: CGPoint(x: 40, y: 10),
+          control2: CGPoint(x: 160, y: 90),
+          end: CGPoint(x: 200, y: 90)
+        )
+      ]
+    )
+
+    let projected = RoutingMetalEdgeRouteProjection.route(
+      route,
+      sourceMoves: false,
+      targetMoves: true,
+      translation: CGSize(width: -15, height: 20)
+    )
+
+    #expect(projected.start == CGPoint(x: 0, y: 10))
+    guard
+      case .cubic(let control1, let control2, let end) = try #require(
+        projected.segments.first
+      )
+    else {
+      Issue.record("Expected a cubic route")
+      return
+    }
+    #expect(control1 == CGPoint(x: 40, y: 10))
+    #expect(control2 == CGPoint(x: 145, y: 110))
+    #expect(end == CGPoint(x: 185, y: 110))
   }
 }

@@ -756,8 +756,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     palette: RoutingMetalPalette,
     to geometry: inout RoutingMetalFrameGeometry
   ) {
+    let route = RoutingMetalEdgeRouteProjection.route(
+      edge.route,
+      sourceMoves: draggedNodeID == edge.sourceNodeID,
+      targetMoves: draggedNodeID == edge.targetNodeID,
+      translation: dragTranslation
+    )
     appendStroke(
-      points: points(for: edge.route),
+      points: points(for: route),
       width: Constants.edgeWidth / camera.zoom,
       color: palette.fern.withAlpha(selection.contains(edge.id) ? 0.9 : 0.58),
       to: &geometry
