@@ -59,6 +59,12 @@ final class RilliyaSettings {
     }
   }
 
+  var showsDisabledPortCrosses: Bool {
+    didSet {
+      defaults.set(showsDisabledPortCrosses, forKey: Keys.showsDisabledPortCrosses)
+    }
+  }
+
   @ObservationIgnored private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
@@ -74,6 +80,9 @@ final class RilliyaSettings {
     showsMiniMapByDefault =
       defaults.object(forKey: Keys.showsMiniMapByDefault) as? Bool
       ?? true
+    showsDisabledPortCrosses =
+      defaults.object(forKey: Keys.showsDisabledPortCrosses) as? Bool
+      ?? true
   }
 
   private enum Keys {
@@ -83,5 +92,7 @@ final class RilliyaSettings {
       "moe.uwucocoa.rilliya.default-separate-channel-layout"
     static let showsMiniMapByDefault =
       "moe.uwucocoa.rilliya.shows-minimap-by-default"
+    static let showsDisabledPortCrosses =
+      "moe.uwucocoa.rilliya.shows-disabled-port-crosses"
   }
 }

@@ -333,7 +333,7 @@ final class RoutingWorkspaceModel {
   }
 
   var captureSourceNodeIDs: Set<UUID> {
-    Set(edges.filter(\.isEnabled).map(\.source.nodeID))
+    Set(edges.filter(isEdgeActive).map(\.source.nodeID))
       .union(pendingSeparateSourcesByVisualizer.values.flatMap { $0 })
   }
 
@@ -354,13 +354,51 @@ final class RoutingWorkspaceModel {
     var seen = Set<UUID>()
     return
       edges
-      .filter { $0.isEnabled && $0.target.nodeID == nodeID }
+      .filter { isEdgeActive($0) && $0.target.nodeID == nodeID }
       .map(\.source.nodeID)
       .filter { seen.insert($0).inserted }
   }
 
   func incomingEdges(for nodeID: UUID) -> [RoutingWorkspaceEdge] {
-    edges.filter { $0.isEnabled && $0.target.nodeID == nodeID }
+    edges.filter { isEdgeActive($0) && $0.target.nodeID == nodeID }
+  }
+
+  func isPortEnabled(nodeID: UUID, portID: RoutingGraphPortID) -> Bool {
+    node(id: nodeID)?.isPortEnabled(portID) == true
+  }
+
+  func setPortEnabled(
+    _ isEnabled: Bool,
+    nodeID: UUID,
+    portID: RoutingGraphPortID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      RoutingGraphPorts.values(for: nodes[index]).contains(where: { $0.id == portID })
+    else {
+      return
+    }
+    let wasEnabled = nodes[index].isPortEnabled(portID)
+    guard wasEnabled != isEnabled else { return }
+    if isEnabled {
+      nodes[index].disabledPortIDs.remove(portID)
+    } else {
+      nodes[index].disabledPortIDs.insert(portID)
+    }
+    rebuildCanvas()
+  }
+
+  func togglePortEnabled(nodeID: UUID, portID: RoutingGraphPortID) {
+    setPortEnabled(
+      !isPortEnabled(nodeID: nodeID, portID: portID),
+      nodeID: nodeID,
+      portID: portID
+    )
+  }
+
+  func isEdgeActive(_ edge: RoutingWorkspaceEdge) -> Bool {
+    edge.isEnabled
+      && isPortEnabled(nodeID: edge.source.nodeID, portID: edge.source.portID)
+      && isPortEnabled(nodeID: edge.target.nodeID, portID: edge.target.portID)
   }
 
   func removeEdges(ids: Set<UUID>) {
@@ -407,7 +445,12 @@ final class RoutingWorkspaceModel {
   func canBeginConnection(
     _ origin: FlowingGraphCanvasConnectionOrigin<RoutingCanvasSchema>
   ) -> Bool {
-    portAddress(for: origin.fixedElementID)?.portID.direction == .output
+    guard let address = portAddress(for: origin.fixedElementID),
+      let value = portValue(at: address)
+    else {
+      return false
+    }
+    return value.direction == .output && value.isEnabled
   }
 
   func validateConnection(
@@ -435,6 +478,9 @@ final class RoutingWorkspaceModel {
       let targetValue = portValue(at: target)
     else {
       return .invalid(.init(message: "The selected port is no longer available"))
+    }
+    guard sourceValue.isEnabled, targetValue.isEnabled else {
+      return .invalid(.init(message: "Enable both ports before connecting them"))
     }
     if let reason = RoutingPortCompatibility.incompatibilityReason(
       source: sourceValue,

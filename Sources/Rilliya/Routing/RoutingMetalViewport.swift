@@ -10,6 +10,8 @@ struct RoutingMetalViewport: View {
   let inspector: AnyView
   let removeEdges: (Set<UUID>) -> Void
   let toggleEdgeEnabled: (UUID) -> Void
+  let togglePortEnabled: (UUID, RoutingGraphPortID) -> Void
+  let showsDisabledPortCrosses: Bool
   let isMiniMapVisible: Bool
   let setMiniMapVisible: (Bool) -> Void
 
@@ -23,6 +25,8 @@ struct RoutingMetalViewport: View {
     inspector: AnyView,
     removeEdges: @escaping (Set<UUID>) -> Void,
     toggleEdgeEnabled: @escaping (UUID) -> Void,
+    togglePortEnabled: @escaping (UUID, RoutingGraphPortID) -> Void,
+    showsDisabledPortCrosses: Bool,
     isMiniMapVisible: Bool,
     setMiniMapVisible: @escaping (Bool) -> Void
   ) {
@@ -32,6 +36,8 @@ struct RoutingMetalViewport: View {
     self.inspector = inspector
     self.removeEdges = removeEdges
     self.toggleEdgeEnabled = toggleEdgeEnabled
+    self.togglePortEnabled = togglePortEnabled
+    self.showsDisabledPortCrosses = showsDisabledPortCrosses
     self.isMiniMapVisible = isMiniMapVisible
     self.setMiniMapVisible = setMiniMapVisible
     _controller = StateObject(
@@ -55,6 +61,8 @@ struct RoutingMetalViewport: View {
           onConnect: connect,
           onDeleteEdges: removeEdges,
           onToggleEdgeEnabled: toggleEdgeEnabled,
+          onTogglePortEnabled: togglePortEnabled,
+          showsDisabledPortCrosses: showsDisabledPortCrosses,
           onViewportChange: updateViewport
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)

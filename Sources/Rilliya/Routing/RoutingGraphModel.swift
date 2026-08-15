@@ -152,6 +152,23 @@ struct RoutingWorkspaceNode: Equatable, Identifiable, Sendable {
   let id: UUID
   var value: RoutingNodeValue
   var frame: CGRect
+  var disabledPortIDs: Set<RoutingGraphPortID>
+
+  init(
+    id: UUID,
+    value: RoutingNodeValue,
+    frame: CGRect,
+    disabledPortIDs: Set<RoutingGraphPortID> = []
+  ) {
+    self.id = id
+    self.value = value
+    self.frame = frame
+    self.disabledPortIDs = disabledPortIDs
+  }
+
+  func isPortEnabled(_ portID: RoutingGraphPortID) -> Bool {
+    !disabledPortIDs.contains(portID)
+  }
 }
 
 struct RoutingWorkspacePortAddress: Equatable, Hashable, Sendable {
@@ -244,6 +261,7 @@ struct RoutingGraphPortValue: Equatable, Sendable {
   let name: String
   let ordinal: Int
   let total: Int
+  var isEnabled: Bool
 
   init(
     direction: RoutingPortDirection,
@@ -268,6 +286,7 @@ struct RoutingGraphPortValue: Equatable, Sendable {
     self.name = name ?? defaultName
     self.ordinal = ordinal
     self.total = total
+    isEnabled = true
   }
 
   init(
@@ -288,6 +307,7 @@ struct RoutingGraphPortValue: Equatable, Sendable {
     self.name = name
     self.ordinal = ordinal
     self.total = total
+    isEnabled = true
   }
 
   var id: RoutingGraphPortID {
@@ -335,6 +355,7 @@ struct RoutingGraphPortValue: Equatable, Sendable {
 struct RoutingGraphEdgeValue: Equatable, Sendable {
   let signalType: RoutingSignalType
   let isEnabled: Bool
+  let isActive: Bool
 }
 
 enum RoutingGraphSchema: FlowingGraphSchema {
@@ -381,7 +402,7 @@ enum RoutingCanvasMetrics {
       let minimumHeight = selection == nil ? baseNodeSize.height : 80
       return CGSize(
         width: baseNodeSize.width,
-        height: max(minimumHeight, CGFloat(channelCount + 1) * 18)
+        height: max(minimumHeight, RoutingAudioSourceLayout.nodeHeight(channelCount: channelCount))
       )
     case .inputAudio(let selection, .aggregate):
       if selection != nil {
@@ -392,7 +413,7 @@ enum RoutingCanvasMetrics {
       let minimumHeight = selection == nil ? baseNodeSize.height : 80
       return CGSize(
         width: baseNodeSize.width,
-        height: max(minimumHeight, CGFloat(channelCount + 1) * 18)
+        height: max(minimumHeight, RoutingAudioSourceLayout.nodeHeight(channelCount: channelCount))
       )
     case .visualizer(let configuration):
       return CGSize(
@@ -406,6 +427,33 @@ enum RoutingCanvasMetrics {
       width: baseNodeSize.width,
       height: max(baseNodeSize.height, CGFloat(portCount + 1) * 18)
     )
+  }
+}
+
+enum RoutingAudioSourceLayout {
+  static let rowsTop: CGFloat = 66
+  static let rowHeight: CGFloat = 24
+  static let rowSpacing: CGFloat = 4
+  static let horizontalInset: CGFloat = 14
+  static let channelLabelWidth: CGFloat = 36
+  static let portLabelGutter: CGFloat = 42
+  static let bottomInset: CGFloat = 12
+
+  static func nodeHeight(channelCount: Int) -> CGFloat {
+    let count = max(channelCount, 1)
+    return rowsTop + CGFloat(count) * rowHeight
+      + CGFloat(max(count - 1, 0)) * rowSpacing + bottomInset
+  }
+
+  static func rowFrames(in nodeFrame: CGRect, channelCount: Int) -> [CGRect] {
+    (0..<max(channelCount, 1)).map { index in
+      CGRect(
+        x: nodeFrame.minX + horizontalInset,
+        y: nodeFrame.minY + rowsTop + CGFloat(index) * (rowHeight + rowSpacing),
+        width: nodeFrame.width - horizontalInset * 2 - portLabelGutter,
+        height: rowHeight
+      )
+    }
   }
 }
 
@@ -481,7 +529,11 @@ enum RoutingVisualizerLayout {
 
 enum RoutingGraphPorts {
   static func values(for node: RoutingWorkspaceNode) -> [RoutingGraphPortValue] {
-    values(for: node.value)
+    values(for: node.value).map { value in
+      var value = value
+      value.isEnabled = node.isPortEnabled(value.id)
+      return value
+    }
   }
 
   static func values(for value: RoutingNodeValue) -> [RoutingGraphPortValue] {

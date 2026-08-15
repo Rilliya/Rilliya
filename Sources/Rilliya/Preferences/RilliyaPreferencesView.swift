@@ -72,6 +72,13 @@ private struct RilliyaCanvasPreferencesPane: View {
             FlowingSegmentOption(.format, label: "Format"),
           ]
         )
+
+        PreferencesSwitchRow(
+          symbol: "xmark.circle",
+          title: "Mark disabled ports",
+          caption: "Show an X inside disabled ports in addition to reduced contrast.",
+          isOn: $settings.showsDisabledPortCrosses
+        )
       }
 
       PreferencesSection(

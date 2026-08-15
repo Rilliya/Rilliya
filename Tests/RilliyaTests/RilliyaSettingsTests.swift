@@ -15,15 +15,18 @@ struct RilliyaSettingsTests {
     #expect(first.connectionInformationLevel == .format)
     #expect(first.defaultSeparateChannelLayout == .stereo)
     #expect(first.showsMiniMapByDefault)
+    #expect(first.showsDisabledPortCrosses)
 
     first.connectionInformationLevel = .channels
     first.defaultSeparateChannelLayout = .surround71
     first.showsMiniMapByDefault = false
+    first.showsDisabledPortCrosses = false
     let restored = RilliyaSettings(defaults: defaults)
 
     #expect(restored.connectionInformationLevel == .channels)
     #expect(restored.defaultSeparateChannelLayout == .surround71)
     #expect(!restored.showsMiniMapByDefault)
+    #expect(!restored.showsDisabledPortCrosses)
     #expect(!RoutingConnectionInformationLevel.allCases.map(\.rawValue).contains("debug"))
   }
 }

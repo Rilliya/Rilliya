@@ -11,6 +11,7 @@ struct RoutingMetalNodeSupplement: Equatable {
   let visualizerSignal: RoutingVisualizerSignal?
   let peakLevelSignal: RoutingPeakLevelSignal?
   let captureFormat: RoutingAudioCaptureFormat?
+  let audioSourceMeters: [RoutingAudioChannelMeterSignal]
 
   init(
     isRunning: Bool,
@@ -18,7 +19,8 @@ struct RoutingMetalNodeSupplement: Equatable {
     captureConsumerCount: Int,
     visualizerSignal: RoutingVisualizerSignal?,
     peakLevelSignal: RoutingPeakLevelSignal? = nil,
-    captureFormat: RoutingAudioCaptureFormat? = nil
+    captureFormat: RoutingAudioCaptureFormat? = nil,
+    audioSourceMeters: [RoutingAudioChannelMeterSignal] = []
   ) {
     self.isRunning = isRunning
     self.isCapturing = isCapturing
@@ -26,6 +28,7 @@ struct RoutingMetalNodeSupplement: Equatable {
     self.visualizerSignal = visualizerSignal
     self.peakLevelSignal = peakLevelSignal
     self.captureFormat = captureFormat
+    self.audioSourceMeters = audioSourceMeters
   }
 
   static let empty = RoutingMetalNodeSupplement(
@@ -34,7 +37,8 @@ struct RoutingMetalNodeSupplement: Equatable {
     captureConsumerCount: 0,
     visualizerSignal: nil,
     peakLevelSignal: nil,
-    captureFormat: nil
+    captureFormat: nil,
+    audioSourceMeters: []
   )
 }
 
@@ -190,6 +194,17 @@ struct RoutingMetalScene {
       case .peakLevel: 3
       }
     }
+
+    var embedsPortLabels: Bool {
+      switch value {
+      case .applicationAudio(let selection, .separate):
+        return selection != nil
+      case .inputAudio(let selection, .separate):
+        return selection != nil
+      case .applicationAudio, .inputAudio, .visualizer, .peakLevel:
+        return false
+      }
+    }
   }
 
   struct Port: Identifiable {
@@ -210,6 +225,7 @@ struct RoutingMetalScene {
     let targetPort: Port
     let label: String?
     let isEnabled: Bool
+    let isActive: Bool
   }
 
   let contentID: FlowingLayoutInputID
@@ -298,7 +314,8 @@ struct RoutingMetalScene {
           targetNode: targetNode.value,
           format: sourceNode.supplement.captureFormat
         ),
-        isEnabled: presentationEdge.value.isEnabled
+        isEnabled: presentationEdge.value.isEnabled,
+        isActive: presentationEdge.value.isActive
       )
     }
     contentBounds =
@@ -327,6 +344,8 @@ struct RoutingMetalScene {
     to target: Port
   ) -> Bool {
     guard source.workspaceNodeID != target.workspaceNodeID,
+      source.value.isEnabled,
+      target.value.isEnabled,
       RoutingPortCompatibility.incompatibilityReason(
         source: source.value,
         target: target.value

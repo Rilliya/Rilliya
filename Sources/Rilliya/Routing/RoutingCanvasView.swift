@@ -136,6 +136,8 @@ struct RoutingCanvasView: View {
           inspector: AnyView(selectedNodeInspector),
           removeEdges: workspace.removeEdges,
           toggleEdgeEnabled: workspace.toggleEdgeEnabled,
+          togglePortEnabled: workspace.togglePortEnabled,
+          showsDisabledPortCrosses: settings.showsDisabledPortCrosses,
           isMiniMapVisible: isMiniMapVisible,
           setMiniMapVisible: setMiniMapVisible
         )
@@ -217,7 +219,8 @@ struct RoutingCanvasView: View {
           isCapturing: isCapturing,
           captureConsumerCount: captureController.consumerCount(for: node.id),
           visualizerSignal: nil,
-          captureFormat: captureFormat
+          captureFormat: captureFormat,
+          audioSourceMeters: audioSourceMeters(for: node)
         )
       case .inputAudio(let selection, _):
         let state = inputCaptureController.state(for: node.id)
@@ -239,7 +242,8 @@ struct RoutingCanvasView: View {
           isCapturing: isCapturing,
           captureConsumerCount: inputCaptureController.consumerCount(for: node.id),
           visualizerSignal: nil,
-          captureFormat: captureFormat
+          captureFormat: captureFormat,
+          audioSourceMeters: audioSourceMeters(for: node)
         )
       case .visualizer(let configuration):
         supplements[node.id] = RoutingMetalNodeSupplement(
@@ -388,6 +392,18 @@ struct RoutingCanvasView: View {
       return snapshot
     }
     return inputCaptureController.snapshot(for: nodeID)
+  }
+
+  private func audioSourceMeters(
+    for node: RoutingWorkspaceNode
+  ) -> [RoutingAudioChannelMeterSignal] {
+    guard case .separate(let channelCount) = node.value.audioSourceChannelPresentation else {
+      return []
+    }
+    return RoutingAudioSourceMeterSignalBuilder.build(
+      channelCount: channelCount,
+      snapshot: audioSnapshot(for: node.id)
+    )
   }
 
   private func selectNode(_ nodeID: UUID) {

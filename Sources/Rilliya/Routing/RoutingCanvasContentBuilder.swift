@@ -73,7 +73,10 @@ enum RoutingCanvasContentBuilder {
             ),
             value: RoutingGraphEdgeValue(
               signalType: sourceValue.signalType,
-              isEnabled: edge.isEnabled
+              isEnabled: edge.isEnabled,
+              isActive: edge.isEnabled
+                && sourceValue.isEnabled
+                && portValues[edge.target]?.isEnabled == true
             )
           )
         )
@@ -152,8 +155,10 @@ enum RoutingCanvasContentBuilder {
       port: { port in
         .element(
           FlowingGraphCanvasAccessibilityDescription(
-            label: port.value.label,
-            hint: "Drag to connect this port.",
+            label: port.value.isEnabled ? port.value.label : "\(port.value.label), disabled",
+            hint: port.value.isEnabled
+              ? "Drag to connect this port."
+              : "Use the context menu to enable this port.",
             roleDescription: "routing port"
           )
         )
@@ -170,14 +175,26 @@ enum RoutingCanvasContentBuilder {
     for value: RoutingGraphPortValue,
     in node: RoutingWorkspaceNode
   ) -> CGFloat? {
-    guard case .visualizer(let configuration) = node.value else { return nil }
     let localFrame = CGRect(origin: .zero, size: node.frame.size)
-    let laneFrames = RoutingVisualizerLayout.laneFrames(
-      in: localFrame,
-      configuration: configuration
-    )
-    guard laneFrames.indices.contains(value.ordinal) else { return nil }
-    return laneFrames[value.ordinal].midY
+    switch node.value {
+    case .applicationAudio(_, .separate(let channelCount)),
+      .inputAudio(_, .separate(let channelCount)):
+      let rowFrames = RoutingAudioSourceLayout.rowFrames(
+        in: localFrame,
+        channelCount: channelCount
+      )
+      guard rowFrames.indices.contains(value.ordinal) else { return nil }
+      return rowFrames[value.ordinal].midY
+    case .visualizer(let configuration):
+      let laneFrames = RoutingVisualizerLayout.laneFrames(
+        in: localFrame,
+        configuration: configuration
+      )
+      guard laneFrames.indices.contains(value.ordinal) else { return nil }
+      return laneFrames[value.ordinal].midY
+    case .applicationAudio, .inputAudio, .peakLevel:
+      return nil
+    }
   }
 
   private static func accessibilityRepresentation(

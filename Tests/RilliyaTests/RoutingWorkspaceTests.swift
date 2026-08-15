@@ -256,6 +256,30 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func disabledPortSuspendsRoutesWithoutDeletingTheirTopology() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    let targetID = model.addVisualizerNode(centeredAt: CGPoint(x: 400, y: 0))
+    try connectAggregate(sourceID: sourceID, targetID: targetID, model: model)
+    let outputID = RoutingGraphPortID(direction: .output, channel: .all)
+
+    model.setPortEnabled(false, nodeID: sourceID, portID: outputID)
+
+    #expect(model.edges.count == 1)
+    #expect(model.edges.first?.isEnabled == true)
+    #expect(model.captureSourceNodeIDs.isEmpty)
+    #expect(model.incomingEdges(for: targetID).isEmpty)
+    #expect(model.canvasContent?.presentation.edges.first?.value.isActive == false)
+    #expect(model.canvasContent?.presentation.edges.first?.value.isEnabled == true)
+
+    model.setPortEnabled(true, nodeID: sourceID, portID: outputID)
+
+    #expect(model.captureSourceNodeIDs == [sourceID])
+    #expect(model.incomingEdges(for: targetID).count == 1)
+    #expect(model.canvasContent?.presentation.edges.first?.value.isActive == true)
+  }
+
+  @Test @MainActor
   func removingAConnectionRebuildsTheProjectedGraph() throws {
     let model = RoutingWorkspaceModel()
     let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
