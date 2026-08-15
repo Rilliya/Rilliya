@@ -264,7 +264,6 @@ final class RoutingWorkspaceModel {
         configuration.availableChannelCount
       )
     )
-    normalized.selectedChannels = Set(normalized.normalizedSelectedChannels)
     if normalized.selectedChannels.isEmpty {
       normalized.selectedChannels = [0]
     }
@@ -282,6 +281,16 @@ final class RoutingWorkspaceModel {
           edges.removeAll { $0.target.nodeID == nodeID }
           _ = materializePendingSeparation(for: nodeID)
         }
+      }
+    } else if normalized.mode == .separate,
+      previous.channelSelection != normalized.channelSelection
+    {
+      let sourceIDs = Set(incomingEdges(for: nodeID).map(\.source.nodeID))
+        .union(pendingSeparateSourcesByVisualizer[nodeID] ?? [])
+      if !sourceIDs.isEmpty {
+        pendingSeparateSourcesByVisualizer[nodeID] = sourceIDs
+        edges.removeAll { $0.target.nodeID == nodeID }
+        _ = materializePendingSeparation(for: nodeID)
       }
     }
     resizeNode(at: index)
@@ -341,9 +350,21 @@ final class RoutingWorkspaceModel {
       needsRebuild = true
     }
 
-    for visualizerID in pendingSeparateSourcesByVisualizer.keys.sorted(by: {
+    let separateVisualizerIDs = nodes.compactMap { node -> UUID? in
+      guard case .visualizer(let configuration) = node.value,
+        configuration.mode == .separate
+      else { return nil }
+      return node.id
+    }
+    for visualizerID in separateVisualizerIDs.sorted(by: {
       $0.uuidString < $1.uuidString
     }) {
+      let sourceIDs =
+        pendingSeparateSourcesByVisualizer[visualizerID]
+        ?? Set(edges.lazy.filter { $0.target.nodeID == visualizerID }.map(\.source.nodeID))
+      if !sourceIDs.isEmpty {
+        pendingSeparateSourcesByVisualizer[visualizerID] = sourceIDs
+      }
       needsRebuild = materializePendingSeparation(for: visualizerID) || needsRebuild
     }
     if needsRebuild {
@@ -742,33 +763,42 @@ final class RoutingWorkspaceModel {
       runtimeCaptureFormats[nodeID].map { (nodeID, $0) }
     }
     guard formats.count == sourceIDs.count else { return false }
-    let maximumChannelCount =
-      formats.map { effectiveSeparateChannelCount($0.1.channelIDs.count) }.max() ?? 0
-    guard maximumChannelCount > 0,
-      maximumChannelCount <= RoutingVisualizerConfiguration.maximumSeparateLaneCount
-    else {
+    let nativeMaximumChannelCount =
+      formats.map { normalizedRuntimeChannelCount($0.1.channelIDs.count) }.max() ?? 0
+    let requestedChannelCount =
+      (configuration.channelSelection.requestedChannels.max() ?? 0) + 1
+    let automaticChannelCount = preferredSeparateChannelCount ?? nativeMaximumChannelCount
+    let maximumChannelCount = min(
+      nativeMaximumChannelCount,
+      max(automaticChannelCount, requestedChannelCount)
+    )
+    guard maximumChannelCount > 0 else {
       return false
     }
 
     configuration.mode = .separate
     configuration.availableChannelCount = maximumChannelCount
-    configuration.selectedChannels = Set(0..<maximumChannelCount)
     nodes[visualizerIndex].value = .visualizer(configuration: configuration)
     resizeNode(at: visualizerIndex)
 
+    let selectedChannels = configuration.normalizedSelectedChannels
     edges.removeAll { $0.target.nodeID == visualizerID }
     for (sourceID, format) in formats {
+      let nativeChannelCount = normalizedRuntimeChannelCount(format.channelIDs.count)
+      let exposedChannelCount = min(
+        nativeChannelCount,
+        (selectedChannels.max() ?? 0) + 1
+      )
       guard let sourceIndex = nodes.firstIndex(where: { $0.id == sourceID }),
         let updated = nodes[sourceIndex].value.replacingAudioSourceChannelPresentation(
-          .separate(channelCount: effectiveSeparateChannelCount(format.channelIDs.count))
+          .separate(channelCount: exposedChannelCount)
         )
       else {
         continue
       }
-      let channelCount = effectiveSeparateChannelCount(format.channelIDs.count)
       nodes[sourceIndex].value = updated
       resizeNode(at: sourceIndex)
-      for channel in 0..<channelCount {
+      for channel in selectedChannels where channel < nativeChannelCount {
         appendEdgeIfMissing(
           source: RoutingWorkspacePortAddress(
             nodeID: sourceID,

@@ -6,6 +6,23 @@ import Testing
 @Suite("Routing visualizer layout")
 struct RoutingVisualizerLayoutTests {
   @Test
+  func presetIntentSurvivesTemporaryRuntimeChannelLoss() {
+    var configuration = RoutingVisualizerConfiguration(
+      mode: .separate,
+      availableChannelCount: 2,
+      channelSelection: .preset(.surround51)
+    )
+
+    #expect(configuration.normalizedSelectedChannels == [0, 1])
+    #expect(configuration.channelSelection == .preset(.surround51))
+
+    configuration.availableChannelCount = 6
+
+    #expect(configuration.normalizedSelectedChannels == Array(0..<6))
+    #expect(configuration.channelSelection == .preset(.surround51))
+  }
+
+  @Test
   func mixedModeKeepsTheCompactNodeHeight() {
     let configuration = RoutingVisualizerConfiguration.initial
 

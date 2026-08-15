@@ -562,9 +562,35 @@ struct RoutingWorkspaceTests {
           configuration: RoutingVisualizerConfiguration(
             mode: .separate,
             availableChannelCount: 2,
-            selectedChannels: [0, 1]
+            channelSelection: .preset(.stereo)
           )
         )
+    )
+  }
+
+  @Test @MainActor
+  func explicitVisualizerPresetOverridesTheAutomaticChannelDefault() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    let visualizerID = model.addVisualizerNode(centeredAt: CGPoint(x: 400, y: 0))
+    try connectAggregate(sourceID: sourceID, targetID: visualizerID, model: model)
+    model.synchronizeCaptureFormats(
+      [sourceID: try captureFormat(channelCount: 8)],
+      preferredSeparateChannelCount: 2
+    )
+    var configuration = RoutingVisualizerConfiguration.initial
+    configuration.mode = .separate
+    model.configureVisualizer(configuration, for: visualizerID)
+
+    configuration = try #require(model.node(id: visualizerID)?.value.visualizerConfiguration)
+    configuration.channelSelection = .preset(.surround51)
+    model.configureVisualizer(configuration, for: visualizerID)
+
+    #expect(model.node(id: sourceID)?.value.channelPresentation == .separate(channelCount: 6))
+    #expect(model.edges.count == 6)
+    #expect(
+      Set(model.edges.compactMap { $0.target.portID.audioChannel })
+        == Set((0..<6).map(RoutingAudioPortChannel.channel))
     )
   }
 
@@ -591,7 +617,7 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
-  func largeRuntimeFormatIsNeverSilentlyTruncatedIntoAutomaticLanes() throws {
+  func largeRuntimeFormatExposesOnlyTheRequestedPresetPorts() throws {
     let model = RoutingWorkspaceModel()
     let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
     let visualizerID = model.addVisualizerNode(centeredAt: CGPoint(x: 400, y: 0))
@@ -604,8 +630,15 @@ struct RoutingWorkspaceTests {
 
     model.configureVisualizer(configuration, for: visualizerID)
 
-    #expect(model.edges.isEmpty)
-    #expect(model.node(id: sourceID)?.value.channelPresentation == .aggregate)
+    #expect(model.edges.count == 2)
+    #expect(model.node(id: sourceID)?.value.channelPresentation == .separate(channelCount: 2))
+    #expect(
+      model.node(id: visualizerID)?.value.visualizerConfiguration?.availableChannelCount == 48
+    )
+    #expect(
+      model.node(id: visualizerID)?.value.visualizerConfiguration?.channelSelection
+        == .preset(.stereo)
+    )
     #expect(model.captureSourceNodeIDs == [sourceID])
   }
 

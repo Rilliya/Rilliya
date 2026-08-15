@@ -63,6 +63,11 @@ enum RoutingNodeValue: Equatable, Sendable {
     return selection
   }
 
+  var visualizerConfiguration: RoutingVisualizerConfiguration? {
+    guard case .visualizer(let configuration) = self else { return nil }
+    return configuration
+  }
+
   var audioSourceChannelPresentation: RoutingChannelPresentation? {
     switch self {
     case .applicationAudio(_, let presentation), .inputAudio(_, let presentation):
@@ -120,23 +125,76 @@ enum RoutingVisualizerMode: String, CaseIterable, Equatable, Hashable, Sendable 
   case separate
 }
 
+enum RoutingVisualizerChannelPreset: Int, CaseIterable, Equatable, Hashable, Sendable {
+  case mono = 1
+  case stereo = 2
+  case quadraphonic = 4
+  case surround51 = 6
+  case surround71 = 8
+
+  var requestedChannels: Set<Int> {
+    Set(0..<rawValue)
+  }
+}
+
+enum RoutingVisualizerChannelSelection: Equatable, Hashable, Sendable {
+  case preset(RoutingVisualizerChannelPreset)
+  case custom(Set<Int>)
+
+  var requestedChannels: Set<Int> {
+    switch self {
+    case .preset(let preset):
+      preset.requestedChannels
+    case .custom(let channels):
+      channels
+    }
+  }
+}
+
 struct RoutingVisualizerConfiguration: Equatable, Sendable {
   static let maximumAvailableChannelCount = 256
   static let maximumSeparateLaneCount = 8
 
   var mode: RoutingVisualizerMode
   var availableChannelCount: Int
-  var selectedChannels: Set<Int>
+  var channelSelection: RoutingVisualizerChannelSelection
 
   static let initial = RoutingVisualizerConfiguration(
     mode: .mixed,
     availableChannelCount: 2,
-    selectedChannels: [0, 1]
+    channelSelection: .preset(.stereo)
   )
+
+  init(
+    mode: RoutingVisualizerMode,
+    availableChannelCount: Int,
+    channelSelection: RoutingVisualizerChannelSelection
+  ) {
+    self.mode = mode
+    self.availableChannelCount = availableChannelCount
+    self.channelSelection = channelSelection
+  }
+
+  init(
+    mode: RoutingVisualizerMode,
+    availableChannelCount: Int,
+    selectedChannels: Set<Int>
+  ) {
+    self.init(
+      mode: mode,
+      availableChannelCount: availableChannelCount,
+      channelSelection: .custom(selectedChannels)
+    )
+  }
+
+  var selectedChannels: Set<Int> {
+    get { channelSelection.requestedChannels }
+    set { channelSelection = .custom(newValue) }
+  }
 
   var normalizedSelectedChannels: [Int] {
     Array(
-      selectedChannels
+      channelSelection.requestedChannels
         .filter { (0..<availableChannelCount).contains($0) }
         .sorted()
         .prefix(Self.maximumSeparateLaneCount)

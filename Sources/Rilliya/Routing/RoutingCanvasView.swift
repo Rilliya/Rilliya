@@ -2068,32 +2068,40 @@ private struct SelectedVisualizerInspector: View {
       )
 
       if configuration.mode == .separate {
-        HStack {
-          Text("Available Channels")
+        VStack(alignment: .leading, spacing: 9) {
+          Text("Channel Set")
             .font(.caption.weight(.semibold))
             .foregroundStyle(FlowingPalette.muted)
-          Spacer(minLength: 8)
-          FlowingStepper(
-            "Available channel count",
-            value: availableChannelCount,
-            in: 1...RoutingVisualizerConfiguration.maximumAvailableChannelCount,
-            step: 1
-          )
-        }
 
-        ScrollView {
-          FlowingMultiSelect(
-            axis: .vertical,
-            itemWidthPolicy: .fitContent(),
-            contentAlignment: .leading,
-            options: channelOptions
+          FlowingSelect(
+            label: "Visualizer channel set",
+            selection: channelSelection,
+            options: channelSelectionOptions,
+            minimumWidth: 164
           )
-          .frame(maxWidth: .infinity, alignment: .leading)
+
+          if case .custom = configuration.channelSelection {
+            HStack {
+              Text("Channels")
+                .font(.caption)
+                .foregroundStyle(FlowingPalette.muted)
+              Spacer(minLength: 8)
+              FlowingStepper(
+                "Custom channel count",
+                value: customChannelCount,
+                in: 1...RoutingVisualizerConfiguration.maximumSeparateLaneCount,
+                step: 1
+              )
+            }
+          }
+
+          Text(channelAvailabilityDescription)
+            .font(.caption2)
+            .foregroundStyle(FlowingPalette.faint)
         }
-        .frame(maxHeight: 220)
 
         Text(
-          "Show up to \(RoutingVisualizerConfiguration.maximumSeparateLaneCount) channels per visualizer. Add another visualizer for more lanes."
+          "A visualizer shows at most \(RoutingVisualizerConfiguration.maximumSeparateLaneCount) leading channels. Add another visualizer for additional lanes."
         )
         .font(.caption2)
         .foregroundStyle(FlowingPalette.faint)
@@ -2113,39 +2121,62 @@ private struct SelectedVisualizerInspector: View {
     )
   }
 
-  private var availableChannelCount: Binding<Int> {
+  private var channelSelection: Binding<RoutingVisualizerChannelSelection> {
     Binding(
-      get: { configuration.availableChannelCount },
-      set: { count in
+      get: { configuration.channelSelection },
+      set: { selection in
         var updated = configuration
-        updated.availableChannelCount = count
+        updated.channelSelection = selection
         updateConfiguration(updated)
       }
     )
   }
 
-  private var channelOptions: [FlowingMultiSelectOption] {
-    (0..<configuration.availableChannelCount).map { channel in
-      FlowingMultiSelectOption(
-        "Channel \(channel + 1)",
-        id: "visualizer-channel-\(channel)",
-        isOn: Binding(
-          get: { configuration.selectedChannels.contains(channel) },
-          set: { isSelected in
-            var updated = configuration
-            if isSelected {
-              if updated.selectedChannels.contains(channel)
-                || updated.canSelectAnotherChannel
-              {
-                updated.selectedChannels.insert(channel)
-              }
-            } else {
-              updated.selectedChannels.remove(channel)
-            }
-            updateConfiguration(updated)
-          }
+  private var customChannelCount: Binding<Int> {
+    Binding(
+      get: {
+        max(
+          configuration.channelSelection.requestedChannels.max().map { $0 + 1 } ?? 1,
+          1
         )
+      },
+      set: { count in
+        var updated = configuration
+        updated.channelSelection = .custom(Set(0..<count))
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var channelSelectionOptions: [FlowingSelectOption<RoutingVisualizerChannelSelection>] {
+    let presetOptions = RoutingVisualizerChannelPreset.allCases.map { preset in
+      FlowingSelectOption(
+        RoutingVisualizerChannelSelection.preset(preset),
+        label: presetLabel(preset)
       )
+    }
+    let customSelection: RoutingVisualizerChannelSelection
+    if case .custom = configuration.channelSelection {
+      customSelection = configuration.channelSelection
+    } else {
+      customSelection = .custom(configuration.channelSelection.requestedChannels)
+    }
+    return presetOptions + [FlowingSelectOption(customSelection, label: "Custom")]
+  }
+
+  private var channelAvailabilityDescription: String {
+    let available = configuration.availableChannelCount
+    let visible = configuration.normalizedSelectedChannels.count
+    return "\(visible) of \(available) available channel\(available == 1 ? "" : "s") will be shown."
+  }
+
+  private func presetLabel(_ preset: RoutingVisualizerChannelPreset) -> String {
+    switch preset {
+    case .mono: "Mono · 1 ch"
+    case .stereo: "Stereo · 2 ch"
+    case .quadraphonic: "Quad · 4 ch"
+    case .surround51: "5.1 · 6 ch"
+    case .surround71: "7.1 · 8 ch"
     }
   }
 }
