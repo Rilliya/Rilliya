@@ -94,13 +94,14 @@ struct RoutingVisualizerLayoutTests {
     )
     let portPositions = try #require(
       scene.nodes.first { $0.workspaceID == nodeID }
-    ).ports.map(\.position.y)
+    ).ports.map(\.position)
     let laneCenters = RoutingVisualizerLayout.laneFrames(
       in: node.frame,
       configuration: configuration
     ).map(\.midY)
 
-    #expect(portPositions == laneCenters)
+    #expect(portPositions.map(\.y) == laneCenters)
+    #expect(portPositions.allSatisfy { $0.x == node.frame.minX })
   }
 
   @Test

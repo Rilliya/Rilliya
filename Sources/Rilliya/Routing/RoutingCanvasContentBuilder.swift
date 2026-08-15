@@ -257,7 +257,7 @@ private struct RoutingPortAnchorResolver: FlowingGraphPortAnchorResolver {
     let isInput = id.direction == .input
     return FlowingGraphPortAnchor(
       key: port.key,
-      position: CGPoint(x: isInput ? -8 : nodeSize.width + 8, y: verticalPosition),
+      position: CGPoint(x: isInput ? 0 : nodeSize.width, y: verticalPosition),
       normal: CGVector(dx: isInput ? -1 : 1, dy: 0)
     )
   }

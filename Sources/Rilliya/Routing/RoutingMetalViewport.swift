@@ -6,17 +6,21 @@ import SwiftUI
 struct RoutingMetalViewport: View {
   let context: FlowingGraphCanvasBackendContext<RoutingCanvasSchema>
   let scene: RoutingMetalScene
+  let inspectorID: UUID?
   let inspector: AnyView
 
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @StateObject private var controller: RoutingMetalCanvasController
 
   init(
     context: FlowingGraphCanvasBackendContext<RoutingCanvasSchema>,
     scene: RoutingMetalScene,
+    inspectorID: UUID?,
     inspector: AnyView
   ) {
     self.context = context
     self.scene = scene
+    self.inspectorID = inspectorID
     self.inspector = inspector
     _controller = StateObject(
       wrappedValue: RoutingMetalCanvasController(
@@ -49,9 +53,17 @@ struct RoutingMetalViewport: View {
             if !scene.nodes.isEmpty {
               miniMap
             }
-            inspector
+            ZStack(alignment: .topTrailing) {
+              if let inspectorID {
+                inspector
+                  .id(inspectorID)
+                  .compositingGroup()
+                  .transition(inspectorTransition)
+              }
+            }
           }
         }
+        .animation(inspectorAnimation, value: inspectorID)
 
         FlowingCanvasViewportOverlay(
           alignment: .bottomTrailing,
@@ -63,6 +75,18 @@ struct RoutingMetalViewport: View {
       .frame(maxWidth: .infinity, maxHeight: .infinity)
       .clipped()
     }
+  }
+
+  private var inspectorAnimation: Animation {
+    reduceMotion
+      ? .easeOut(duration: 0.12)
+      : .spring(response: 0.34, dampingFraction: 0.88)
+  }
+
+  private var inspectorTransition: AnyTransition {
+    reduceMotion
+      ? .opacity
+      : .opacity.combined(with: .move(edge: .trailing))
   }
 
   private var miniMap: some View {

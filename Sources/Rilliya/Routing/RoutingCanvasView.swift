@@ -15,6 +15,13 @@ private enum RoutingPaletteItem: String, Codable, Transferable {
   }
 }
 
+private struct RoutingDropPreviewState: Identifiable, Equatable {
+  let id: UUID
+  let item: RoutingPaletteItem
+  let location: CGPoint
+  var isExpanded: Bool
+}
+
 struct RoutingCanvasView: View {
   let workspace: RoutingWorkspaceModel
   let applicationCatalog: InstalledApplicationCatalogController
@@ -24,7 +31,10 @@ struct RoutingCanvasView: View {
 
   @Binding var session: FlowingGraphCanvasSessionState<RoutingCanvasSchema>
 
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var isDropTargeted = false
+  @State private var dropPreview: RoutingDropPreviewState?
+  @State private var dropTask: Task<Void, Never>?
 
   var body: some View {
     ZStack {
@@ -52,6 +62,16 @@ struct RoutingCanvasView: View {
           .frame(maxWidth: 360)
         }
       }
+
+      if let dropPreview {
+        RoutingCanvasDropPreview(
+          item: dropPreview.item,
+          isExpanded: dropPreview.isExpanded
+        )
+        .position(dropPreview.location)
+        .allowsHitTesting(false)
+        .accessibilityHidden(true)
+      }
     }
     .overlay {
       RoundedRectangle(cornerRadius: 12, style: .continuous)
@@ -64,18 +84,13 @@ struct RoutingCanvasView: View {
     }
     .dropDestination(for: RoutingPaletteItem.self) { items, location in
       guard let item = items.first else { return false }
-      let worldPoint = session.viewport.transform.removing(from: location)
-      let nodeID: UUID
-      switch item {
-      case .applicationAudio:
-        nodeID = workspace.addApplicationAudioNode(centeredAt: worldPoint)
-      case .visualizer:
-        nodeID = workspace.addVisualizerNode(centeredAt: worldPoint)
-      }
-      selectNode(nodeID)
+      beginDrop(item, at: location)
       return true
     } isTargeted: {
       isDropTargeted = $0
+    }
+    .onDisappear {
+      dropTask?.cancel()
     }
   }
 
@@ -110,6 +125,7 @@ struct RoutingCanvasView: View {
         RoutingMetalViewport(
           context: context,
           scene: metalScene(for: context.content),
+          inspectorID: selectedWorkspaceNodeID,
           inspector: AnyView(selectedNodeInspector)
         )
       },
@@ -152,7 +168,7 @@ struct RoutingCanvasView: View {
       },
       port: { RoutingAudioPortView(port: $0, context: $1) },
       decorations: { _ in EmptyView() },
-      overlays: { _ in selectedNodeInspector }
+      overlays: { _ in selectedNodeInspectorOverlay }
     )
   }
 
@@ -205,13 +221,17 @@ struct RoutingCanvasView: View {
     if let nodeID = selectedWorkspaceNodeID,
       let node = workspace.node(id: nodeID)
     {
-      FlowingCanvasViewportOverlay(
-        alignment: .topTrailing,
-        insets: EdgeInsets(top: 18, leading: 0, bottom: 0, trailing: 18)
-      ) {
-        selectedNodeInspectorContent(node: node)
-          .frame(width: 330)
-      }
+      selectedNodeInspectorContent(node: node)
+        .frame(width: 330)
+    }
+  }
+
+  private var selectedNodeInspectorOverlay: some View {
+    FlowingCanvasViewportOverlay(
+      alignment: .topTrailing,
+      insets: EdgeInsets(top: 18, leading: 0, bottom: 0, trailing: 18)
+    ) {
+      selectedNodeInspector
     }
   }
 
@@ -259,6 +279,47 @@ struct RoutingCanvasView: View {
     guard let elementID = workspace.elementID(for: nodeID) else { return }
     session.selection = [elementID]
     session.focusedElementID = elementID
+  }
+
+  private func beginDrop(_ item: RoutingPaletteItem, at location: CGPoint) {
+    dropTask?.cancel()
+    let previewID = UUID()
+    let worldPoint = session.viewport.transform.removing(from: location)
+    dropPreview = RoutingDropPreviewState(
+      id: previewID,
+      item: item,
+      location: location,
+      isExpanded: false
+    )
+
+    dropTask = Task { @MainActor in
+      await Task.yield()
+      guard !Task.isCancelled, dropPreview?.id == previewID else { return }
+
+      let nodeID: UUID
+      switch item {
+      case .applicationAudio:
+        nodeID = workspace.addApplicationAudioNode(centeredAt: worldPoint)
+      case .visualizer:
+        nodeID = workspace.addVisualizerNode(centeredAt: worldPoint)
+      }
+      selectNode(nodeID)
+
+      withAnimation(
+        reduceMotion
+          ? .easeOut(duration: 0.12)
+          : .spring(response: 0.28, dampingFraction: 0.9)
+      ) {
+        guard dropPreview?.id == previewID else { return }
+        dropPreview?.isExpanded = true
+      }
+
+      try? await Task.sleep(for: .milliseconds(220))
+      guard !Task.isCancelled, dropPreview?.id == previewID else { return }
+      withAnimation(.easeOut(duration: 0.1)) {
+        dropPreview = nil
+      }
+    }
   }
 
   private var selectedWorkspaceNodeID: UUID? {
@@ -313,19 +374,22 @@ struct RoutingNodePaletteView: View {
         .padding(.vertical, 14)
 
       ScrollView {
-        RoutingPaletteSection(
-          "Audio Nodes",
-          footer:
-            "Drag a node onto the canvas, then choose the source or visualization it should use."
-        ) {
-          VStack(spacing: 10) {
-            applicationAudioItem
-            visualizerItem
+        VStack(spacing: 0) {
+          RoutingPaletteSection(
+            "Audio Nodes",
+            footer:
+              "Drag a node onto the canvas, then choose the source or visualization it should use."
+          ) {
+            VStack(spacing: 10) {
+              applicationAudioItem
+              visualizerItem
+            }
           }
-        }
 
-        catalogStatus
-          .padding(.top, 14)
+          catalogStatus
+            .padding(.top, 14)
+        }
+        .padding(.horizontal, 4)
       }
       .scrollContentBackground(.hidden)
       .background(Color.clear)
@@ -484,12 +548,136 @@ private struct RoutingPaletteNodeItem: View {
       .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
     }
     .buttonStyle(.plain)
-    .draggable(item)
+    .draggable(item) {
+      RoutingPaletteDragPreview(
+        title: title,
+        subtitle: subtitle,
+        systemImage: systemImage,
+        foreground: foreground,
+        veil: veil
+      )
+    }
     .onHover { isHovering = $0 }
     .offset(x: isHovering ? 2 : 0)
     .animation(.easeOut(duration: 0.14), value: isHovering)
     .help("Drag \(title) onto the canvas")
     .accessibilityHint("Drag to the canvas or press to add in the visible workspace")
+  }
+}
+
+private struct RoutingPaletteDragPreview: View {
+  let title: String
+  let subtitle: String
+  let systemImage: String
+  let foreground: Color
+  let veil: Color
+
+  var body: some View {
+    HStack(spacing: 10) {
+      Image(systemName: systemImage)
+        .font(.system(size: 15, weight: .semibold))
+        .foregroundStyle(foreground)
+        .frame(width: 32, height: 32)
+        .background(veil, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title)
+          .font(.callout.weight(.semibold))
+          .foregroundStyle(FlowingPalette.ink)
+        Text(subtitle)
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+    }
+    .padding(12)
+    .background(
+      FlowingPalette.control.opacity(0.98),
+      in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+    )
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(foreground.opacity(0.32))
+    }
+    .shadow(color: .black.opacity(0.1), radius: 12, y: 5)
+  }
+}
+
+private struct RoutingCanvasDropPreview: View {
+  let item: RoutingPaletteItem
+  let isExpanded: Bool
+
+  private var presentation: (String, String, String, Color, Color) {
+    switch item {
+    case .applicationAudio:
+      return (
+        "Application Audio",
+        "Choose an application",
+        "macwindow.on.rectangle",
+        FlowingAccent.fern.foreground,
+        FlowingAccent.fern.veil
+      )
+    case .visualizer:
+      return (
+        "Visualizer",
+        "Waiting for audio input",
+        "waveform",
+        FlowingAccent.seafoam.foreground,
+        FlowingAccent.seafoam.veil
+      )
+    }
+  }
+
+  var body: some View {
+    let (title, subtitle, systemImage, foreground, veil) = presentation
+    VStack(alignment: .leading, spacing: isExpanded ? 11 : 0) {
+      HStack(spacing: 11) {
+        Image(systemName: systemImage)
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(foreground)
+          .frame(width: 38, height: 38)
+          .background(veil, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(title)
+            .font(.caption.weight(.medium))
+            .foregroundStyle(FlowingPalette.muted)
+          Text(subtitle)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+            .lineLimit(1)
+        }
+      }
+
+      if isExpanded {
+        Text(
+          item == .applicationAudio ? "Select this node to configure" : "Waiting for audio input"
+        )
+        .font(.caption)
+        .foregroundStyle(FlowingPalette.muted)
+        .frame(maxWidth: .infinity, minHeight: 30)
+        .background(
+          FlowingPalette.field,
+          in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .transition(.opacity)
+      }
+    }
+    .padding(14)
+    .frame(
+      width: isExpanded ? RoutingCanvasMetrics.baseNodeSize.width : 218,
+      height: isExpanded ? RoutingCanvasMetrics.baseNodeSize.height : 62,
+      alignment: .topLeading
+    )
+    .background(
+      FlowingPalette.control.opacity(0.98),
+      in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+    )
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(foreground.opacity(0.36))
+    }
+    .shadow(color: .black.opacity(0.11), radius: 12, y: 5)
+    .opacity(isExpanded ? 0 : 0.98)
   }
 }
 
