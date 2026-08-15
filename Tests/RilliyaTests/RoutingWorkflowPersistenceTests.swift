@@ -28,6 +28,8 @@ struct RoutingWorkflowPersistenceTests {
     )
     #expect(restoredFirst.name == "Music Monitor")
     #expect(restoredFirst.miniMapVisibilityOverride == false)
+    #expect(restoredFirst.runsAutomaticallyOnLaunch)
+    #expect(restoredFirst.isRunning)
     #expect(restoredFirst.workspace.nodes.count == 2)
     #expect(restoredFirst.workspace.edges.count == 1)
     #expect(restoredFirst.workspace.edges[0].isEnabled)
@@ -53,6 +55,8 @@ struct RoutingWorkflowPersistenceTests {
         == .audioMixer(configuration: RoutingAudioMixerConfiguration(channelCount: 4))
     )
     #expect(restoredMixer.audioChannelControl(at: 2).isMuted)
+    #expect(!restoredLibrary.selectedWorkflow.runsAutomaticallyOnLaunch)
+    #expect(!restoredLibrary.selectedWorkflow.isRunning)
   }
 
   @Test
@@ -71,6 +75,31 @@ struct RoutingWorkflowPersistenceTests {
     let recovered = try #require(try await store.load())
 
     #expect(recovered == fixture.snapshot)
+  }
+
+  @Test
+  func legacyWorkflowsWithoutAutomaticLaunchRestorePaused() throws {
+    let fixture = try makeFixture()
+    defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+    let encoded = try JSONEncoder().encode(fixture.snapshot)
+    var object = try #require(
+      JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    )
+    var workflows = try #require(object["workflows"] as? [[String: Any]])
+    for index in workflows.indices {
+      workflows[index].removeValue(forKey: "runsAutomaticallyOnLaunch")
+    }
+    object["workflows"] = workflows
+    let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+    let decoded = try JSONDecoder().decode(
+      RoutingWorkflowLibrarySnapshot.self,
+      from: legacyData
+    )
+    let library = try decoded.makeLibrary()
+
+    #expect(library.workflows.allSatisfy { !$0.runsAutomaticallyOnLaunch })
+    #expect(library.workflows.allSatisfy { !$0.isRunning })
   }
 
   private func makeFixture() throws -> Fixture {
@@ -119,6 +148,7 @@ struct RoutingWorkflowPersistenceTests {
       name: "Music Monitor",
       workspace: firstWorkspace,
       miniMapVisibilityOverride: false,
+      runsAutomaticallyOnLaunch: true,
       canvasSession: FlowingGraphCanvasSessionState(
         viewport: FlowingCanvasViewport(
           transform: FlowingCanvasTransform(

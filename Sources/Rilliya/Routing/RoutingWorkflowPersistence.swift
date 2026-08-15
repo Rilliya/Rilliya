@@ -7,6 +7,7 @@ struct RoutingWorkflowPersistenceToken: Equatable, Sendable {
     let id: UUID
     let name: String
     let miniMapVisibilityOverride: Bool?
+    let runsAutomaticallyOnLaunch: Bool
     let viewport: RoutingViewportSnapshot
     let workspaceRevision: UInt64
   }
@@ -22,6 +23,7 @@ struct RoutingWorkflowPersistenceToken: Equatable, Sendable {
         id: workflow.id,
         name: workflow.name,
         miniMapVisibilityOverride: workflow.miniMapVisibilityOverride,
+        runsAutomaticallyOnLaunch: workflow.runsAutomaticallyOnLaunch,
         viewport: RoutingViewportSnapshot(transform: workflow.canvasSession.viewport.transform),
         workspaceRevision: workflow.workspace.persistenceRevision
       )
@@ -61,6 +63,7 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
   let id: UUID
   let name: String
   let miniMapVisibilityOverride: Bool?
+  let runsAutomaticallyOnLaunch: Bool
   let viewport: RoutingViewportSnapshot
   let nodes: [RoutingWorkspaceNode]
   let edges: [RoutingWorkspaceEdge]
@@ -70,6 +73,7 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
     id = workflow.id
     name = workflow.name
     miniMapVisibilityOverride = workflow.miniMapVisibilityOverride
+    runsAutomaticallyOnLaunch = workflow.runsAutomaticallyOnLaunch
     viewport = RoutingViewportSnapshot(transform: workflow.canvasSession.viewport.transform)
     nodes = workflow.workspace.nodes
     edges = workflow.workspace.edges
@@ -100,10 +104,37 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
       name: normalizedName,
       workspace: workspace,
       miniMapVisibilityOverride: miniMapVisibilityOverride,
+      runsAutomaticallyOnLaunch: runsAutomaticallyOnLaunch,
+      isRunning: runsAutomaticallyOnLaunch,
       canvasSession: FlowingGraphCanvasSessionState(
         viewport: FlowingCanvasViewport(transform: transform)
       )
     )
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case name
+    case miniMapVisibilityOverride
+    case runsAutomaticallyOnLaunch
+    case viewport
+    case nodes
+    case edges
+  }
+
+  init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    id = try container.decode(UUID.self, forKey: .id)
+    name = try container.decode(String.self, forKey: .name)
+    miniMapVisibilityOverride = try container.decodeIfPresent(
+      Bool.self,
+      forKey: .miniMapVisibilityOverride
+    )
+    runsAutomaticallyOnLaunch =
+      try container.decodeIfPresent(Bool.self, forKey: .runsAutomaticallyOnLaunch) ?? false
+    viewport = try container.decode(RoutingViewportSnapshot.self, forKey: .viewport)
+    nodes = try container.decode([RoutingWorkspaceNode].self, forKey: .nodes)
+    edges = try container.decode([RoutingWorkspaceEdge].self, forKey: .edges)
   }
 
   private static func isValidPersistedNode(_ node: RoutingWorkspaceNode) -> Bool {

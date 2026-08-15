@@ -379,6 +379,7 @@ private struct RoutingAudioOutputReconciliationToken: Equatable {
   struct Workflow: Equatable {
     let id: UUID
     let revision: UInt64
+    let isRunning: Bool
   }
 
   struct ProcessState: Equatable {
@@ -402,7 +403,11 @@ private struct RoutingAudioOutputReconciliationToken: Equatable {
     inputStates: [UUID: RoutingInputCaptureState]
   ) {
     self.workflows = workflows.map {
-      Workflow(id: $0.id, revision: $0.workspace.persistenceRevision)
+      Workflow(
+        id: $0.id,
+        revision: $0.workspace.persistenceRevision,
+        isRunning: $0.isRunning
+      )
     }
     self.processStates = processStates.map {
       ProcessState(nodeID: $0.key, state: $0.value)
@@ -470,8 +475,8 @@ private struct RoutingWorkflowSwitcher: View {
           } label: {
             HStack {
               Text(workflow.name)
-              if isCapturing(workflow) {
-                Image(systemName: "waveform.circle.fill")
+              if workflow.isRunning {
+                Image(systemName: "play.circle.fill")
               }
               if workflow.id == library.selectedWorkflowID {
                 Image(systemName: "checkmark")
@@ -479,7 +484,30 @@ private struct RoutingWorkflowSwitcher: View {
             }
           }
         }
+
+        Divider()
+
+        Button {
+          let workflow = library.selectedWorkflow
+          workflow.setRunsAutomaticallyOnLaunch(!workflow.runsAutomaticallyOnLaunch)
+        } label: {
+          Label(
+            "Run on App Launch",
+            systemImage: library.selectedWorkflow.runsAutomaticallyOnLaunch
+              ? "checkmark.circle.fill"
+              : "circle"
+          )
+        }
       }
+
+      FlowingIconButton(
+        library.selectedWorkflow.isRunning ? "Pause Workflow" : "Run Workflow",
+        systemImage: library.selectedWorkflow.isRunning ? "pause.fill" : "play.fill",
+        emphasis: .standard
+      ) {
+        library.selectedWorkflow.toggleRunning()
+      }
+      .accessibilityValue(library.selectedWorkflow.isRunning ? "Running" : "Paused")
 
       FlowingIconButton("New Workflow", systemImage: "plus") {
         library.addWorkflow()

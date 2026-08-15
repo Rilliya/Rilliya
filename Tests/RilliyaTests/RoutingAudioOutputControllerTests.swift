@@ -18,6 +18,7 @@ struct RoutingAudioOutputControllerTests {
     let outputStarter = OutputTestPlaybackStarter(suspendsStops: true)
     let outputController = RoutingAudioOutputController(playbackStarter: outputStarter)
     let workflow = try makeWorkflow(sourceID: sourceID, outputIDs: [outputID])
+    workflow.run()
 
     captureController.start(nodeID: sourceID, processID: processID)
     #expect(await eventually { captureController.frameBuffer(for: sourceID) != nil })
@@ -88,6 +89,7 @@ struct RoutingAudioOutputControllerTests {
       sourceID: sourceID,
       outputIDs: [firstOutputID, secondOutputID]
     )
+    workflow.run()
 
     captureController.start(nodeID: sourceID, processID: processID)
     #expect(await eventually { captureController.frameBuffer(for: sourceID) != nil })
@@ -112,6 +114,54 @@ struct RoutingAudioOutputControllerTests {
 
     outputController.stopAll()
     captureController.stopAll()
+  }
+
+  @Test @MainActor
+  func workflowRunStateGatesDemandDrivenSignalGenerationAndOutput() async throws {
+    let outputID = UUID()
+    let outputStarter = OutputTestPlaybackStarter()
+    let outputController = RoutingAudioOutputController(playbackStarter: outputStarter)
+    let workflow = RoutingWorkflowModel(name: "Tone")
+    let generatorID = workflow.workspace.addSignalGeneratorNode(centeredAt: .zero)
+    _ = workflow.workspace.addOutputAudioNode(
+      centeredAt: CGPoint(x: 400, y: 0),
+      id: outputID
+    )
+    let deviceID = try #require(AudioDeviceID(rawValue: "test.output"))
+    workflow.workspace.selectOutputDevice(
+      RoutingOutputDeviceSelection(id: deviceID, displayName: "Test Output"),
+      for: outputID
+    )
+    try connect(sourceID: generatorID, targetID: outputID, in: workflow.workspace)
+    let captureController = RoutingCaptureController(captureStarter: OutputTestCaptureStarter())
+    let inputController = RoutingInputCaptureController()
+
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: captureController,
+      inputCaptureController: inputController
+    )
+    await Task.yield()
+    #expect(await outputStarter.startCount == 0)
+    #expect(outputController.state(for: outputID) == .idle)
+
+    workflow.run()
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: captureController,
+      inputCaptureController: inputController
+    )
+    #expect(await eventually { outputController.state(for: outputID).isRunning })
+    #expect(await outputStarter.startCount == 1)
+
+    workflow.pause()
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: captureController,
+      inputCaptureController: inputController
+    )
+    #expect(await eventually { await outputStarter.stopCount == 1 })
+    #expect(await eventually { outputController.state(for: outputID) == .idle })
   }
 
   @MainActor

@@ -322,7 +322,7 @@ final class RoutingAudioOutputController {
     var plans: [UUID: RoutingAudioOutputPlan] = [:]
     var claimedBuffers = Set<ObjectIdentifier>()
 
-    for workflow in workflows {
+    for workflow in workflows where workflow.isRunning {
       let workspace = workflow.workspace
       let activeEdges = workspace.edges.filter(workspace.isEdgeActive)
       let incomingEdges = Dictionary(grouping: activeEdges, by: { $0.target.nodeID })

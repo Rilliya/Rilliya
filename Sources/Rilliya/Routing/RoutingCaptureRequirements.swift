@@ -38,7 +38,7 @@ enum RoutingCaptureRequirementResolver {
     var inputRequirements: [UUID: AudioDeviceID] = [:]
     var reroutedProcessIDs = Set<AudioProcessID>()
 
-    for workflow in workflows {
+    for workflow in workflows where workflow.isRunning {
       let workspace = workflow.workspace
       let routedSourceIDs = workspace.captureSourceNodeIDs
       let reroutedSourceIDs = workspace.audioSourceNodeIDsFeedingOutputAudio

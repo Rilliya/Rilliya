@@ -13,6 +13,8 @@ struct RoutingWorkflowModelTests {
     #expect(library.selectedWorkflow.name == "Flow 1")
     #expect(library.selectedWorkflowID == library.selectedWorkflow.id)
     #expect(library.selectedWorkflow.workspace.id == library.selectedWorkflow.id)
+    #expect(!library.selectedWorkflow.isRunning)
+    #expect(!library.selectedWorkflow.runsAutomaticallyOnLaunch)
   }
 
   @Test @MainActor
@@ -84,5 +86,28 @@ struct RoutingWorkflowModelTests {
     #expect(first.showsMiniMap(globalDefault: true))
     #expect(!first.showsMiniMap(globalDefault: false))
     #expect(second.showsMiniMap(globalDefault: false))
+  }
+
+  @Test @MainActor
+  func executionAndAutomaticLaunchStayLocalToEachWorkflow() {
+    let library = RoutingWorkflowLibrary()
+    let first = library.selectedWorkflow
+    let second = library.addWorkflow()
+
+    first.run()
+    first.setRunsAutomaticallyOnLaunch(true)
+
+    #expect(first.isRunning)
+    #expect(first.runsAutomaticallyOnLaunch)
+    #expect(!second.isRunning)
+    #expect(!second.runsAutomaticallyOnLaunch)
+
+    first.pause()
+    #expect(!first.isRunning)
+    #expect(first.runsAutomaticallyOnLaunch)
+
+    second.toggleRunning()
+    #expect(second.isRunning)
+    #expect(!second.runsAutomaticallyOnLaunch)
   }
 }

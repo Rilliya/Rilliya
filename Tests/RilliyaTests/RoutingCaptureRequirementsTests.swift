@@ -12,6 +12,7 @@ struct RoutingCaptureRequirementsTests {
     let musicURL = URL(fileURLWithPath: "/Applications/Music.app")
     let processID = try #require(AudioProcessID(rawValue: 42))
     let workflow = RoutingWorkflowModel(name: "Music")
+    workflow.run()
     let sourceID = workflow.workspace.addApplicationAudioNode(centeredAt: .zero)
     let visualizerID = workflow.workspace.addVisualizerNode(
       centeredAt: CGPoint(x: 400, y: 0)
@@ -50,6 +51,9 @@ struct RoutingCaptureRequirementsTests {
     let musicURL = URL(fileURLWithPath: "/Applications/Music.app")
     let processID = try #require(AudioProcessID(rawValue: 54))
     let workflows = [RoutingWorkflowModel(name: "A"), RoutingWorkflowModel(name: "B")]
+    for workflow in workflows {
+      workflow.run()
+    }
     var sourceIDs: [UUID] = []
 
     for (index, workflow) in workflows.enumerated() {
@@ -87,6 +91,7 @@ struct RoutingCaptureRequirementsTests {
   func connectedInputDeviceRequiresCaptureWithoutAnApplicationCatalog() throws {
     let deviceID = try #require(AudioDeviceID(rawValue: "test.virtual-input"))
     let workflow = RoutingWorkflowModel(name: "Input")
+    workflow.run()
     let sourceID = workflow.workspace.addInputAudioNode(centeredAt: .zero)
     let visualizerID = workflow.workspace.addVisualizerNode(
       centeredAt: CGPoint(x: 400, y: 0)
@@ -112,6 +117,7 @@ struct RoutingCaptureRequirementsTests {
     let processID = try #require(AudioProcessID(rawValue: 72))
     let outputDeviceID = try #require(AudioDeviceID(rawValue: "test.output"))
     let workflow = RoutingWorkflowModel(name: "Reroute")
+    workflow.run()
     let sourceID = workflow.workspace.addApplicationAudioNode(centeredAt: .zero)
     let outputID = workflow.workspace.addOutputAudioNode(centeredAt: CGPoint(x: 400, y: 0))
     workflow.workspace.selectApplication(
@@ -138,6 +144,57 @@ struct RoutingCaptureRequirementsTests {
     )
 
     #expect(requirements.muteBehaviorsByProcess[processID] == .mutedWhileTapped)
+  }
+
+  @Test @MainActor
+  func pausedWorkflowsDoNotRequestCaptureWhileOtherConsumersRemainActive() throws {
+    let musicURL = URL(fileURLWithPath: "/Applications/Music.app")
+    let processID = try #require(AudioProcessID(rawValue: 73))
+    let running = RoutingWorkflowModel(name: "Running")
+    let paused = RoutingWorkflowModel(name: "Paused")
+    let workflows = [running, paused]
+    var sourceIDs: [UUID] = []
+
+    for workflow in workflows {
+      let sourceID = workflow.workspace.addApplicationAudioNode(centeredAt: .zero)
+      let visualizerID = workflow.workspace.addVisualizerNode(
+        centeredAt: CGPoint(x: 400, y: 0)
+      )
+      workflow.workspace.selectApplication(
+        RoutingApplicationSelection(
+          stableID: musicURL.absoluteString,
+          applicationURL: musicURL,
+          bundleIdentifier: "com.apple.Music",
+          displayName: "Music"
+        ),
+        for: sourceID
+      )
+      try connect(sourceID: sourceID, targetID: visualizerID, in: workflow.workspace)
+      sourceIDs.append(sourceID)
+    }
+    running.run()
+
+    let requirements = RoutingCaptureRequirementResolver.resolve(
+      workflows: workflows,
+      catalogSnapshot: catalogSnapshot(
+        applicationURL: musicURL,
+        processIdentifiers: [processID.rawValue]
+      )
+    )
+
+    #expect(requirements.processIDsByNode == [sourceIDs[0]: processID])
+
+    running.pause()
+    paused.run()
+    let switchedRequirements = RoutingCaptureRequirementResolver.resolve(
+      workflows: workflows,
+      catalogSnapshot: catalogSnapshot(
+        applicationURL: musicURL,
+        processIdentifiers: [processID.rawValue]
+      )
+    )
+
+    #expect(switchedRequirements.processIDsByNode == [sourceIDs[1]: processID])
   }
 
   @MainActor
