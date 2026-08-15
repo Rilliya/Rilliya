@@ -17,6 +17,11 @@ enum NativeWindowChrome {
     window.titleVisibility = .hidden
     window.titlebarAppearsTransparent = true
     window.titlebarSeparatorStyle = .none
+    #if PROFILE
+      if RoutingProfilingScenario.fromProcessArguments() != nil {
+        window.setContentSize(NSSize(width: 1_080, height: 680))
+      }
+    #endif
   }
 }
 

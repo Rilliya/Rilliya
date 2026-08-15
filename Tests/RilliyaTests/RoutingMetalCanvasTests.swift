@@ -1,5 +1,6 @@
 import AppKit
 import FlowingDayGraphCanvas
+import QuartzCore
 import SwiftUI
 import Testing
 
@@ -26,5 +27,6 @@ struct RoutingMetalCanvasTests {
 
     #expect(canvas.acceptsFirstResponder)
     #expect(canvas.focusRingType == .none)
+    #expect((canvas.layer as? CAMetalLayer)?.maximumDrawableCount == 2)
   }
 }

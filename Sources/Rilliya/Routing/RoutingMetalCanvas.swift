@@ -124,6 +124,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   var onViewportChange: ((FlowingCanvasViewport, FlowingCanvasViewportChangePhase) -> Void)?
 
   private enum Constants {
+    static let maximumFramesInFlight = 2
     static let preferredSampleCount = 2
     static let nodeCornerRadius: CGFloat = 16
     static let iconFrame = CGRect(x: 14, y: 14, width: 38, height: 38)
@@ -141,7 +142,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   private let trianglePipeline: any MTLRenderPipelineState
   private let atlasPipeline: any MTLRenderPipelineState
   private let textAtlas: RoutingMetalTextAtlas
-  private let inFlightSemaphore = DispatchSemaphore(value: 3)
+  private let inFlightSemaphore = DispatchSemaphore(value: Constants.maximumFramesInFlight)
 
   private var shapeBuffers: [any MTLBuffer] = []
   private var triangleBuffers: [any MTLBuffer] = []
@@ -185,7 +186,9 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   #if PROFILE
     private let profilesAutomaticPan =
       ProcessInfo.processInfo.arguments.contains("--routing-auto-pan")
-    private var profilingPanAnchor: CGSize?
+    private var profilingFrameCount = 0
+    private var profilingLastFrameCount = 0
+    private var profilingLastTimestamp = ProcessInfo.processInfo.systemUptime
   #endif
 
   init(
@@ -262,6 +265,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     focusRingType = .none
     wantsLayer = true
     layer?.zPosition = -1
+    (layer as? CAMetalLayer)?.maximumDrawableCount = Constants.maximumFramesInFlight
     colorPixelFormat = .bgra8Unorm
     self.sampleCount = sampleCount
     colorspace = CGColorSpace(name: CGColorSpace.sRGB)
@@ -283,7 +287,12 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
 
   override func viewDidMoveToWindow() {
     super.viewDidMoveToWindow()
-    window?.makeFirstResponder(self)
+    guard let window else {
+      releaseDrawables()
+      return
+    }
+    window.makeFirstResponder(self)
+    requestDisplay()
   }
 
   override func layout() {
@@ -670,19 +679,20 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   }
 
   override func renderFrame(in view: MTKView) {
+    inFlightSemaphore.wait()
     guard bounds.width > 0, bounds.height > 0,
       let descriptor = currentRenderPassDescriptor,
       let drawable = currentDrawable,
       let commandBuffer = commandQueue.makeCommandBuffer(),
       let encoder = commandBuffer.makeRenderCommandEncoder(descriptor: descriptor)
     else {
+      inFlightSemaphore.signal()
       return
     }
     #if PROFILE
       applyProfilingPanIfNeeded()
     #endif
-    frameIndex = (frameIndex + 1) % 3
-    inFlightSemaphore.wait()
+    frameIndex = (frameIndex + 1) % Constants.maximumFramesInFlight
     let palette = RoutingMetalPalette(isDark: isDarkAppearance)
     let geometry = makeFrameGeometry(palette: palette)
     var uniforms = RoutingMetalUniforms(
@@ -781,6 +791,9 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     }
     commandBuffer.present(drawable)
     commandBuffer.commit()
+    #if PROFILE
+      recordProfilingFrame(geometry: geometry)
+    #endif
   }
 
   private func makeFrameGeometry(palette: RoutingMetalPalette) -> RoutingMetalFrameGeometry {
@@ -836,13 +849,53 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   #if PROFILE
     private func applyProfilingPanIfNeeded() {
       guard profilesAutomaticPan else { return }
-      let anchor = profilingPanAnchor ?? camera.offset
-      profilingPanAnchor = anchor
-      let phase = ProcessInfo.processInfo.systemUptime * 1.4
-      camera.offset = CGSize(
-        width: anchor.width + sin(phase) * 5_400,
-        height: anchor.height + cos(phase * 0.73) * 2_400
+      let contentBounds = scene.contentBounds
+      guard !contentBounds.isEmpty, camera.zoom > 0 else { return }
+      let visibleSize = CGSize(
+        width: bounds.width / camera.zoom,
+        height: bounds.height / camera.zoom
       )
+      let horizontalTravel = max(contentBounds.width - visibleSize.width, 0)
+      let verticalTravel = max(contentBounds.height - visibleSize.height, 0)
+      let minimumCenter = CGPoint(
+        x: contentBounds.minX + min(visibleSize.width, contentBounds.width) / 2,
+        y: contentBounds.minY + min(visibleSize.height, contentBounds.height) / 2
+      )
+      let phase = ProcessInfo.processInfo.systemUptime * 1.4
+      let center = CGPoint(
+        x: minimumCenter.x + (sin(phase) + 1) * horizontalTravel / 2,
+        y: minimumCenter.y + (cos(phase * 0.73) + 1) * verticalTravel / 2
+      )
+      camera.offset = CGSize(
+        width: bounds.midX - center.x * camera.zoom,
+        height: bounds.midY - center.y * camera.zoom
+      )
+    }
+
+    private func recordProfilingFrame(geometry: RoutingMetalFrameGeometry) {
+      profilingFrameCount += 1
+      let now = ProcessInfo.processInfo.systemUptime
+      let interval = now - profilingLastTimestamp
+      guard interval >= 1 else { return }
+      let intervalFrameCount = profilingFrameCount - profilingLastFrameCount
+      let achievedFramesPerSecond = Double(intervalFrameCount) / interval
+      let dynamicBufferBytes =
+        shapeBuffers.reduce(0) { $0 + $1.length }
+        + triangleBuffers.reduce(0) { $0 + $1.length }
+        + atlasBuffers.reduce(0) { $0 + $1.length }
+      let maximumDrawableCount = (layer as? CAMetalLayer)?.maximumDrawableCount ?? 0
+      let line =
+        "PROFILE_RENDERER bounds=\(Int(bounds.width))x\(Int(bounds.height)) "
+        + "drawable=\(Int(drawableSize.width))x\(Int(drawableSize.height)) "
+        + "scale=\(String(format: "%.2f", window?.backingScaleFactor ?? 0)) "
+        + "sampleCount=\(sampleCount) maximumDrawableCount=\(maximumDrawableCount) "
+        + "requestedFPS=\(preferredFramesPerSecond) "
+        + "achievedFPS=\(String(format: "%.1f", achievedFramesPerSecond)) "
+        + "visibleShapes=\(geometry.shapes.count) visibleTriangles=\(geometry.triangles.count) "
+        + "visibleAtlasItems=\(geometry.atlasItems.count) dynamicBufferBytes=\(dynamicBufferBytes)"
+      FileHandle.standardError.write(Data("\(line)\n".utf8))
+      profilingLastTimestamp = now
+      profilingLastFrameCount = profilingFrameCount
     }
   #endif
 
@@ -980,6 +1033,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       )
     case .noiseGate:
       appendNoiseGate(
+        node: node,
+        frame: frame,
+        accent: accent,
+        palette: palette,
+        to: &geometry
+      )
+    case .compressor:
+      appendCompressor(
         node: node,
         frame: frame,
         accent: accent,
@@ -1610,6 +1671,41 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     )
   }
 
+  private func appendCompressor(
+    node: RoutingMetalScene.Node,
+    frame: CGRect,
+    accent: SIMD4<Float>,
+    palette: RoutingMetalPalette,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
+    guard case .compressor(let configuration) = node.value else { return }
+    let valueFrame = CGRect(
+      x: frame.minX + RoutingVisualizerLayout.horizontalInset
+        + RoutingVisualizerLayout.portLabelGutter,
+      y: frame.maxY - 48,
+      width: frame.width - 2 * RoutingVisualizerLayout.horizontalInset
+        - 2 * RoutingVisualizerLayout.portLabelGutter,
+      height: 34
+    )
+    geometry.shapes.append(
+      RoutingMetalShapeInstance(
+        rect: valueFrame,
+        fill: accent.withAlpha(0.09),
+        border: .zero,
+        cornerRadius: 8,
+        borderWidth: 0,
+        opacity: 1
+      )
+    )
+    let ratio = configuration.ratio.formatted(.number.precision(.fractionLength(1)))
+    append(
+      atlas: textAtlas.text("\(ratio):1 ratio", size: 10, weight: .medium),
+      origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
+      color: palette.muted,
+      to: &geometry
+    )
+  }
+
   private func accent(for node: RoutingMetalScene.Node) -> SIMD4<Float> {
     let rgb = node.accentID.baseRGB
     return SIMD4(
@@ -2160,12 +2256,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     buffers: inout [any MTLBuffer]
   ) -> any MTLBuffer {
     let requiredLength = max(values.count * MemoryLayout<T>.stride, 1)
-    if buffers.count != 3 || buffers.contains(where: { $0.length < requiredLength }) {
+    if buffers.count != Constants.maximumFramesInFlight
+      || buffers.contains(where: { $0.length < requiredLength })
+    {
       guard let device else {
         preconditionFailure("The routing canvas lost its Metal device")
       }
       let capacity = max(requiredLength.nextPowerOfTwo, 256)
-      buffers = (0..<3).map { index in
+      buffers = (0..<Constants.maximumFramesInFlight).map { index in
         guard let buffer = device.makeBuffer(length: capacity, options: .storageModeShared) else {
           preconditionFailure("Unable to allocate routing Metal buffer \(index)")
         }

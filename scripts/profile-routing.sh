@@ -31,6 +31,18 @@ run_id="$(date '+%Y%m%d-%H%M%S')"
 run_prefix="$output_directory/routing-$pair_count-pairs-$run_id"
 app_pid=''
 
+{
+  echo "git_sha=$(git rev-parse HEAD)"
+  if [ -n "$(git status --porcelain)" ]; then
+    echo "git_dirty=true"
+  else
+    echo "git_dirty=false"
+  fi
+  echo "pair_count=$pair_count"
+  echo "architecture=$architecture"
+  echo "os_version=$(sw_vers -productVersion)"
+} >"$run_prefix.manifest.txt"
+
 cleanup() {
   if [ -n "$app_pid" ] && kill -0 "$app_pid" 2>/dev/null; then
     kill "$app_pid" 2>/dev/null || true
@@ -52,6 +64,7 @@ xcodebuild \
   build
 
 binary="$derived_data/Build/Products/Release/Rilliya.app/Contents/MacOS/Rilliya"
+dwarfdump --uuid "$binary" >>"$run_prefix.manifest.txt"
 "$binary" \
   --routing-profile-node-pairs "$pair_count" \
   --routing-auto-pan \
@@ -66,6 +79,8 @@ footprint "$app_pid" >"$run_prefix.footprint.txt"
 
 cat "$run_prefix.process.txt"
 sed -n '1,20p' "$run_prefix.footprint.txt"
+grep 'PROFILE_RENDERER' "$run_prefix.log" | tail -1 || true
+echo "Manifest: $run_prefix.manifest.txt"
 echo "Sample: $run_prefix.sample.txt"
 echo "Footprint: $run_prefix.footprint.txt"
 
