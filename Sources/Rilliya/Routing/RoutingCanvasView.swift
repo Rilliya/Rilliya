@@ -10,6 +10,7 @@ private enum RoutingPaletteItem: String, Codable, Transferable {
   case applicationAudio = "moe.uwucocoa.rilliya.node.application-audio"
   case inputAudio = "moe.uwucocoa.rilliya.node.input-audio"
   case visualizer = "moe.uwucocoa.rilliya.node.visualizer"
+  case audioMixer = "moe.uwucocoa.rilliya.node.audio-mixer"
   case peakLevel = "moe.uwucocoa.rilliya.node.peak-level"
 
   static var transferRepresentation: some TransferRepresentation {
@@ -181,6 +182,12 @@ struct RoutingCanvasView: View {
             context: context
           )
           .zIndex(context.isSelected ? 2 : 1)
+        case .audioMixer(let configuration):
+          AudioMixerNodeView(
+            configuration: configuration,
+            context: context
+          )
+          .zIndex(context.isSelected ? 2 : 1)
         case .peakLevel:
           PeakLevelNodeView(
             signal: peakLevelSignal(for: node),
@@ -274,6 +281,32 @@ struct RoutingCanvasView: View {
             incomingEdges: incomingEdgesByTargetNode[node.id] ?? [],
             resolvedSignalsForSource: signalResolver.resolveOutput
           )
+        )
+      case .audioMixer(let configuration):
+        let meters = (0..<configuration.channelCount).map { channelIndex in
+          let signal = signalResolver.resolveOutput(
+            RoutingWorkspacePortAddress(
+              nodeID: node.id,
+              portID: RoutingGraphPortID(
+                direction: .output,
+                channel: .channel(channelIndex)
+              )
+            )
+          ).first
+          return RoutingAudioChannelMeterSignal(
+            channelIndex: channelIndex,
+            rootMeanSquare: signal?.rootMeanSquare ?? 0,
+            peak: signal?.peak ?? 0,
+            isClipping: signal?.isClipping == true
+          )
+        }
+        supplements[node.id] = RoutingMetalNodeSupplement(
+          isRunning: false,
+          isCapturing: false,
+          captureConsumerCount: 0,
+          visualizerSignal: nil,
+          audioSourceMeters: meters,
+          audioChannelControls: node.audioChannelControls
         )
       case .peakLevel:
         supplements[node.id] = RoutingMetalNodeSupplement(
@@ -408,6 +441,28 @@ struct RoutingCanvasView: View {
       SelectedVisualizerInspector(configuration: configuration) { updated in
         workspace.configureVisualizer(updated, for: node.id)
       }
+    case .audioMixer(let configuration):
+      SelectedAudioMixerInspector(
+        configuration: configuration,
+        channelControls: node.audioChannelControls,
+        updateConfiguration: { updated in
+          workspace.configureAudioMixer(updated, for: node.id)
+        },
+        setChannelGain: { channelIndex, gainDecibels in
+          workspace.setAudioChannelGain(
+            gainDecibels,
+            nodeID: node.id,
+            channelIndex: channelIndex
+          )
+        },
+        setChannelMuted: { channelIndex, isMuted in
+          workspace.setAudioChannelMuted(
+            isMuted,
+            nodeID: node.id,
+            channelIndex: channelIndex
+          )
+        }
+      )
     case .peakLevel:
       SelectedPeakLevelInspector(
         signal: RoutingPeakLevelSignalBuilder.build(
@@ -504,6 +559,8 @@ struct RoutingCanvasView: View {
         nodeID = workspace.addInputAudioNode(centeredAt: worldPoint)
       case .visualizer:
         nodeID = workspace.addVisualizerNode(centeredAt: worldPoint)
+      case .audioMixer:
+        nodeID = workspace.addAudioMixerNode(centeredAt: worldPoint)
       case .peakLevel:
         nodeID = workspace.addPeakLevelNode(centeredAt: worldPoint)
       }
@@ -571,6 +628,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   let insertApplicationAudio: () -> Void
   let insertInputAudio: () -> Void
   let insertVisualizer: () -> Void
+  let insertAudioMixer: () -> Void
   let insertPeakLevel: () -> Void
   let workflowNavigation: WorkflowNavigation
 
@@ -580,6 +638,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     insertApplicationAudio: @escaping () -> Void,
     insertInputAudio: @escaping () -> Void,
     insertVisualizer: @escaping () -> Void,
+    insertAudioMixer: @escaping () -> Void,
     insertPeakLevel: @escaping () -> Void,
     @ViewBuilder workflowNavigation: () -> WorkflowNavigation
   ) {
@@ -588,6 +647,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     self.insertApplicationAudio = insertApplicationAudio
     self.insertInputAudio = insertInputAudio
     self.insertVisualizer = insertVisualizer
+    self.insertAudioMixer = insertAudioMixer
     self.insertPeakLevel = insertPeakLevel
     self.workflowNavigation = workflowNavigation()
   }
@@ -617,6 +677,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
               applicationAudioItem
               inputAudioItem
               visualizerItem
+              audioMixerItem
               peakLevelItem
             }
           }
@@ -683,6 +744,19 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       veil: FlowingAccent.brook.veil,
       allowsClickInsertion: allowsClickInsertion,
       action: insertInputAudio
+    )
+  }
+
+  private var audioMixerItem: some View {
+    RoutingPaletteNodeItem(
+      item: .audioMixer,
+      title: "Audio Mixer",
+      subtitle: "Mix routed channel levels",
+      systemImage: "slider.horizontal.3",
+      foreground: FlowingAccent.pollen.foreground,
+      veil: FlowingAccent.pollen.veil,
+      allowsClickInsertion: allowsClickInsertion,
+      action: insertAudioMixer
     )
   }
 
@@ -908,6 +982,14 @@ private struct RoutingCanvasDropPreview: View {
         "waveform",
         FlowingAccent.seafoam.foreground,
         FlowingAccent.seafoam.veil
+      )
+    case .audioMixer:
+      return (
+        "Audio Mixer",
+        "Mix routed channel levels",
+        "slider.horizontal.3",
+        FlowingAccent.pollen.foreground,
+        FlowingAccent.pollen.veil
       )
     case .peakLevel:
       return (
@@ -1327,6 +1409,76 @@ private struct VisualizerNodeView: View {
   private var channelSummary: String {
     let count = configuration.normalizedSelectedChannels.count
     return "\(count) selected channel\(count == 1 ? "" : "s")"
+  }
+}
+
+private struct AudioMixerNodeView: View {
+  let configuration: RoutingAudioMixerConfiguration
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  private let accent = FlowingAccent.pollen
+
+  var body: some View {
+    let size = RoutingCanvasMetrics.nodeSize(for: .audioMixer(configuration: configuration))
+    FlowingCard(
+      spacing: 10,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      HStack(spacing: 9) {
+        Image(systemName: "slider.horizontal.3")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(accent.foreground)
+        VStack(alignment: .leading, spacing: 1) {
+          Text("Audio Mixer")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text("\(configuration.channelCount)-channel mix")
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+        Spacer(minLength: 0)
+      }
+
+      VStack(spacing: RoutingAudioMixerLayout.rowSpacing) {
+        ForEach(0..<configuration.channelCount, id: \.self) { channelIndex in
+          HStack {
+            Text(channelLabel(channelIndex))
+              .font(.system(size: 10, weight: .semibold, design: .monospaced))
+              .foregroundStyle(FlowingPalette.muted)
+            Capsule()
+              .fill(FlowingPalette.field)
+              .frame(height: 8)
+            Text("0 dB")
+              .font(.system(size: 9, weight: .medium, design: .monospaced))
+              .foregroundStyle(FlowingPalette.muted)
+          }
+          .frame(height: RoutingAudioMixerLayout.rowHeight)
+        }
+      }
+      .padding(.horizontal, RoutingAudioMixerLayout.portLabelGutter)
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(width: size.width, height: size.height)
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: size.width * context.renderScale,
+      height: size.height * context.renderScale,
+      alignment: .topLeading
+    )
+  }
+
+  private func channelLabel(_ channelIndex: Int) -> String {
+    if configuration.channelCount == 2 {
+      return channelIndex == 0 ? "L" : "R"
+    }
+    return "Ch \(channelIndex + 1)"
   }
 }
 
@@ -2084,6 +2236,7 @@ private struct RoutingAudioChannelControlsView: View {
   let controls: [Int: RoutingAudioChannelControl]
   let setGain: (Int, Double) -> Void
   let setMuted: (Int, Bool) -> Void
+  var footer = "Gain and mute belong to this node; shared captures remain unchanged."
 
   private var gainRange: ClosedRange<Double> {
     ClosedRange(
@@ -2110,7 +2263,7 @@ private struct RoutingAudioChannelControlsView: View {
       .scrollIndicators(channelCount > 5 ? .visible : .hidden)
       .frame(height: min(CGFloat(max(channelCount, 1)) * 37, 198))
 
-      Text("Gain and mute belong to this node; shared captures remain unchanged.")
+      Text(footer)
         .font(.caption2)
         .foregroundStyle(FlowingPalette.faint)
     }
@@ -2158,6 +2311,74 @@ private struct RoutingAudioChannelControlsView: View {
       return channelIndex == 0 ? "L" : "R"
     }
     return "Ch \(channelIndex + 1)"
+  }
+}
+
+private struct SelectedAudioMixerInspector: View {
+  let configuration: RoutingAudioMixerConfiguration
+  let channelControls: [Int: RoutingAudioChannelControl]
+  let updateConfiguration: (RoutingAudioMixerConfiguration) -> Void
+  let setChannelGain: (Int, Double) -> Void
+  let setChannelMuted: (Int, Bool) -> Void
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Audio Mixer")
+          .font(.headline)
+          .foregroundStyle(FlowingPalette.ink)
+        Text("Sum independent sources into aligned output channels.")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      VStack(alignment: .leading, spacing: 7) {
+        Text("Channel Layout")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+        FlowingSelect(
+          label: "Mixer channel layout",
+          selection: channelCount,
+          options: [
+            FlowingSelectOption(1, label: "Mono · 1 ch"),
+            FlowingSelectOption(2, label: "Stereo · 2 ch"),
+            FlowingSelectOption(4, label: "Quad · 4 ch"),
+            FlowingSelectOption(6, label: "5.1 · 6 ch"),
+            FlowingSelectOption(8, label: "7.1 · 8 ch"),
+          ],
+          minimumWidth: 164
+        )
+      }
+
+      Divider()
+        .overlay(FlowingPalette.hairline)
+
+      RoutingAudioChannelControlsView(
+        channelCount: configuration.channelCount,
+        controls: channelControls,
+        setGain: setChannelGain,
+        setMuted: setChannelMuted,
+        footer: "Gain and mute apply after summing this mixer output channel."
+      )
+
+      Text(
+        "Inputs are summed without hidden normalization. Reduce channel gain to preserve headroom when combining correlated signals."
+      )
+      .font(.caption2)
+      .foregroundStyle(FlowingPalette.faint)
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  private var channelCount: Binding<Int> {
+    Binding(
+      get: { configuration.channelCount },
+      set: { updateConfiguration(RoutingAudioMixerConfiguration(channelCount: $0)) }
+    )
   }
 }
 

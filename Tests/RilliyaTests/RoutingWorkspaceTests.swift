@@ -376,6 +376,69 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func audioMixerAcceptsMultipleInputsPerChannelAndFansOutItsOutputs() throws {
+    let model = RoutingWorkspaceModel()
+    let firstSourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    let secondSourceID = model.addInputAudioNode(centeredAt: CGPoint(x: 0, y: 220))
+    let mixerID = model.addAudioMixerNode(centeredAt: CGPoint(x: 420, y: 100))
+    model.setApplicationChannelPresentation(.separate(channelCount: 1), for: firstSourceID)
+    model.setInputDeviceChannelPresentation(.separate(channelCount: 1), for: secondSourceID)
+
+    try connectChannel(
+      sourceID: firstSourceID,
+      sourceChannel: 0,
+      targetID: mixerID,
+      targetChannel: 0,
+      model: model
+    )
+    try connectChannel(
+      sourceID: secondSourceID,
+      sourceChannel: 0,
+      targetID: mixerID,
+      targetChannel: 0,
+      model: model
+    )
+
+    #expect(model.edges.count == 2)
+    #expect(model.incomingEdges(for: mixerID).count == 2)
+    let ports = RoutingGraphPorts.values(for: try #require(model.node(id: mixerID)))
+    #expect(
+      ports.filter { $0.direction == .input }.allSatisfy {
+        $0.connectionPolicy == .mixingInput
+      })
+    #expect(
+      ports.filter { $0.direction == .output }.allSatisfy {
+        $0.connectionPolicy == .fanOut
+      })
+  }
+
+  @Test @MainActor
+  func expandingMixerPreservesExistingRoutesAndChannelControls() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    let mixerID = model.addAudioMixerNode(centeredAt: CGPoint(x: 420, y: 0))
+    model.setApplicationChannelPresentation(.separate(channelCount: 1), for: sourceID)
+    try connectChannel(
+      sourceID: sourceID,
+      sourceChannel: 0,
+      targetID: mixerID,
+      targetChannel: 0,
+      model: model
+    )
+    model.setAudioChannelGain(-12, nodeID: mixerID, channelIndex: 0)
+    let originalFrame = try #require(model.node(id: mixerID)).frame
+    let center = CGPoint(x: originalFrame.midX, y: originalFrame.midY)
+
+    model.configureAudioMixer(RoutingAudioMixerConfiguration(channelCount: 4), for: mixerID)
+
+    let mixer = try #require(model.node(id: mixerID))
+    #expect(model.edges.count == 1)
+    #expect(mixer.audioChannelControl(at: 0).gainDecibels == -12)
+    #expect(CGPoint(x: mixer.frame.midX, y: mixer.frame.midY) == center)
+    #expect(RoutingGraphPorts.values(for: mixer).count == 8)
+  }
+
+  @Test @MainActor
   func disabledPeakInputCannotBeReenabledOverAnotherActiveInput() throws {
     let model = RoutingWorkspaceModel()
     let firstSourceID = model.addApplicationAudioNode(centeredAt: .zero)
@@ -703,6 +766,42 @@ struct RoutingWorkspaceTests {
       content.presentation.ports.first {
         guard case .port(let key) = $0.address.elementID else { return false }
         return key.nodeID == targetID && $0.value.audioChannel == .all
+      }
+    )
+    model.send(
+      .connectionCompleted(
+        FlowingGraphCanvasConnectionCompletionIntent(
+          operation: .create(sourcePortID: source.id, targetPortID: target.id),
+          basePresentationSnapshotID: content.presentation.snapshotID,
+          baseLayoutInputID: content.id
+        )
+      )
+    )
+  }
+
+  @MainActor
+  private func connectChannel(
+    sourceID: UUID,
+    sourceChannel: Int,
+    targetID: UUID,
+    targetChannel: Int,
+    model: RoutingWorkspaceModel
+  ) throws {
+    let content = try #require(model.canvasContent)
+    let source = try #require(
+      content.presentation.ports.first {
+        guard case .port(let key) = $0.address.elementID else { return false }
+        return key.nodeID == sourceID
+          && $0.value.direction == .output
+          && $0.value.audioChannel == .channel(sourceChannel)
+      }
+    )
+    let target = try #require(
+      content.presentation.ports.first {
+        guard case .port(let key) = $0.address.elementID else { return false }
+        return key.nodeID == targetID
+          && $0.value.direction == .input
+          && $0.value.audioChannel == .channel(targetChannel)
       }
     )
     model.send(

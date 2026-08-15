@@ -76,13 +76,14 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     channelPresentation: RoutingChannelPresentation
   )
   case visualizer(configuration: RoutingVisualizerConfiguration)
+  case audioMixer(configuration: RoutingAudioMixerConfiguration)
   case peakLevel
 
   var applicationSelection: RoutingApplicationSelection? {
     switch self {
     case .applicationAudio(let selection, _):
       return selection
-    case .inputAudio, .visualizer, .peakLevel:
+    case .inputAudio, .visualizer, .audioMixer, .peakLevel:
       return nil
     }
   }
@@ -97,11 +98,16 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     return configuration
   }
 
+  var audioMixerConfiguration: RoutingAudioMixerConfiguration? {
+    guard case .audioMixer(let configuration) = self else { return nil }
+    return configuration
+  }
+
   var audioSourceChannelPresentation: RoutingChannelPresentation? {
     switch self {
     case .applicationAudio(_, let presentation), .inputAudio(_, let presentation):
       return presentation
-    case .visualizer, .peakLevel:
+    case .visualizer, .audioMixer, .peakLevel:
       return nil
     }
   }
@@ -114,7 +120,7 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return .applicationAudio(selection: selection, channelPresentation: presentation)
     case .inputAudio(let selection, _):
       return .inputAudio(selection: selection, channelPresentation: presentation)
-    case .visualizer, .peakLevel:
+    case .visualizer, .audioMixer, .peakLevel:
       return nil
     }
   }
@@ -127,6 +133,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return "Input Audio"
     case .visualizer:
       return "Visualizer"
+    case .audioMixer:
+      return "Audio Mixer"
     case .peakLevel:
       return "Peak Level"
     }
@@ -195,6 +203,38 @@ struct RoutingAudioChannelControl: Codable, Equatable, Hashable, Sendable {
       gainDecibels: gainDecibels,
       isMuted: try container.decode(Bool.self, forKey: .isMuted)
     )
+  }
+}
+
+struct RoutingAudioMixerConfiguration: Codable, Equatable, Hashable, Sendable {
+  static let minimumChannelCount = 1
+  static let maximumChannelCount = 8
+  static let initial = RoutingAudioMixerConfiguration(channelCount: 2)
+
+  var channelCount: Int
+
+  init(channelCount: Int) {
+    precondition(
+      (Self.minimumChannelCount...Self.maximumChannelCount).contains(channelCount)
+    )
+    self.channelCount = channelCount
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.singleValueContainer()
+    let channelCount = try container.decode(Int.self)
+    guard (Self.minimumChannelCount...Self.maximumChannelCount).contains(channelCount) else {
+      throw DecodingError.dataCorruptedError(
+        in: container,
+        debugDescription: "Audio mixer channel count is outside the supported range."
+      )
+    }
+    self.init(channelCount: channelCount)
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.singleValueContainer()
+    try container.encode(channelCount)
   }
 }
 
@@ -594,6 +634,7 @@ typealias RoutingCanvasAccessibilitySnapshot =
 
 enum RoutingCanvasMetrics {
   static let baseNodeSize = CGSize(width: 252, height: 128)
+  static let mixerNodeWidth: CGFloat = 300
   static let contentBounds = CGRect(
     x: -100_000,
     y: -100_000,
@@ -631,6 +672,14 @@ enum RoutingCanvasMetrics {
         width: baseNodeSize.width,
         height: RoutingVisualizerLayout.nodeHeight(for: configuration)
       )
+    case .audioMixer(let configuration):
+      return CGSize(
+        width: mixerNodeWidth,
+        height: max(
+          baseNodeSize.height,
+          RoutingAudioMixerLayout.nodeHeight(channelCount: configuration.channelCount)
+        )
+      )
     case .peakLevel:
       return baseNodeSize
     }
@@ -638,6 +687,31 @@ enum RoutingCanvasMetrics {
       width: baseNodeSize.width,
       height: max(baseNodeSize.height, CGFloat(portCount + 1) * 18)
     )
+  }
+}
+
+enum RoutingAudioMixerLayout {
+  static let rowsTop = RoutingAudioSourceLayout.rowsTop
+  static let rowHeight = RoutingAudioSourceLayout.rowHeight
+  static let rowSpacing = RoutingAudioSourceLayout.rowSpacing
+  static let horizontalInset = RoutingAudioSourceLayout.horizontalInset
+  static let portLabelGutter: CGFloat = 42
+  static let bottomInset = RoutingAudioSourceLayout.bottomInset
+
+  static func nodeHeight(channelCount: Int) -> CGFloat {
+    rowsTop + CGFloat(max(channelCount, 1)) * rowHeight
+      + CGFloat(max(channelCount - 1, 0)) * rowSpacing + bottomInset
+  }
+
+  static func rowFrames(in nodeFrame: CGRect, channelCount: Int) -> [CGRect] {
+    (0..<max(channelCount, 1)).map { index in
+      CGRect(
+        x: nodeFrame.minX + horizontalInset + portLabelGutter,
+        y: nodeFrame.minY + rowsTop + CGFloat(index) * (rowHeight + rowSpacing),
+        width: nodeFrame.width - horizontalInset * 2 - portLabelGutter * 2,
+        height: rowHeight
+      )
+    }
   }
 }
 
@@ -830,6 +904,8 @@ enum RoutingGraphPorts {
       identities = outputIdentities(for: channelPresentation)
     case .visualizer(let configuration):
       return visualizerValues(for: configuration)
+    case .audioMixer(let configuration):
+      return audioMixerValues(for: configuration)
     case .peakLevel:
       return [
         RoutingGraphPortValue(
@@ -931,6 +1007,30 @@ enum RoutingGraphPorts {
         )
       ]
     }
+  }
+
+  private static func audioMixerValues(
+    for configuration: RoutingAudioMixerConfiguration
+  ) -> [RoutingGraphPortValue] {
+    let inputs = (0..<configuration.channelCount).map { channel in
+      RoutingGraphPortValue(
+        direction: .input,
+        channel: .channel(channel),
+        connectionPolicy: .mixingInput,
+        ordinal: channel,
+        total: configuration.channelCount
+      )
+    }
+    let outputs = (0..<configuration.channelCount).map { channel in
+      RoutingGraphPortValue(
+        direction: .output,
+        channel: .channel(channel),
+        connectionPolicy: .fanOut,
+        ordinal: channel,
+        total: configuration.channelCount
+      )
+    }
+    return inputs + outputs
   }
 }
 

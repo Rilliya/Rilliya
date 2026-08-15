@@ -45,6 +45,14 @@ struct RoutingWorkflowPersistenceTests {
     )
     #expect(restoredInput.id.rawValue == "example.input")
     #expect(restoredInput.displayName == "Studio Input")
+    let restoredMixer = try #require(
+      restoredLibrary.selectedWorkflow.workspace.node(id: fixture.mixerID)
+    )
+    #expect(
+      restoredMixer.value
+        == .audioMixer(configuration: RoutingAudioMixerConfiguration(channelCount: 4))
+    )
+    #expect(restoredMixer.audioChannelControl(at: 2).isMuted)
   }
 
   @Test
@@ -131,6 +139,12 @@ struct RoutingWorkflowPersistenceTests {
       ),
       for: inputID
     )
+    let mixerID = secondWorkspace.addAudioMixerNode(centeredAt: CGPoint(x: 360, y: 0))
+    secondWorkspace.configureAudioMixer(
+      RoutingAudioMixerConfiguration(channelCount: 4),
+      for: mixerID
+    )
+    secondWorkspace.setAudioChannelMuted(true, nodeID: mixerID, channelIndex: 2)
     let secondWorkflow = RoutingWorkflowModel(
       id: secondWorkflowID,
       name: "Input Lab",
@@ -147,6 +161,7 @@ struct RoutingWorkflowPersistenceTests {
       snapshot: RoutingWorkflowLibrarySnapshot(library: library),
       firstWorkflowID: firstWorkflowID,
       sourceID: sourceID,
+      mixerID: mixerID,
       selectedWorkflowID: secondWorkflowID
     )
   }
@@ -158,5 +173,6 @@ private struct Fixture {
   let snapshot: RoutingWorkflowLibrarySnapshot
   let firstWorkflowID: UUID
   let sourceID: UUID
+  let mixerID: UUID
   let selectedWorkflowID: UUID
 }

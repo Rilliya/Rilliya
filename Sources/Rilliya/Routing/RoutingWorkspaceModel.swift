@@ -164,6 +164,31 @@ final class RoutingWorkspaceModel {
   }
 
   @discardableResult
+  func addAudioMixerNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    let value = RoutingNodeValue.audioMixer(configuration: .initial)
+    let size = RoutingCanvasMetrics.nodeSize(for: value)
+    nodes.append(
+      RoutingWorkspaceNode(
+        id: id,
+        value: value,
+        frame: CGRect(
+          x: worldPoint.x - size.width / 2,
+          y: worldPoint.y - size.height / 2,
+          width: size.width,
+          height: size.height
+        )
+      )
+    )
+    rebuildCanvas()
+    return id
+  }
+
+  @discardableResult
   func addPeakLevelNode(
     centeredAt worldPoint: CGPoint,
     id: UUID = UUID()
@@ -340,6 +365,26 @@ final class RoutingWorkspaceModel {
         _ = materializePendingSeparation(for: nodeID)
       }
     }
+    resizeNode(at: index)
+    rebuildCanvas()
+  }
+
+  func configureAudioMixer(
+    _ configuration: RoutingAudioMixerConfiguration,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      case .audioMixer(let previous) = nodes[index].value,
+      previous != configuration
+    else {
+      return
+    }
+    nodes[index].value = .audioMixer(configuration: configuration)
+    nodes[index].audioChannelControls = nodes[index].audioChannelControls.filter {
+      $0.key < configuration.channelCount
+    }
+    let availablePortIDs = Set(RoutingGraphPorts.values(for: nodes[index].value).map(\.id))
+    nodes[index].disabledPortIDs.formIntersection(availablePortIDs)
     resizeNode(at: index)
     rebuildCanvas()
   }
@@ -537,6 +582,7 @@ final class RoutingWorkspaceModel {
       ),
       let index = nodes.firstIndex(where: { $0.id == nodeID }),
       nodes[index].value.audioSourceChannelPresentation != nil
+        || nodes[index].value.audioMixerConfiguration != nil
     else {
       return
     }

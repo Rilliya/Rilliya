@@ -205,6 +205,13 @@ enum RoutingCanvasContentBuilder {
         return nil
       }
       return laneFrames[laneIndex].midY
+    case .audioMixer(let configuration):
+      let rowFrames = RoutingAudioMixerLayout.rowFrames(
+        in: localFrame,
+        channelCount: configuration.channelCount
+      )
+      guard rowFrames.indices.contains(value.ordinal) else { return nil }
+      return rowFrames[value.ordinal].midY
     case .applicationAudio, .inputAudio, .peakLevel:
       return nil
     }
@@ -228,6 +235,9 @@ enum RoutingCanvasContentBuilder {
         ? "Mixed waveform"
         : "\(configuration.normalizedSelectedChannels.count) selected channels"
       hint = "Select to configure the routed channels shown by this visualizer."
+    case .audioMixer(let configuration):
+      value = "\(configuration.channelCount)-channel mixer"
+      hint = "Connect audio inputs and adjust each output channel level."
     case .peakLevel:
       value = "Maximum linear full-scale sample"
       hint = "Connect one audio output to measure its current peak level."

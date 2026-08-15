@@ -90,6 +90,60 @@ struct RoutingResolvedAudioSignalTests {
     #expect(signals.isEmpty)
   }
 
+  @Test
+  func audioMixerSumsEveryInputWithoutHiddenNormalization() throws {
+    let firstSourceID = UUID()
+    let secondSourceID = UUID()
+    let mixerID = UUID()
+    let sources = [firstSourceID, secondSourceID].map { sourceID in
+      RoutingWorkspaceNode(
+        id: sourceID,
+        value: .applicationAudio(
+          selection: nil,
+          channelPresentation: .separate(channelCount: 1)
+        ),
+        frame: .zero
+      )
+    }
+    let mixer = RoutingWorkspaceNode(
+      id: mixerID,
+      value: .audioMixer(configuration: RoutingAudioMixerConfiguration(channelCount: 1)),
+      frame: .zero
+    )
+    let edges = [firstSourceID, secondSourceID].map { sourceID in
+      RoutingWorkspaceEdge(
+        id: UUID(),
+        source: RoutingWorkspacePortAddress(
+          nodeID: sourceID,
+          portID: RoutingGraphPortID(direction: .output, channel: .channel(0))
+        ),
+        target: RoutingWorkspacePortAddress(
+          nodeID: mixerID,
+          portID: RoutingGraphPortID(direction: .input, channel: .channel(0))
+        )
+      )
+    }
+    let firstSnapshot = try makeSnapshot(waveforms: [[0.25, 0.5]], peaks: [0.5])
+    let secondSnapshot = try makeSnapshot(waveforms: [[0.5, -0.5]], peaks: [0.5])
+    let resolver = RoutingAudioSignalResolver(
+      nodes: sources + [mixer],
+      activeEdges: edges,
+      snapshotForNode: { nodeID in
+        nodeID == firstSourceID ? firstSnapshot : secondSnapshot
+      }
+    )
+
+    let output = resolver.resolveOutput(
+      RoutingWorkspacePortAddress(
+        nodeID: mixerID,
+        portID: RoutingGraphPortID(direction: .output, channel: .channel(0))
+      )
+    )
+
+    #expect(output.map(\.waveform) == [[0.75, 0]])
+    #expect(output.first?.peak == 0.75)
+  }
+
   private func edge(sourceID: UUID, targetID: UUID) -> RoutingWorkspaceEdge {
     RoutingWorkspaceEdge(
       id: UUID(),

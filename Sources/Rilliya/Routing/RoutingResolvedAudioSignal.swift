@@ -52,6 +52,8 @@ struct RoutingAudioSignalResolver {
         configuration: configuration,
         visited: visited
       )
+    case .audioMixer:
+      return audioMixerSignals(for: address, node: node, visited: visited)
     case .peakLevel:
       return []
     }
@@ -134,6 +136,59 @@ struct RoutingAudioSignalResolver {
     case .none:
       return []
     }
+  }
+
+  private func audioMixerSignals(
+    for address: RoutingWorkspacePortAddress,
+    node: RoutingWorkspaceNode,
+    visited: Set<RoutingWorkspacePortAddress>
+  ) -> [RoutingResolvedAudioChannelSignal] {
+    guard case .some(.channel(let channelIndex)) = address.portID.audioChannel else {
+      return []
+    }
+    let channels = (incomingEdgesByNodeID[address.nodeID] ?? [])
+      .filter { $0.target.portID.audioChannel == .channel(channelIndex) }
+      .sorted { $0.id.uuidString < $1.id.uuidString }
+      .flatMap { resolveOutput($0.source, visited: visited) }
+    guard let mixed = summedChannel(channels, channelIndex: channelIndex) else {
+      return []
+    }
+    let control = node.audioChannelControl(at: channelIndex)
+    let gain = control.linearGain
+    let peak = mixed.peak * gain
+    return [
+      RoutingResolvedAudioChannelSignal(
+        channelIndex: channelIndex,
+        rootMeanSquare: mixed.rootMeanSquare * gain,
+        peak: peak,
+        isClipping: mixed.isClipping || peak >= 1,
+        waveform: scaled(mixed.waveform, by: gain)
+      )
+    ]
+  }
+
+  private func summedChannel(
+    _ channels: [RoutingResolvedAudioChannelSignal],
+    channelIndex: Int
+  ) -> RoutingResolvedAudioChannelSignal? {
+    guard let sampleCount = channels.map(\.waveform.count).min(), sampleCount > 0 else {
+      return nil
+    }
+    let waveform = (0..<sampleCount).map { sampleIndex in
+      channels.reduce(Float.zero) { partial, channel in
+        partial + channel.waveform[sampleIndex]
+      }
+    }
+    let squaredSum = waveform.reduce(Float.zero) { $0 + $1 * $1 }
+    let rootMeanSquare = sqrt(squaredSum / Float(sampleCount))
+    let peak = waveform.reduce(Float.zero) { max($0, abs($1)) }
+    return RoutingResolvedAudioChannelSignal(
+      channelIndex: channelIndex,
+      rootMeanSquare: rootMeanSquare,
+      peak: peak,
+      isClipping: peak >= 1 || channels.contains(where: \.isClipping),
+      waveform: waveform
+    )
   }
 
   private func normalizedMonoMix(

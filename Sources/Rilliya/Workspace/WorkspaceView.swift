@@ -32,6 +32,7 @@ struct WorkspaceView: View {
         insertApplicationAudio: insertApplicationAudio,
         insertInputAudio: insertInputAudio,
         insertVisualizer: insertVisualizer,
+        insertAudioMixer: insertAudioMixer,
         insertPeakLevel: insertPeakLevel
       ) {
         RoutingWorkflowSwitcher(
@@ -295,6 +296,17 @@ struct WorkspaceView: View {
   private func insertInputAudio() {
     let workflow = workflowLibrary.selectedWorkflow
     let nodeID = workflow.workspace.addInputAudioNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
+      )
+    )
+    selectNode(nodeID, in: workflow)
+  }
+
+  private func insertAudioMixer() {
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addAudioMixerNode(
       centeredAt: RoutingNodeInsertion.point(
         in: workflow.canvasSession.viewport.visibleWorldRect,
         existingNodeCount: workflow.workspace.nodes.count

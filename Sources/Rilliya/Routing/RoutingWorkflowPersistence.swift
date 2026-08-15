@@ -143,6 +143,11 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
         && requestedChannels.allSatisfy {
           (0..<RoutingVisualizerConfiguration.maximumAvailableChannelCount).contains($0)
         }
+    case .audioMixer(let configuration):
+      return
+        (RoutingAudioMixerConfiguration
+        .minimumChannelCount...RoutingAudioMixerConfiguration.maximumChannelCount).contains(
+          configuration.channelCount)
     case .peakLevel:
       return true
     }

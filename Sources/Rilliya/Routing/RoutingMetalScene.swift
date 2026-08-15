@@ -82,6 +82,8 @@ struct RoutingMetalScene {
         return "Input Audio"
       case .visualizer:
         return "Visualizer"
+      case .audioMixer:
+        return "Audio Mixer"
       case .peakLevel:
         return "Peak Level"
       }
@@ -97,6 +99,8 @@ struct RoutingMetalScene {
         if configuration.mode == .mixed { return "Mixed waveform" }
         let count = configuration.normalizedSelectedChannels.count
         return "\(count) selected channel\(count == 1 ? "" : "s")"
+      case .audioMixer(let configuration):
+        return "\(configuration.channelCount)-channel mix"
       case .peakLevel:
         return "Linear full-scale peak"
       }
@@ -124,6 +128,9 @@ struct RoutingMetalScene {
         return selection == nil ? "Select to configure" : "Input device is unavailable"
       case .visualizer:
         return supplement.visualizerSignal == nil ? "Waiting for routed audio" : "Live waveform"
+      case .audioMixer:
+        return supplement.audioSourceMeters.contains(where: { $0.peak > 0 })
+          ? "Live mix" : "Waiting for routed audio"
       case .peakLevel:
         guard let signal = supplement.peakLevelSignal else { return "Waiting for routed audio" }
         return signal.isClipping ? "Clipping" : "Live peak"
@@ -161,7 +168,7 @@ struct RoutingMetalScene {
         return selection != nil
       case .inputAudio(let selection, _):
         return selection != nil
-      case .visualizer, .peakLevel:
+      case .visualizer, .audioMixer, .peakLevel:
         return false
       }
     }
@@ -175,7 +182,7 @@ struct RoutingMetalScene {
       switch value {
       case .applicationAudio:
         supplement.applicationIcon == nil
-      case .inputAudio, .visualizer, .peakLevel:
+      case .inputAudio, .visualizer, .audioMixer, .peakLevel:
         true
       }
     }
@@ -188,6 +195,8 @@ struct RoutingMetalScene {
         return "waveform.badge.mic"
       case .visualizer:
         return "waveform"
+      case .audioMixer:
+        return "slider.horizontal.3"
       case .peakLevel:
         return "gauge.with.dots.needle.50percent"
       }
@@ -198,7 +207,8 @@ struct RoutingMetalScene {
       case .applicationAudio: 0
       case .inputAudio: 1
       case .visualizer: 2
-      case .peakLevel: 3
+      case .audioMixer: 3
+      case .peakLevel: 4
       }
     }
 
@@ -208,6 +218,8 @@ struct RoutingMetalScene {
         return selection != nil
       case .inputAudio(let selection, .separate):
         return selection != nil
+      case .audioMixer:
+        return true
       case .applicationAudio, .inputAudio, .visualizer, .peakLevel:
         return false
       }

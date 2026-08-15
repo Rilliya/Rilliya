@@ -883,6 +883,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
     case .visualizer:
       appendVisualizer(node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
+    case .audioMixer:
+      appendAudioMixer(node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
     case .peakLevel:
       appendPeakLevel(node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
     }
@@ -1043,6 +1045,45 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       in: frame,
       channelCount: channelCount
     )
+    appendAudioChannelControls(
+      node: node,
+      rows: rows,
+      channelCount: channelCount,
+      accent: accent,
+      palette: palette,
+      to: &geometry
+    )
+  }
+
+  private func appendAudioMixer(
+    node: RoutingMetalScene.Node,
+    frame: CGRect,
+    accent: SIMD4<Float>,
+    palette: RoutingMetalPalette,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
+    guard case .audioMixer(let configuration) = node.value else { return }
+    appendAudioChannelControls(
+      node: node,
+      rows: RoutingAudioMixerLayout.rowFrames(
+        in: frame,
+        channelCount: configuration.channelCount
+      ),
+      channelCount: configuration.channelCount,
+      accent: accent,
+      palette: palette,
+      to: &geometry
+    )
+  }
+
+  private func appendAudioChannelControls(
+    node: RoutingMetalScene.Node,
+    rows: [CGRect],
+    channelCount: Int,
+    accent: SIMD4<Float>,
+    palette: RoutingMetalPalette,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
     let metersByChannel = Dictionary(
       uniqueKeysWithValues: node.supplement.audioSourceMeters.map { ($0.channelIndex, $0) }
     )
@@ -1281,8 +1322,10 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       palette.brook
     case 2:
       palette.seafoam
-    default:
+    case 3:
       palette.pollen
+    default:
+      palette.poppy
     }
   }
 
@@ -1586,14 +1629,28 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
 
   private func audioChannelControl(at point: CGPoint) -> AudioChannelControlHit? {
     for node in nodesInRenderOrder.reversed() {
-      guard node.hasAudioSourceSelection,
-        case .some(.separate(let channelCount)) = node.value.audioSourceChannelPresentation
-      else {
+      let channelCount: Int
+      let rows: [CGRect]
+      let frame = translatedFrame(of: node)
+      if node.hasAudioSourceSelection,
+        case .some(.separate(let sourceChannelCount)) =
+          node.value.audioSourceChannelPresentation
+      {
+        channelCount = sourceChannelCount
+        rows = RoutingAudioSourceLayout.rowFrames(
+          in: frame,
+          channelCount: sourceChannelCount
+        )
+      } else if case .audioMixer(let configuration) = node.value {
+        channelCount = configuration.channelCount
+        rows = RoutingAudioMixerLayout.rowFrames(
+          in: frame,
+          channelCount: configuration.channelCount
+        )
+      } else {
         continue
       }
-      let frame = translatedFrame(of: node)
-      let rows = RoutingAudioSourceLayout.rowFrames(in: frame, channelCount: channelCount)
-      for (channelIndex, row) in rows.enumerated() {
+      for (channelIndex, row) in rows.prefix(channelCount).enumerated() {
         if RoutingAudioSourceLayout.muteButtonFrame(in: row).contains(point) {
           return .mute(nodeID: node.workspaceID, channelIndex: channelIndex)
         }
