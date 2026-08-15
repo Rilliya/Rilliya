@@ -174,7 +174,7 @@ struct RoutingMetalSceneTests {
 
     #expect(scene.nodes.first?.supplement.peakLevelSignal == signal)
     #expect(scene.nodes.first?.title == "Peak Level")
-    #expect(scene.nodes.first?.miniMapStyleIndex == 2)
+    #expect(scene.nodes.first?.miniMapStyleIndex == 3)
   }
 
   @Test @MainActor

@@ -703,7 +703,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     )
 
     switch node.value {
-    case .applicationAudio:
+    case .applicationAudio, .inputAudio:
       appendApplicationStatus(
         node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
     case .visualizer:
@@ -772,8 +772,9 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     palette: RoutingMetalPalette,
     to geometry: inout RoutingMetalFrameGeometry
   ) {
-    guard let statusText = node.applicationStatusText,
-      let statusSymbolName = node.applicationStatusSymbolName
+    guard let statusText = node.applicationStatusText ?? node.inputDeviceStatusText,
+      let statusSymbolName =
+        node.applicationStatusSymbolName ?? node.inputDeviceStatusSymbolName
     else {
       return
     }
@@ -786,7 +787,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     geometry.shapes.append(
       RoutingMetalShapeInstance(
         rect: statusFrame,
-        fill: node.hasApplicationSelection ? palette.field : accent.withAlpha(0.1),
+        fill: node.hasAudioSourceSelection ? palette.field : accent.withAlpha(0.1),
         border: .zero,
         cornerRadius: 8,
         borderWidth: 0,
@@ -801,7 +802,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         width: 14,
         height: statusFrame.height
       ),
-      color: node.hasApplicationSelection ? palette.muted : accent,
+      color: node.hasAudioSourceSelection ? palette.muted : accent,
       to: &geometry
     )
     append(
@@ -810,7 +811,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         x: statusFrame.minX + 25,
         y: statusFrame.midY - 7
       ),
-      color: node.hasApplicationSelection ? palette.muted : accent,
+      color: node.hasAudioSourceSelection ? palette.muted : accent,
       to: &geometry
     )
   }
@@ -943,6 +944,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     case 0:
       palette.fern
     case 1:
+      palette.brook
+    case 2:
       palette.seafoam
     default:
       palette.pollen
@@ -1625,6 +1628,7 @@ private struct RoutingMetalPalette {
   let muted: SIMD4<Float>
   let border: SIMD4<Float>
   let fern = SIMD4<Float>(0x58 / 255, 0xA9 / 255, 0x7B / 255, 1)
+  let brook = SIMD4<Float>(0x29 / 255, 0xA3 / 255, 0xC5 / 255, 1)
   let seafoam = SIMD4<Float>(0x4D / 255, 0xA5 / 255, 0xA0 / 255, 1)
   let pollen = SIMD4<Float>(0xA6 / 255, 0x97 / 255, 0x4F / 255, 1)
   let poppy = SIMD4<Float>(0xE9 / 255, 0x64 / 255, 0x52 / 255, 1)

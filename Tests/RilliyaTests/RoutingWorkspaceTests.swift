@@ -90,6 +90,29 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func inputAudioUsesPersistentDeviceIdentityAndRuntimeChannels() throws {
+    let model = RoutingWorkspaceModel()
+    let center = CGPoint(x: 420, y: 260)
+    let nodeID = model.addInputAudioNode(centeredAt: center)
+    let deviceID = try #require(AudioDeviceID(rawValue: "virtual-input"))
+    let selection = RoutingInputDeviceSelection(id: deviceID, displayName: "Virtual Input")
+
+    model.selectInputDevice(selection, for: nodeID)
+    model.setInputDeviceChannelPresentation(.separate(channelCount: 8), for: nodeID)
+    model.synchronizeInputCaptureFormats([
+      nodeID: try inputCaptureFormat(deviceID: deviceID, channelCount: 2)
+    ])
+
+    let node = try #require(model.node(id: nodeID))
+    #expect(node.value.inputDeviceSelection == selection)
+    #expect(node.value.channelPresentation == .separate(channelCount: 2))
+    #expect(CGPoint(x: node.frame.midX, y: node.frame.midY) == center)
+    let ports = RoutingGraphPorts.values(for: node)
+    #expect(ports.count == 2)
+    #expect(ports.allSatisfy { $0.direction == .output })
+  }
+
+  @Test @MainActor
   func selectingApplicationUpdatesOnlyRequestedNode() throws {
     let model = RoutingWorkspaceModel()
     let firstID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
@@ -578,6 +601,23 @@ struct RoutingWorkspaceTests {
     }
     return ProcessOutputCaptureFormat(
       processID: processID,
+      sampleRate: 48_000,
+      channelIDs: channelIDs
+    )
+  }
+
+  private func inputCaptureFormat(
+    deviceID: AudioDeviceID,
+    channelCount: Int
+  ) throws -> DeviceInputCaptureFormat {
+    let channelIDs = try (0..<channelCount).map { index in
+      AudioChannelID(
+        ownerID: .source(.deviceInput(deviceID)),
+        index: try #require(AudioChannelIndex(rawValue: index))
+      )
+    }
+    return DeviceInputCaptureFormat(
+      deviceID: deviceID,
       sampleRate: 48_000,
       channelIDs: channelIDs
     )

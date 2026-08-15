@@ -7,7 +7,7 @@ enum RoutingConnectionLabelFormatter {
     source: RoutingGraphPortValue,
     target: RoutingGraphPortValue,
     targetNode: RoutingNodeValue,
-    format: ProcessOutputCaptureFormat?
+    format: RoutingAudioCaptureFormat?
   ) -> String? {
     guard level != .hidden else { return nil }
 
@@ -27,7 +27,7 @@ enum RoutingConnectionLabelFormatter {
     source: RoutingGraphPortValue,
     target: RoutingGraphPortValue,
     targetNode: RoutingNodeValue,
-    format: ProcessOutputCaptureFormat?
+    format: RoutingAudioCaptureFormat?
   ) -> String {
     let sourceDescription = sourceDescription(source, format: format)
     guard case .visualizer = targetNode else {
@@ -51,7 +51,7 @@ enum RoutingConnectionLabelFormatter {
 
   private static func sourceDescription(
     _ source: RoutingGraphPortValue,
-    format: ProcessOutputCaptureFormat?
+    format: RoutingAudioCaptureFormat?
   ) -> String {
     guard source.audioChannel == .all else { return source.shortLabel }
     guard let count = format?.channelIDs.count else { return "All ch" }

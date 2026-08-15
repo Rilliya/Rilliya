@@ -10,7 +10,7 @@ struct RoutingMetalNodeSupplement: Equatable {
   let captureConsumerCount: Int
   let visualizerSignal: RoutingVisualizerSignal?
   let peakLevelSignal: RoutingPeakLevelSignal?
-  let captureFormat: ProcessOutputCaptureFormat?
+  let captureFormat: RoutingAudioCaptureFormat?
 
   init(
     isRunning: Bool,
@@ -18,7 +18,7 @@ struct RoutingMetalNodeSupplement: Equatable {
     captureConsumerCount: Int,
     visualizerSignal: RoutingVisualizerSignal?,
     peakLevelSignal: RoutingPeakLevelSignal? = nil,
-    captureFormat: ProcessOutputCaptureFormat? = nil
+    captureFormat: RoutingAudioCaptureFormat? = nil
   ) {
     self.isRunning = isRunning
     self.isCapturing = isCapturing
@@ -66,6 +66,8 @@ struct RoutingMetalScene {
       switch value {
       case .applicationAudio:
         return "Application Audio"
+      case .inputAudio:
+        return "Input Audio"
       case .visualizer:
         return "Visualizer"
       case .peakLevel:
@@ -77,6 +79,8 @@ struct RoutingMetalScene {
       switch value {
       case .applicationAudio(let selection, _):
         return selection?.displayName ?? "Choose an application"
+      case .inputAudio(let selection, _):
+        return selection?.displayName ?? "Choose an input device"
       case .visualizer(let configuration):
         if configuration.mode == .mixed { return "Mixed waveform" }
         let count = configuration.normalizedSelectedChannels.count
@@ -98,6 +102,15 @@ struct RoutingMetalScene {
         }
         if supplement.isRunning { return "Ready to capture" }
         return selection == nil ? "Select to configure" : "Application is not running"
+      case .inputAudio(let selection, _):
+        if supplement.isCapturing {
+          if supplement.captureConsumerCount > 1 {
+            return "Shared capture · \(supplement.captureConsumerCount) nodes"
+          }
+          return "Capturing live input"
+        }
+        if supplement.isRunning { return "Ready to capture" }
+        return selection == nil ? "Select to configure" : "Input device is unavailable"
       case .visualizer:
         return supplement.visualizerSignal == nil ? "Waiting for routed audio" : "Live waveform"
       case .peakLevel:
@@ -111,8 +124,18 @@ struct RoutingMetalScene {
       return selection == nil ? "Select this node to configure" : nil
     }
 
+    var inputDeviceStatusText: String? {
+      guard case .inputAudio(let selection, _) = value else { return nil }
+      return selection == nil ? "Select this node to configure" : nil
+    }
+
     var applicationStatusSymbolName: String? {
       guard case .applicationAudio(let selection, _) = value else { return nil }
+      return selection == nil ? "cursorarrow.click" : nil
+    }
+
+    var inputDeviceStatusSymbolName: String? {
+      guard case .inputAudio(let selection, _) = value else { return nil }
       return selection == nil ? "cursorarrow.click" : nil
     }
 
@@ -121,19 +144,37 @@ struct RoutingMetalScene {
       return selection != nil
     }
 
+    var hasAudioSourceSelection: Bool {
+      switch value {
+      case .applicationAudio(let selection, _):
+        return selection != nil
+      case .inputAudio(let selection, _):
+        return selection != nil
+      case .visualizer, .peakLevel:
+        return false
+      }
+    }
+
     var applicationURL: URL? {
       guard case .applicationAudio(let selection, _) = value else { return nil }
       return selection?.applicationURL
     }
 
     var drawsIconPlate: Bool {
-      applicationURL == nil
+      switch value {
+      case .applicationAudio:
+        applicationURL == nil
+      case .inputAudio, .visualizer, .peakLevel:
+        true
+      }
     }
 
     var symbolName: String {
       switch value {
       case .applicationAudio:
         return "macwindow"
+      case .inputAudio:
+        return "waveform.badge.mic"
       case .visualizer:
         return "waveform"
       case .peakLevel:
@@ -144,8 +185,9 @@ struct RoutingMetalScene {
     var miniMapStyleIndex: Int {
       switch value {
       case .applicationAudio: 0
-      case .visualizer: 1
-      case .peakLevel: 2
+      case .inputAudio: 1
+      case .visualizer: 2
+      case .peakLevel: 3
       }
     }
   }

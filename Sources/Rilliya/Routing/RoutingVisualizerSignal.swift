@@ -36,7 +36,7 @@ enum RoutingVisualizerSignalBuilder {
   static func build(
     configuration: RoutingVisualizerConfiguration,
     incomingEdges: [RoutingWorkspaceEdge],
-    snapshotForNode: (UUID) -> ProcessOutputMeterSnapshot?
+    snapshotForNode: (UUID) -> (any RoutingAudioMeterSnapshot)?
   ) -> RoutingVisualizerSignal? {
     switch configuration.mode {
     case .mixed:
@@ -74,7 +74,7 @@ enum RoutingVisualizerSignalBuilder {
 
   private static func routedWaveforms(
     for edge: RoutingWorkspaceEdge,
-    snapshotForNode: (UUID) -> ProcessOutputMeterSnapshot?
+    snapshotForNode: (UUID) -> (any RoutingAudioMeterSnapshot)?
   ) -> [[Float]] {
     guard let snapshot = snapshotForNode(edge.source.nodeID) else { return [] }
     switch edge.source.portID.audioChannel {

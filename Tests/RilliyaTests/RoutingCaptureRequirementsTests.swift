@@ -83,6 +83,29 @@ struct RoutingCaptureRequirementsTests {
     #expect(Set(requirements.processIDsByNode.values) == [processID])
   }
 
+  @Test @MainActor
+  func connectedInputDeviceRequiresCaptureWithoutAnApplicationCatalog() throws {
+    let deviceID = try #require(AudioDeviceID(rawValue: "test.virtual-input"))
+    let workflow = RoutingWorkflowModel(name: "Input")
+    let sourceID = workflow.workspace.addInputAudioNode(centeredAt: .zero)
+    let visualizerID = workflow.workspace.addVisualizerNode(
+      centeredAt: CGPoint(x: 400, y: 0)
+    )
+    workflow.workspace.selectInputDevice(
+      RoutingInputDeviceSelection(id: deviceID, displayName: "Virtual Input"),
+      for: sourceID
+    )
+    try connect(sourceID: sourceID, targetID: visualizerID, in: workflow.workspace)
+
+    let requirements = RoutingCaptureRequirementResolver.resolve(
+      workflows: [workflow],
+      catalogSnapshot: nil
+    )
+
+    #expect(requirements.processIDsByNode.isEmpty)
+    #expect(requirements.inputDeviceIDsByNode == [sourceID: deviceID])
+  }
+
   @MainActor
   private func connect(
     sourceID: UUID,

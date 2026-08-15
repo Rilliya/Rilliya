@@ -9,8 +9,10 @@ struct WorkspaceView: View {
 
   @State private var workflowLibrary = RoutingWorkflowLibrary()
   @State private var applicationCatalog = InstalledApplicationCatalogController()
+  @State private var audioCatalog = AudioCatalogController()
   @State private var iconResolver = NSWorkspaceInstalledApplicationIconResolver()
   @State private var captureController = RoutingCaptureController()
+  @State private var inputCaptureController = RoutingInputCaptureController()
 
   var body: some View {
     ZStack {
@@ -21,12 +23,14 @@ struct WorkspaceView: View {
       RoutingNodePaletteView(
         applicationCatalog: applicationCatalog,
         insertApplicationAudio: insertApplicationAudio,
+        insertInputAudio: insertInputAudio,
         insertVisualizer: insertVisualizer,
         insertPeakLevel: insertPeakLevel
       ) {
         RoutingWorkflowSwitcher(
           library: workflowLibrary,
-          captureController: captureController
+          captureController: captureController,
+          inputCaptureController: inputCaptureController
         )
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -37,6 +41,9 @@ struct WorkspaceView: View {
     .frame(minWidth: 840, minHeight: 560)
     .task {
       await applicationCatalog.refresh()
+    }
+    .task {
+      audioCatalog.start()
     }
     .task {
       for await _ in NSWorkspace.shared.notificationCenter.notifications(
@@ -60,6 +67,9 @@ struct WorkspaceView: View {
     }
     .onChange(of: captureRequirements, initial: true) { _, requirements in
       captureController.reconcile(requirements: requirements)
+      inputCaptureController.reconcile(
+        deviceIDsByNode: requirements.inputDeviceIDsByNode
+      )
     }
     .onChange(of: captureController.states, initial: true) { _, states in
       let formats = states.compactMapValues { state -> ProcessOutputCaptureFormat? in
@@ -73,9 +83,26 @@ struct WorkspaceView: View {
         )
       }
     }
+    .onChange(of: inputCaptureController.states, initial: true) { _, states in
+      let formats = states.compactMapValues { state -> DeviceInputCaptureFormat? in
+        guard case .running(let format) = state else { return nil }
+        return format
+      }
+      for workflow in workflowLibrary.workflows {
+        workflow.workspace.synchronizeInputCaptureFormats(
+          formats,
+          preferredSeparateChannelCount: settings.defaultSeparateChannelLayout.channelCount
+        )
+      }
+    }
     .onChange(of: settings.defaultSeparateChannelLayout, initial: true) { _, layout in
       let formats = captureController.states.compactMapValues {
         state -> ProcessOutputCaptureFormat? in
+        guard case .running(let format) = state else { return nil }
+        return format
+      }
+      let inputFormats = inputCaptureController.states.compactMapValues {
+        state -> DeviceInputCaptureFormat? in
         guard case .running(let format) = state else { return nil }
         return format
       }
@@ -84,11 +111,17 @@ struct WorkspaceView: View {
           formats,
           preferredSeparateChannelCount: layout.channelCount
         )
+        workflow.workspace.synchronizeInputCaptureFormats(
+          inputFormats,
+          preferredSeparateChannelCount: layout.channelCount
+        )
       }
     }
     .onDisappear {
       applicationCatalog.cancelRefresh()
+      audioCatalog.stop()
       captureController.stopAll()
+      inputCaptureController.stopAll()
     }
   }
 
@@ -110,8 +143,10 @@ struct WorkspaceView: View {
       workflow: workflowLibrary.selectedWorkflow,
       settings: settings,
       applicationCatalog: applicationCatalog,
+      audioCatalog: audioCatalog,
       iconResolver: iconResolver,
-      captureController: captureController
+      captureController: captureController,
+      inputCaptureController: inputCaptureController
     )
   }
 
@@ -129,6 +164,17 @@ struct WorkspaceView: View {
   private func insertVisualizer() {
     let workflow = workflowLibrary.selectedWorkflow
     let nodeID = workflow.workspace.addVisualizerNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
+      )
+    )
+    selectNode(nodeID, in: workflow)
+  }
+
+  private func insertInputAudio() {
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addInputAudioNode(
       centeredAt: RoutingNodeInsertion.point(
         in: workflow.canvasSession.viewport.visibleWorldRect,
         existingNodeCount: workflow.workspace.nodes.count
@@ -160,16 +206,20 @@ private struct RoutingWorkflowCanvas: View {
 
   let settings: RilliyaSettings
   let applicationCatalog: InstalledApplicationCatalogController
+  let audioCatalog: AudioCatalogController
   let iconResolver: NSWorkspaceInstalledApplicationIconResolver
   let captureController: RoutingCaptureController
+  let inputCaptureController: RoutingInputCaptureController
 
   var body: some View {
     RoutingCanvasView(
       workspace: workflow.workspace,
       settings: settings,
       applicationCatalog: applicationCatalog,
+      audioCatalog: audioCatalog,
       iconResolver: iconResolver,
       captureController: captureController,
+      inputCaptureController: inputCaptureController,
       sessionID: workflow.canvasSessionID,
       session: $workflow.canvasSession,
       isMiniMapVisible: workflow.showsMiniMap(
@@ -183,6 +233,7 @@ private struct RoutingWorkflowCanvas: View {
 private struct RoutingWorkflowSwitcher: View {
   let library: RoutingWorkflowLibrary
   let captureController: RoutingCaptureController
+  let inputCaptureController: RoutingInputCaptureController
 
   var body: some View {
     HStack(spacing: 6) {
@@ -228,6 +279,12 @@ private struct RoutingWorkflowSwitcher: View {
   private func isCapturing(_ workflow: RoutingWorkflowModel) -> Bool {
     workflow.workspace.nodes.contains { node in
       switch captureController.state(for: node.id) {
+      case .starting, .running:
+        return true
+      case .idle, .failed:
+        break
+      }
+      switch inputCaptureController.state(for: node.id) {
       case .starting, .running:
         return true
       case .idle, .failed:

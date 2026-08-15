@@ -3,6 +3,7 @@ import FlowingDayGraphCanvas
 import FlowingDayGraphComposition
 import FlowingDayGraphCore
 import Foundation
+import RilliyaKit
 
 struct RoutingApplicationSelection: Equatable, Hashable, Identifiable, Sendable {
   let id: String
@@ -25,9 +26,24 @@ struct RoutingApplicationSelection: Equatable, Hashable, Identifiable, Sendable 
   }
 }
 
+struct RoutingInputDeviceSelection: Equatable, Hashable, Identifiable, Sendable {
+  let id: AudioDeviceID
+  let displayName: String
+
+  init(id: AudioDeviceID, displayName: String) {
+    precondition(!displayName.isEmpty)
+    self.id = id
+    self.displayName = displayName
+  }
+}
+
 enum RoutingNodeValue: Equatable, Sendable {
   case applicationAudio(
     selection: RoutingApplicationSelection?,
+    channelPresentation: RoutingChannelPresentation
+  )
+  case inputAudio(
+    selection: RoutingInputDeviceSelection?,
     channelPresentation: RoutingChannelPresentation
   )
   case visualizer(configuration: RoutingVisualizerConfiguration)
@@ -37,6 +53,33 @@ enum RoutingNodeValue: Equatable, Sendable {
     switch self {
     case .applicationAudio(let selection, _):
       return selection
+    case .inputAudio, .visualizer, .peakLevel:
+      return nil
+    }
+  }
+
+  var inputDeviceSelection: RoutingInputDeviceSelection? {
+    guard case .inputAudio(let selection, _) = self else { return nil }
+    return selection
+  }
+
+  var audioSourceChannelPresentation: RoutingChannelPresentation? {
+    switch self {
+    case .applicationAudio(_, let presentation), .inputAudio(_, let presentation):
+      return presentation
+    case .visualizer, .peakLevel:
+      return nil
+    }
+  }
+
+  func replacingAudioSourceChannelPresentation(
+    _ presentation: RoutingChannelPresentation
+  ) -> RoutingNodeValue? {
+    switch self {
+    case .applicationAudio(let selection, _):
+      return .applicationAudio(selection: selection, channelPresentation: presentation)
+    case .inputAudio(let selection, _):
+      return .inputAudio(selection: selection, channelPresentation: presentation)
     case .visualizer, .peakLevel:
       return nil
     }
@@ -46,6 +89,8 @@ enum RoutingNodeValue: Equatable, Sendable {
     switch self {
     case .applicationAudio:
       return "Application Audio"
+    case .inputAudio:
+      return "Input Audio"
     case .visualizer:
       return "Visualizer"
     case .peakLevel:
@@ -66,8 +111,7 @@ enum RoutingChannelPresentation: Equatable, Hashable, Sendable {
 
 extension RoutingNodeValue {
   var channelPresentation: RoutingChannelPresentation? {
-    guard case .applicationAudio(_, let presentation) = self else { return nil }
-    return presentation
+    audioSourceChannelPresentation
   }
 }
 
@@ -339,6 +383,17 @@ enum RoutingCanvasMetrics {
         width: baseNodeSize.width,
         height: max(minimumHeight, CGFloat(channelCount + 1) * 18)
       )
+    case .inputAudio(let selection, .aggregate):
+      if selection != nil {
+        return CGSize(width: baseNodeSize.width, height: 80)
+      }
+      portCount = 1
+    case .inputAudio(let selection, .separate(let channelCount)):
+      let minimumHeight = selection == nil ? baseNodeSize.height : 80
+      return CGSize(
+        width: baseNodeSize.width,
+        height: max(minimumHeight, CGFloat(channelCount + 1) * 18)
+      )
     case .visualizer(let configuration):
       return CGSize(
         width: baseNodeSize.width,
@@ -432,7 +487,8 @@ enum RoutingGraphPorts {
   static func values(for value: RoutingNodeValue) -> [RoutingGraphPortValue] {
     let identities: [(RoutingPortDirection, RoutingAudioPortChannel)]
     switch value {
-    case .applicationAudio(_, let channelPresentation):
+    case .applicationAudio(_, let channelPresentation),
+      .inputAudio(_, let channelPresentation):
       identities = outputIdentities(for: channelPresentation)
     case .visualizer(let configuration):
       switch configuration.mode {

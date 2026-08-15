@@ -4,12 +4,15 @@ Rilliya is a macOS audio routing workspace. This repository contains the
 SwiftUI application; its reusable audio foundation lives in the sibling
 RilliyaKit package.
 
-The current application shell opens directly into the FlowingDayUI routing
-canvas. Its first node type represents an installed macOS application: drag
-Application Audio from the palette, select a discovered application in the
-canvas inspector, and arrange the placeholder in world space. Rilliya scans
-the standard user, local, and system Applications directories and overlays
-live running state from `NSWorkspace`.
+The application opens directly into the FlowingDayUI routing canvas. Application
+Audio nodes capture installed macOS applications, while Input Audio nodes capture
+physical or virtual Core Audio input devices. Visualizer and Peak Level nodes can
+inspect either source. Rilliya shares one native capture for consumers of the same
+source, including consumers in different workflows.
+
+Rilliya scans the standard user, local, and system Applications directories and
+overlays live running state from `NSWorkspace`. Input-device capture requests
+microphone permission only when a connected Input Audio node needs to run.
 
 The initial application foundation requires macOS 14.2 or later, Xcode, and
 [XcodeGen](https://github.com/yonaskolb/XcodeGen). It also expects these local

@@ -27,7 +27,7 @@ struct RoutingPeakLevelSignal: Equatable, Sendable {
 enum RoutingPeakLevelSignalBuilder {
   static func build(
     incomingEdges: [RoutingWorkspaceEdge],
-    snapshotForNode: (UUID) -> ProcessOutputMeterSnapshot?
+    snapshotForNode: (UUID) -> (any RoutingAudioMeterSnapshot)?
   ) -> RoutingPeakLevelSignal? {
     let activeEdges = incomingEdges.filter(\.isEnabled)
     guard activeEdges.count == 1,

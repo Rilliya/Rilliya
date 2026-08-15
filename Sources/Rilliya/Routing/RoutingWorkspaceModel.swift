@@ -14,7 +14,7 @@ final class RoutingWorkspaceModel {
   private(set) var canvasContent: RoutingCanvasContent?
   private(set) var accessibilitySnapshot: RoutingCanvasAccessibilitySnapshot?
   private(set) var buildFailureDescription: String?
-  private(set) var runtimeCaptureFormats: [UUID: ProcessOutputCaptureFormat] = [:]
+  private(set) var runtimeCaptureFormats: [UUID: RoutingAudioCaptureFormat] = [:]
 
   private var pendingSeparateSourcesByVisualizer: [UUID: Set<UUID>] = [:]
   private var preferredSeparateChannelCount: Int?
@@ -32,6 +32,34 @@ final class RoutingWorkspaceModel {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
     let value = RoutingNodeValue.applicationAudio(
+      selection: nil,
+      channelPresentation: .aggregate
+    )
+    let size = RoutingCanvasMetrics.nodeSize(for: value)
+    nodes.append(
+      RoutingWorkspaceNode(
+        id: id,
+        value: value,
+        frame: CGRect(
+          x: worldPoint.x - size.width / 2,
+          y: worldPoint.y - size.height / 2,
+          width: size.width,
+          height: size.height
+        )
+      )
+    )
+    rebuildCanvas()
+    return id
+  }
+
+  @discardableResult
+  func addInputAudioNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    let value = RoutingNodeValue.inputAudio(
       selection: nil,
       channelPresentation: .aggregate
     )
@@ -117,15 +145,47 @@ final class RoutingWorkspaceModel {
     rebuildCanvas()
   }
 
+  func selectInputDevice(
+    _ selection: RoutingInputDeviceSelection?,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }) else { return }
+    guard case .inputAudio(_, let channelPresentation) = nodes[index].value else { return }
+    nodes[index].value = .inputAudio(
+      selection: selection,
+      channelPresentation: channelPresentation
+    )
+    runtimeCaptureFormats[nodeID] = nil
+    resizeNode(at: index)
+    rebuildCanvas()
+  }
+
   func setApplicationChannelPresentation(
     _ presentation: RoutingChannelPresentation,
     for nodeID: UUID
   ) {
-    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
-      case .applicationAudio(let selection, _) = nodes[index].value
-    else {
-      return
-    }
+    setAudioSourceChannelPresentation(presentation, for: nodeID, expectedApplication: true)
+  }
+
+  func setInputDeviceChannelPresentation(
+    _ presentation: RoutingChannelPresentation,
+    for nodeID: UUID
+  ) {
+    setAudioSourceChannelPresentation(presentation, for: nodeID, expectedApplication: false)
+  }
+
+  private func setAudioSourceChannelPresentation(
+    _ presentation: RoutingChannelPresentation,
+    for nodeID: UUID,
+    expectedApplication: Bool
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }) else { return }
+    let current = nodes[index].value
+    guard
+      expectedApplication
+        ? current.applicationSelection != nil || isUnconfiguredApplication(current)
+        : current.inputDeviceSelection != nil || isUnconfiguredInputDevice(current)
+    else { return }
     let normalized: RoutingChannelPresentation
     switch presentation {
     case .aggregate:
@@ -144,20 +204,28 @@ final class RoutingWorkspaceModel {
     }
 
     guard
-      migrateApplicationEdges(
+      migrateAudioSourceEdges(
         nodeID: nodeID,
-        from: nodes[index].value,
+        from: current,
         to: normalized
       )
     else {
       return
     }
-    nodes[index].value = .applicationAudio(
-      selection: selection,
-      channelPresentation: normalized
-    )
+    guard let updated = current.replacingAudioSourceChannelPresentation(normalized) else { return }
+    nodes[index].value = updated
     resizeNode(at: index)
     rebuildCanvas()
+  }
+
+  private func isUnconfiguredApplication(_ value: RoutingNodeValue) -> Bool {
+    guard case .applicationAudio = value else { return false }
+    return true
+  }
+
+  private func isUnconfiguredInputDevice(_ value: RoutingNodeValue) -> Bool {
+    guard case .inputAudio = value else { return false }
+    return true
   }
 
   func configureVisualizer(
@@ -205,13 +273,33 @@ final class RoutingWorkspaceModel {
     _ formats: [UUID: ProcessOutputCaptureFormat],
     preferredSeparateChannelCount: Int? = nil
   ) {
+    synchronizeAudioCaptureFormats(
+      formats.mapValues(RoutingAudioCaptureFormat.init),
+      preferredSeparateChannelCount: preferredSeparateChannelCount
+    )
+  }
+
+  func synchronizeInputCaptureFormats(
+    _ formats: [UUID: DeviceInputCaptureFormat],
+    preferredSeparateChannelCount: Int? = nil
+  ) {
+    synchronizeAudioCaptureFormats(
+      formats.mapValues(RoutingAudioCaptureFormat.init),
+      preferredSeparateChannelCount: preferredSeparateChannelCount
+    )
+  }
+
+  private func synchronizeAudioCaptureFormats(
+    _ formats: [UUID: RoutingAudioCaptureFormat],
+    preferredSeparateChannelCount: Int? = nil
+  ) {
     self.preferredSeparateChannelCount = preferredSeparateChannelCount.map(
       normalizedRuntimeChannelCount
     )
     var needsRebuild = false
     for (nodeID, format) in formats where !format.channelIDs.isEmpty {
       guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
-        case .applicationAudio(let selection, let presentation) = nodes[index].value
+        let presentation = nodes[index].value.audioSourceChannelPresentation
       else {
         continue
       }
@@ -224,10 +312,12 @@ final class RoutingWorkspaceModel {
       else {
         continue
       }
-      nodes[index].value = .applicationAudio(
-        selection: selection,
-        channelPresentation: .separate(channelCount: channelCount)
-      )
+      guard
+        let updated = nodes[index].value.replacingAudioSourceChannelPresentation(
+          .separate(channelCount: channelCount)
+        )
+      else { continue }
+      nodes[index].value = updated
       resizeNode(at: index)
       needsRebuild = true
     }
@@ -459,12 +549,12 @@ final class RoutingWorkspaceModel {
     }
   }
 
-  private func migrateApplicationEdges(
+  private func migrateAudioSourceEdges(
     nodeID: UUID,
     from value: RoutingNodeValue,
     to presentation: RoutingChannelPresentation
   ) -> Bool {
-    guard case .applicationAudio(_, let previous) = value,
+    guard let previous = value.audioSourceChannelPresentation,
       previous != presentation
     else {
       return true
@@ -572,15 +662,14 @@ final class RoutingWorkspaceModel {
     edges.removeAll { $0.target.nodeID == visualizerID }
     for (sourceID, format) in formats {
       guard let sourceIndex = nodes.firstIndex(where: { $0.id == sourceID }),
-        case .applicationAudio(let selection, _) = nodes[sourceIndex].value
+        let updated = nodes[sourceIndex].value.replacingAudioSourceChannelPresentation(
+          .separate(channelCount: effectiveSeparateChannelCount(format.channelIDs.count))
+        )
       else {
         continue
       }
       let channelCount = effectiveSeparateChannelCount(format.channelIDs.count)
-      nodes[sourceIndex].value = .applicationAudio(
-        selection: selection,
-        channelPresentation: .separate(channelCount: channelCount)
-      )
+      nodes[sourceIndex].value = updated
       resizeNode(at: sourceIndex)
       for channel in 0..<channelCount {
         appendEdgeIfMissing(

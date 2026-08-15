@@ -189,6 +189,9 @@ enum RoutingCanvasContentBuilder {
     case .applicationAudio(let selection, _):
       value = selection?.displayName ?? "No application selected"
       hint = "Select an installed application whose audio will be routed."
+    case .inputAudio(let selection, _):
+      value = selection?.displayName ?? "No input device selected"
+      hint = "Select an audio input device whose channels will be routed."
     case .visualizer(let configuration):
       value =
         configuration.mode == .mixed

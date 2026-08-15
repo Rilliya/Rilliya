@@ -19,8 +19,7 @@ struct RoutingConnectionLabelFormatterTests {
       source: audioPort(direction: .output, channel: .all),
       target: audioPort(direction: .input, channel: .all),
       targetNode: .visualizer(configuration: .initial),
-      format: ProcessOutputCaptureFormat(
-        processID: processID,
+      format: RoutingAudioCaptureFormat(
         sampleRate: 48_000,
         channelIDs: channelIDs
       )

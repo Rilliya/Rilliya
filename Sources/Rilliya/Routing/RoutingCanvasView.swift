@@ -8,6 +8,7 @@ import SwiftUI
 
 private enum RoutingPaletteItem: String, Codable, Transferable {
   case applicationAudio = "moe.uwucocoa.rilliya.node.application-audio"
+  case inputAudio = "moe.uwucocoa.rilliya.node.input-audio"
   case visualizer = "moe.uwucocoa.rilliya.node.visualizer"
   case peakLevel = "moe.uwucocoa.rilliya.node.peak-level"
 
@@ -27,8 +28,10 @@ struct RoutingCanvasView: View {
   let workspace: RoutingWorkspaceModel
   let settings: RilliyaSettings
   let applicationCatalog: InstalledApplicationCatalogController
+  let audioCatalog: AudioCatalogController
   let iconResolver: NSWorkspaceInstalledApplicationIconResolver
   let captureController: RoutingCaptureController
+  let inputCaptureController: RoutingInputCaptureController
   let sessionID: FlowingGraphCanvasSessionID
 
   @Binding var session: FlowingGraphCanvasSessionState<RoutingCanvasSchema>
@@ -157,6 +160,9 @@ struct RoutingCanvasView: View {
             iconResolver: iconResolver
           )
           .zIndex(context.isSelected ? 2 : 1)
+        case .inputAudio:
+          InputAudioNodeView(node: node, context: context)
+            .zIndex(context.isSelected ? 2 : 1)
         case .visualizer(let configuration):
           VisualizerNodeView(
             configuration: configuration,
@@ -194,14 +200,14 @@ struct RoutingCanvasView: View {
       case .applicationAudio(let selection, _):
         let state = captureController.state(for: node.id)
         let isCapturing: Bool
-        let captureFormat: ProcessOutputCaptureFormat?
+        let captureFormat: RoutingAudioCaptureFormat?
         switch state {
         case .starting:
           isCapturing = true
           captureFormat = nil
         case .running(let format):
           isCapturing = true
-          captureFormat = format
+          captureFormat = RoutingAudioCaptureFormat(format)
         case .idle, .failed:
           isCapturing = false
           captureFormat = nil
@@ -213,6 +219,28 @@ struct RoutingCanvasView: View {
           visualizerSignal: nil,
           captureFormat: captureFormat
         )
+      case .inputAudio(let selection, _):
+        let state = inputCaptureController.state(for: node.id)
+        let isCapturing: Bool
+        let captureFormat: RoutingAudioCaptureFormat?
+        switch state {
+        case .starting:
+          isCapturing = true
+          captureFormat = nil
+        case .running(let format):
+          isCapturing = true
+          captureFormat = RoutingAudioCaptureFormat(format)
+        case .idle, .failed:
+          isCapturing = false
+          captureFormat = nil
+        }
+        supplements[node.id] = RoutingMetalNodeSupplement(
+          isRunning: isAvailable(selection),
+          isCapturing: isCapturing,
+          captureConsumerCount: inputCaptureController.consumerCount(for: node.id),
+          visualizerSignal: nil,
+          captureFormat: captureFormat
+        )
       case .visualizer(let configuration):
         supplements[node.id] = RoutingMetalNodeSupplement(
           isRunning: false,
@@ -221,7 +249,7 @@ struct RoutingCanvasView: View {
           visualizerSignal: RoutingVisualizerSignalBuilder.build(
             configuration: configuration,
             incomingEdges: workspace.incomingEdges(for: node.id),
-            snapshotForNode: captureController.snapshot
+            snapshotForNode: audioSnapshot
           )
         )
       case .peakLevel:
@@ -232,7 +260,7 @@ struct RoutingCanvasView: View {
           visualizerSignal: nil,
           peakLevelSignal: RoutingPeakLevelSignalBuilder.build(
             incomingEdges: workspace.incomingEdges(for: node.id),
-            snapshotForNode: captureController.snapshot
+            snapshotForNode: audioSnapshot
           )
         )
       }
@@ -250,6 +278,13 @@ struct RoutingCanvasView: View {
       item.isRunning
         && canonicalApplicationURL(item.application.bundleURL)
           == canonicalApplicationURL(selection.applicationURL)
+    } == true
+  }
+
+  private func isAvailable(_ selection: RoutingInputDeviceSelection?) -> Bool {
+    guard let selection else { return false }
+    return audioCatalog.state.snapshot?.inputDevices.contains {
+      $0.id == selection.id && $0.isAlive
     } == true
   }
 
@@ -290,6 +325,21 @@ struct RoutingCanvasView: View {
           workspace.setApplicationChannelPresentation(presentation, for: node.id)
         }
       )
+    case .inputAudio(let selection, let channelPresentation):
+      SelectedInputAudioInspector(
+        nodeID: node.id,
+        selection: selection,
+        channelPresentation: channelPresentation,
+        isRouted: workspace.edges.contains { $0.isEnabled && $0.source.nodeID == node.id },
+        audioCatalog: audioCatalog,
+        captureController: inputCaptureController,
+        selectDevice: { selection in
+          workspace.selectInputDevice(selection, for: node.id)
+        },
+        setChannelPresentation: { presentation in
+          workspace.setInputDeviceChannelPresentation(presentation, for: node.id)
+        }
+      )
     case .visualizer(let configuration):
       SelectedVisualizerInspector(configuration: configuration) { updated in
         workspace.configureVisualizer(updated, for: node.id)
@@ -298,7 +348,7 @@ struct RoutingCanvasView: View {
       SelectedPeakLevelInspector(
         signal: RoutingPeakLevelSignalBuilder.build(
           incomingEdges: workspace.incomingEdges(for: node.id),
-          snapshotForNode: captureController.snapshot
+          snapshotForNode: audioSnapshot
         )
       )
     }
@@ -315,7 +365,7 @@ struct RoutingCanvasView: View {
     return RoutingVisualizerSignalBuilder.build(
       configuration: configuration,
       incomingEdges: workspace.incomingEdges(for: nodeID),
-      snapshotForNode: captureController.snapshot
+      snapshotForNode: audioSnapshot
     )
   }
 
@@ -329,8 +379,15 @@ struct RoutingCanvasView: View {
     }
     return RoutingPeakLevelSignalBuilder.build(
       incomingEdges: workspace.incomingEdges(for: nodeID),
-      snapshotForNode: captureController.snapshot
+      snapshotForNode: audioSnapshot
     )
+  }
+
+  private func audioSnapshot(for nodeID: UUID) -> (any RoutingAudioMeterSnapshot)? {
+    if let snapshot = captureController.snapshot(for: nodeID) {
+      return snapshot
+    }
+    return inputCaptureController.snapshot(for: nodeID)
   }
 
   private func selectNode(_ nodeID: UUID) {
@@ -358,6 +415,8 @@ struct RoutingCanvasView: View {
       switch item {
       case .applicationAudio:
         nodeID = workspace.addApplicationAudioNode(centeredAt: worldPoint)
+      case .inputAudio:
+        nodeID = workspace.addInputAudioNode(centeredAt: worldPoint)
       case .visualizer:
         nodeID = workspace.addVisualizerNode(centeredAt: worldPoint)
       case .peakLevel:
@@ -424,6 +483,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
 
   let applicationCatalog: InstalledApplicationCatalogController
   let insertApplicationAudio: () -> Void
+  let insertInputAudio: () -> Void
   let insertVisualizer: () -> Void
   let insertPeakLevel: () -> Void
   let workflowNavigation: WorkflowNavigation
@@ -431,12 +491,14 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   init(
     applicationCatalog: InstalledApplicationCatalogController,
     insertApplicationAudio: @escaping () -> Void,
+    insertInputAudio: @escaping () -> Void,
     insertVisualizer: @escaping () -> Void,
     insertPeakLevel: @escaping () -> Void,
     @ViewBuilder workflowNavigation: () -> WorkflowNavigation
   ) {
     self.applicationCatalog = applicationCatalog
     self.insertApplicationAudio = insertApplicationAudio
+    self.insertInputAudio = insertInputAudio
     self.insertVisualizer = insertVisualizer
     self.insertPeakLevel = insertPeakLevel
     self.workflowNavigation = workflowNavigation()
@@ -465,6 +527,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
           ) {
             VStack(spacing: 10) {
               applicationAudioItem
+              inputAudioItem
               visualizerItem
               peakLevelItem
             }
@@ -517,6 +580,18 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       foreground: FlowingAccent.seafoam.foreground,
       veil: FlowingAccent.seafoam.veil,
       action: insertVisualizer
+    )
+  }
+
+  private var inputAudioItem: some View {
+    RoutingPaletteNodeItem(
+      item: .inputAudio,
+      title: "Input Audio",
+      subtitle: "Capture an input device",
+      systemImage: "waveform.badge.mic",
+      foreground: FlowingAccent.brook.foreground,
+      veil: FlowingAccent.brook.veil,
+      action: insertInputAudio
     )
   }
 
@@ -704,6 +779,14 @@ private struct RoutingCanvasDropPreview: View {
         FlowingAccent.fern.foreground,
         FlowingAccent.fern.veil
       )
+    case .inputAudio:
+      return (
+        "Input Audio",
+        "Choose an input device",
+        "waveform.badge.mic",
+        FlowingAccent.brook.foreground,
+        FlowingAccent.brook.veil
+      )
     case .visualizer:
       return (
         "Visualizer",
@@ -746,7 +829,8 @@ private struct RoutingCanvasDropPreview: View {
 
       if isExpanded {
         Text(
-          item == .applicationAudio ? "Select this node to configure" : "Waiting for audio input"
+          item == .applicationAudio || item == .inputAudio
+            ? "Select this node to configure" : "Waiting for audio input"
         )
         .font(.caption)
         .foregroundStyle(FlowingPalette.muted)
@@ -985,6 +1069,85 @@ private struct ApplicationAudioNodeView: View {
     .background(
       selection == nil ? accent.wash : FlowingPalette.field,
       in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+    )
+  }
+}
+
+private struct InputAudioNodeView: View {
+  let node: FlowingGraphPresentationNode<RoutingCanvasSchema>
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  private let accent = FlowingAccent.brook
+
+  private var selection: RoutingInputDeviceSelection? {
+    node.value.inputDeviceSelection
+  }
+
+  var body: some View {
+    let size = RoutingCanvasMetrics.nodeSize(for: node.value)
+    FlowingCard(
+      spacing: 0,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      VStack(alignment: .leading, spacing: 11) {
+        HStack(spacing: 11) {
+          Image(systemName: "waveform.badge.mic")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(accent.foreground)
+            .frame(width: 38, height: 38)
+            .background(
+              accent.veil,
+              in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+            )
+
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Input Audio")
+              .font(.caption.weight(.medium))
+              .foregroundStyle(FlowingPalette.muted)
+            Text(selection?.displayName ?? "Choose an input device")
+              .font(.callout.weight(.semibold))
+              .foregroundStyle(FlowingPalette.ink)
+              .lineLimit(1)
+          }
+
+          Spacer(minLength: 6)
+        }
+        .padding(.trailing, 38)
+
+        if selection == nil {
+          HStack(spacing: 7) {
+            Image(systemName: "cursorarrow.click")
+              .font(.system(size: 9, weight: .semibold))
+            Text("Select this node to configure")
+              .font(.caption)
+              .lineLimit(1)
+            Spacer(minLength: 0)
+          }
+          .foregroundStyle(accent.foreground)
+          .padding(.horizontal, 10)
+          .frame(height: 30)
+          .background(
+            accent.wash,
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+          )
+          .padding(.trailing, 38)
+        }
+      }
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(width: size.width, height: size.height)
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: size.width * context.renderScale,
+      height: size.height * context.renderScale,
+      alignment: .topLeading
     )
   }
 }
@@ -1522,6 +1685,262 @@ private struct SelectedApplicationInspector: View {
       bundleIdentifier: application.bundleIdentifier,
       displayName: application.displayName
     )
+  }
+}
+
+private struct SelectedInputAudioInspector: View {
+  let nodeID: UUID
+  let selection: RoutingInputDeviceSelection?
+  let channelPresentation: RoutingChannelPresentation
+  let isRouted: Bool
+  let audioCatalog: AudioCatalogController
+  let captureController: RoutingInputCaptureController
+  let selectDevice: (RoutingInputDeviceSelection?) -> Void
+  let setChannelPresentation: (RoutingChannelPresentation) -> Void
+
+  private var devices: [AudioDevice] {
+    audioCatalog.state.snapshot?.inputDevices ?? []
+  }
+
+  private var selectedDevice: AudioDevice? {
+    guard let selection else { return nil }
+    return devices.first { $0.id == selection.id }
+  }
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      HStack(alignment: .firstTextBaseline, spacing: 10) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Input Audio")
+            .font(.headline)
+            .foregroundStyle(FlowingPalette.ink)
+          Text("Choose any hardware or virtual input device.")
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+
+        Spacer(minLength: 4)
+
+        if selectedDevice?.isAlive == true {
+          Circle()
+            .fill(Color(nsColor: .systemGreen))
+            .frame(width: 9, height: 9)
+            .accessibilityLabel("Available")
+        }
+      }
+
+      devicePickerContent
+
+      if let selectedDevice, let endpoint = selectedDevice.input {
+        Text(
+          "\(endpoint.channelCount) ch · "
+            + "\(selectedDevice.nominalSampleRate.formatted()) Hz"
+            + (endpoint.isDefault ? " · Default Input" : "")
+        )
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(FlowingPalette.muted)
+      }
+
+      captureContent
+
+      Divider()
+        .overlay(FlowingPalette.hairline)
+
+      VStack(alignment: .leading, spacing: 9) {
+        Text("Output Ports")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+
+        FlowingSegmentedControl(
+          label: "Output port presentation",
+          selection: portDisplayMode,
+          options: [
+            FlowingSegmentOption(.aggregate, label: "All Channels"),
+            FlowingSegmentOption(.separate, label: "Separate"),
+          ]
+        )
+
+        if case .separate = channelPresentation {
+          HStack {
+            Text("Channels")
+              .font(.caption)
+              .foregroundStyle(FlowingPalette.muted)
+            Spacer(minLength: 8)
+            FlowingStepper(
+              "Output channel count",
+              value: separateChannelCount,
+              in: 1...RoutingVisualizerConfiguration.maximumAvailableChannelCount,
+              step: 1
+            )
+          }
+        }
+
+        Text("The device's live format replaces this preview when capture starts.")
+          .font(.caption2)
+          .foregroundStyle(FlowingPalette.faint)
+      }
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  @ViewBuilder
+  private var devicePickerContent: some View {
+    if audioCatalog.state.isInitialLoad, devices.isEmpty {
+      HStack(spacing: 9) {
+        ProgressView()
+          .controlSize(.small)
+        Text("Discovering input devices…")
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    } else if let errorMessage = audioCatalog.state.rootErrorMessage, devices.isEmpty {
+      FlowingCallout(
+        errorMessage,
+        title: "Input devices unavailable",
+        tone: .warning
+      )
+    } else {
+      FlowingSearchPicker(
+        label: "Input Devices",
+        selection: pickerSelection,
+        options: pickerOptions,
+        maximumVisibleOptions: 8
+      )
+    }
+  }
+
+  @ViewBuilder
+  private var captureContent: some View {
+    switch captureController.state(for: nodeID) {
+    case .idle:
+      if isRouted, selectedDevice?.isAlive == true {
+        HStack(spacing: 9) {
+          ProgressView()
+            .controlSize(.small)
+          Text("Preparing input capture…")
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+      } else if isRouted, selection != nil {
+        FlowingCallout(
+          "Reconnect or enable the selected device to resume this route.",
+          title: "Input device unavailable",
+          systemImage: "waveform.badge.exclamationmark",
+          tone: .neutral
+        )
+      } else if selection != nil {
+        FlowingCallout(
+          "Connect an output port to another audio node to begin capture.",
+          title: "Ready to Route",
+          systemImage: "point.3.connected.trianglepath.dotted",
+          tone: .neutral
+        )
+      }
+    case .starting:
+      HStack(spacing: 9) {
+        ProgressView()
+          .controlSize(.small)
+        Text("Opening the input device…")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+    case .running(let format):
+      HStack(spacing: 9) {
+        Circle()
+          .fill(Color(nsColor: .systemGreen))
+          .frame(width: 9, height: 9)
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Capturing \(format.channelIDs.count) channels")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text("\(format.sampleRate.formatted()) Hz")
+            .font(.caption2)
+            .foregroundStyle(FlowingPalette.muted)
+          if captureController.consumerCount(for: nodeID) > 1 {
+            Text("Shared by \(captureController.consumerCount(for: nodeID)) nodes")
+              .font(.caption2)
+              .foregroundStyle(FlowingPalette.faint)
+          }
+        }
+      }
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel("Capturing input audio")
+    case .failed(let message):
+      VStack(alignment: .leading, spacing: 8) {
+        FlowingCallout(
+          message,
+          title: "Input capture failed",
+          systemImage: "exclamationmark.triangle",
+          tone: .warning
+        )
+        if isRouted, let deviceID = selection?.id {
+          Button("Try Again") {
+            captureController.start(nodeID: nodeID, deviceID: deviceID)
+          }
+          .buttonStyle(FlowingSoftButtonStyle())
+        }
+      }
+    }
+  }
+
+  private var pickerSelection: Binding<String> {
+    Binding(
+      get: { selection?.id.rawValue ?? "" },
+      set: { selectedID in
+        captureController.stop(nodeID: nodeID)
+        selectDevice(selection(for: selectedID))
+      }
+    )
+  }
+
+  private var pickerOptions: [FlowingSelectOption<String>] {
+    [FlowingSelectOption("", label: "No Input Device")]
+      + devices.map { device in
+        let suffix = device.input?.isDefault == true ? " · Default" : ""
+        return FlowingSelectOption(
+          device.id.rawValue,
+          label: device.name + suffix
+        )
+      }
+  }
+
+  private var portDisplayMode: Binding<RoutingPortDisplayMode> {
+    Binding(
+      get: {
+        switch channelPresentation {
+        case .aggregate: .aggregate
+        case .separate: .separate
+        }
+      },
+      set: { mode in
+        switch mode {
+        case .aggregate:
+          setChannelPresentation(.aggregate)
+        case .separate:
+          let deviceChannels = selectedDevice?.input?.channelCount
+          setChannelPresentation(
+            .separate(channelCount: channelPresentation.channelCount ?? deviceChannels ?? 2)
+          )
+        }
+      }
+    )
+  }
+
+  private var separateChannelCount: Binding<Int> {
+    Binding(
+      get: { channelPresentation.channelCount ?? selectedDevice?.input?.channelCount ?? 2 },
+      set: { setChannelPresentation(.separate(channelCount: $0)) }
+    )
+  }
+
+  private func selection(for selectedID: String) -> RoutingInputDeviceSelection? {
+    guard !selectedID.isEmpty,
+      let device = devices.first(where: { $0.id.rawValue == selectedID })
+    else { return nil }
+    return RoutingInputDeviceSelection(id: device.id, displayName: device.name)
   }
 }
 

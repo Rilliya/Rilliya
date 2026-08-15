@@ -135,6 +135,7 @@ struct RoutingMetalViewport: View {
         viewportStroke: FlowingAccent.fern.fill.opacity(0.9),
         nodeStyles: [
           FlowingGraphMiniMapNodeStyle(fill: FlowingAccent.fern.fill.opacity(0.78)),
+          FlowingGraphMiniMapNodeStyle(fill: FlowingAccent.brook.fill.opacity(0.78)),
           FlowingGraphMiniMapNodeStyle(fill: FlowingAccent.seafoam.fill.opacity(0.78)),
           FlowingGraphMiniMapNodeStyle(fill: FlowingAccent.pollen.fill.opacity(0.78)),
         ],
@@ -185,10 +186,10 @@ struct RoutingMetalViewport: View {
         .frame(width: 1, height: 18)
         .padding(.horizontal, 3)
 
-      RoutingViewportControlButton(
-        systemImage: isMiniMapVisible ? "map.fill" : "map",
-        accessibilityLabel: isMiniMapVisible ? "Hide overview" : "Show overview",
-        isActive: isMiniMapVisible
+      FlowingIconButton(
+        isMiniMapVisible ? "Hide overview" : "Show overview",
+        systemImage: "map",
+        isSelected: isMiniMapVisible
       ) {
         setMiniMapVisible(!isMiniMapVisible)
       }
@@ -251,14 +252,13 @@ struct RoutingMetalViewport: View {
 private struct RoutingViewportControlButton: View {
   let systemImage: String
   let accessibilityLabel: String
-  var isActive = false
   let action: () -> Void
 
   var body: some View {
     Button(action: action) {
       Image(systemName: systemImage)
         .font(.system(size: 9.5, weight: .bold))
-        .foregroundStyle(isActive ? FlowingAccent.fern.foreground : FlowingPalette.muted)
+        .foregroundStyle(FlowingPalette.muted)
         .frame(width: 28, height: 28)
         .contentShape(Rectangle())
     }
