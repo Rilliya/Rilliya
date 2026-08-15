@@ -5,13 +5,10 @@ import RilliyaKit
 import SwiftUI
 
 struct WorkspaceView: View {
-  @State private var routingWorkspace = RoutingWorkspaceModel()
+  @State private var workflowLibrary = RoutingWorkflowLibrary()
   @State private var applicationCatalog = InstalledApplicationCatalogController()
   @State private var iconResolver = NSWorkspaceInstalledApplicationIconResolver()
   @State private var captureController = RoutingCaptureController()
-  @State private var canvasSession = FlowingGraphCanvasSessionState<RoutingCanvasSchema>()
-
-  private let canvasSessionID = FlowingGraphCanvasSessionID()
 
   var body: some View {
     ZStack {
@@ -24,14 +21,7 @@ struct WorkspaceView: View {
           insertVisualizer: insertVisualizer
         )
 
-        RoutingCanvasView(
-          workspace: routingWorkspace,
-          applicationCatalog: applicationCatalog,
-          iconResolver: iconResolver,
-          captureController: captureController,
-          sessionID: canvasSessionID,
-          session: $canvasSession
-        )
+        workflowCanvas
       }
     }
     .background(FlowingPalette.canvas)
@@ -72,30 +62,142 @@ struct WorkspaceView: View {
       .allowsHitTesting(false)
   }
 
+  private var workflowCanvas: some View {
+    ZStack(alignment: .topLeading) {
+      RoutingWorkflowCanvas(
+        workflow: workflowLibrary.selectedWorkflow,
+        applicationCatalog: applicationCatalog,
+        iconResolver: iconResolver,
+        captureController: captureController
+      )
+
+      RoutingWorkflowSwitcher(
+        library: workflowLibrary,
+        captureController: captureController
+      )
+      .padding(.top, 18)
+      .padding(.leading, 18)
+    }
+  }
+
   private func insertApplicationAudio() {
-    let nodeID = routingWorkspace.addApplicationAudioNode(
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addApplicationAudioNode(
       centeredAt: RoutingNodeInsertion.point(
-        in: canvasSession.viewport.visibleWorldRect,
-        existingNodeCount: routingWorkspace.nodes.count
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
       )
     )
-    selectNode(nodeID)
+    selectNode(nodeID, in: workflow)
   }
 
   private func insertVisualizer() {
-    let nodeID = routingWorkspace.addVisualizerNode(
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addVisualizerNode(
       centeredAt: RoutingNodeInsertion.point(
-        in: canvasSession.viewport.visibleWorldRect,
-        existingNodeCount: routingWorkspace.nodes.count
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
       )
     )
-    selectNode(nodeID)
+    selectNode(nodeID, in: workflow)
   }
 
-  private func selectNode(_ nodeID: UUID) {
-    guard let elementID = routingWorkspace.elementID(for: nodeID) else { return }
-    canvasSession.selection = [elementID]
-    canvasSession.focusedElementID = elementID
+  private func selectNode(_ nodeID: UUID, in workflow: RoutingWorkflowModel) {
+    guard let elementID = workflow.workspace.elementID(for: nodeID) else { return }
+    workflow.canvasSession.selection = [elementID]
+    workflow.canvasSession.focusedElementID = elementID
+  }
+}
+
+private struct RoutingWorkflowCanvas: View {
+  @Bindable var workflow: RoutingWorkflowModel
+
+  let applicationCatalog: InstalledApplicationCatalogController
+  let iconResolver: NSWorkspaceInstalledApplicationIconResolver
+  let captureController: RoutingCaptureController
+
+  var body: some View {
+    RoutingCanvasView(
+      workspace: workflow.workspace,
+      applicationCatalog: applicationCatalog,
+      iconResolver: iconResolver,
+      captureController: captureController,
+      sessionID: workflow.canvasSessionID,
+      session: $workflow.canvasSession
+    )
+  }
+}
+
+private struct RoutingWorkflowSwitcher: View {
+  let library: RoutingWorkflowLibrary
+  let captureController: RoutingCaptureController
+
+  var body: some View {
+    HStack(spacing: 6) {
+      if isCapturing(library.selectedWorkflow) {
+        Circle()
+          .fill(Color(nsColor: .systemGreen))
+          .frame(width: 7, height: 7)
+          .accessibilityLabel("Workflow has active audio capture")
+      }
+
+      FlowingMenu(
+        library.selectedWorkflow.name,
+        systemImage: "point.3.connected.trianglepath.dotted",
+        minimumWidth: 144
+      ) {
+        ForEach(library.workflows) { workflow in
+          Button {
+            library.selectWorkflow(id: workflow.id)
+          } label: {
+            HStack {
+              Text(workflow.name)
+              if isCapturing(workflow) {
+                Image(systemName: "waveform.circle.fill")
+              }
+              if workflow.id == library.selectedWorkflowID {
+                Image(systemName: "checkmark")
+              }
+            }
+          }
+        }
+
+        Divider()
+
+        Button {
+          library.addWorkflow()
+        } label: {
+          Label("New Workflow", systemImage: "plus")
+        }
+      }
+
+      FlowingIconButton("New Workflow", systemImage: "plus") {
+        library.addWorkflow()
+      }
+    }
+    .padding(5)
+    .background(
+      FlowingPalette.control.opacity(0.96),
+      in: RoundedRectangle(cornerRadius: 14, style: .continuous)
+    )
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(FlowingPalette.hairline)
+    }
+    .shadow(color: .black.opacity(0.06), radius: 12, y: 5)
+    .accessibilityElement(children: .contain)
+    .accessibilityLabel("Workflows")
+  }
+
+  private func isCapturing(_ workflow: RoutingWorkflowModel) -> Bool {
+    workflow.workspace.nodes.contains { node in
+      switch captureController.state(for: node.id) {
+      case .starting, .running:
+        return true
+      case .idle, .failed:
+        return false
+      }
+    }
   }
 }
 

@@ -75,6 +75,40 @@ struct RoutingCaptureControllerTests {
   }
 
   @Test @MainActor
+  func workflowSwitchingDoesNotStopASharedBackgroundCapture() async throws {
+    let processID = try #require(AudioProcessID(rawValue: 96))
+    let starter = FakeRoutingProcessCaptureStarter()
+    let controller = RoutingCaptureController(captureStarter: starter)
+    let library = RoutingWorkflowLibrary()
+    let firstWorkflow = library.selectedWorkflow
+    let firstNodeID = firstWorkflow.workspace.addApplicationAudioNode(centeredAt: .zero)
+    let secondWorkflow = library.addWorkflow()
+    let secondNodeID = secondWorkflow.workspace.addApplicationAudioNode(centeredAt: .zero)
+
+    controller.start(nodeID: firstNodeID, processID: processID)
+    controller.start(nodeID: secondNodeID, processID: processID)
+    library.selectWorkflow(id: firstWorkflow.id)
+    library.selectWorkflow(id: secondWorkflow.id)
+
+    let bothRunning = await eventually {
+      controller.state(for: firstNodeID).isRunning
+        && controller.state(for: secondNodeID).isRunning
+    }
+    #expect(bothRunning)
+    let startCount = await starter.startCount(for: processID)
+    let stopCount = await starter.stopCount(for: processID)
+    #expect(startCount == 1)
+    #expect(stopCount == 0)
+    #expect(controller.consumerCount(for: firstNodeID) == 2)
+
+    controller.stopAll()
+    let stopped = await eventually {
+      await starter.stopCount(for: processID) == 1
+    }
+    #expect(stopped)
+  }
+
+  @Test @MainActor
   func oneSharedStartFailureIsPublishedToEveryConsumer() async throws {
     let processID = try #require(AudioProcessID(rawValue: 101))
     let starter = FakeRoutingProcessCaptureStarter(failingProcessIDs: [processID])

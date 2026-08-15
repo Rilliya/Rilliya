@@ -12,6 +12,7 @@ struct RoutingCanvasBuild {
 enum RoutingCanvasContentBuilder {
   @MainActor
   static func build(
+    workspaceID: UUID,
     nodes: [RoutingWorkspaceNode],
     edges: [RoutingWorkspaceEdge]
   ) throws -> RoutingCanvasBuild {
@@ -65,7 +66,7 @@ enum RoutingCanvasContentBuilder {
     }
 
     let document = FlowingGraphDocument<RoutingCanvasSchema>(
-      id: "workspace",
+      id: workspaceID.uuidString.lowercased(),
       defaultEntryPointID: "main",
       entryPoints: [
         FlowingGraphEntryPoint(id: "main", name: "Audio Routing", graphID: "main")

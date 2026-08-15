@@ -6,13 +6,16 @@ import Observation
 @MainActor
 @Observable
 final class RoutingWorkspaceModel {
+  let id: UUID
+
   private(set) var nodes: [RoutingWorkspaceNode] = []
   private(set) var edges: [RoutingWorkspaceEdge] = []
   private(set) var canvasContent: RoutingCanvasContent?
   private(set) var accessibilitySnapshot: RoutingCanvasAccessibilitySnapshot?
   private(set) var buildFailureDescription: String?
 
-  init() {
+  init(id: UUID = UUID()) {
+    self.id = id
     rebuildCanvas()
   }
 
@@ -276,7 +279,11 @@ final class RoutingWorkspaceModel {
   private func rebuildCanvas() {
     do {
       pruneEdgesWithMissingPorts()
-      let build = try RoutingCanvasContentBuilder.build(nodes: nodes, edges: edges)
+      let build = try RoutingCanvasContentBuilder.build(
+        workspaceID: id,
+        nodes: nodes,
+        edges: edges
+      )
       canvasContent = build.content
       accessibilitySnapshot = build.accessibilitySnapshot
       buildFailureDescription = nil
