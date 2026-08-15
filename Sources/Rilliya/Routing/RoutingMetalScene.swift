@@ -254,6 +254,7 @@ struct RoutingMetalScene {
   let edges: [Edge]
   let contentBounds: CGRect
 
+  private let miniMapStyleIndexByID: [RoutingCanvasElementID: Int]
   private let portByID: [RoutingCanvasElementID: Port]
 
   init(
@@ -305,6 +306,9 @@ struct RoutingMetalScene {
     }
 
     nodes = nextNodes
+    miniMapStyleIndexByID = Dictionary(
+      uniqueKeysWithValues: nextNodes.map { ($0.id, $0.miniMapStyleIndex) }
+    )
     let nextNodesByID = Dictionary(uniqueKeysWithValues: nextNodes.map { ($0.id, $0) })
     portByID = nextPortsByID
     edges = content.presentation.edges.compactMap { presentationEdge in
@@ -347,6 +351,10 @@ struct RoutingMetalScene {
 
   func port(id: RoutingCanvasElementID) -> Port? {
     portByID[id]
+  }
+
+  func miniMapStyleIndex(for id: RoutingCanvasElementID) -> Int {
+    miniMapStyleIndexByID[id] ?? 0
   }
 
   func nodesInRenderOrder(

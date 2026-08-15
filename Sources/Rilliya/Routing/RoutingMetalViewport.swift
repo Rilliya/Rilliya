@@ -126,8 +126,6 @@ struct RoutingMetalViewport: View {
   }
 
   private var miniMap: some View {
-    let styleIndices = Dictionary(
-      uniqueKeysWithValues: scene.nodes.map { ($0.id, $0.miniMapStyleIndex) })
     let visibleBounds = controller.viewport.visibleWorldRect
     let overviewBounds = scene.contentBounds.union(visibleBounds)
     return FlowingGraphCanvasMiniMap(
@@ -144,7 +142,7 @@ struct RoutingMetalViewport: View {
         scope: .custom(overviewBounds),
         representation: .adaptive,
         interaction: .panAndZoom,
-        refreshPolicy: .adaptiveLive,
+        refreshPolicy: .afterChangesSettle,
         accessibilityLabel: "Audio routing overview"
       ),
       style: FlowingGraphMiniMapStyle(
@@ -161,7 +159,7 @@ struct RoutingMetalViewport: View {
         ],
         cornerRadius: 12
       ),
-      nodeStyleIndex: { styleIndices[$0.id] ?? 0 }
+      nodeStyleIndex: { scene.miniMapStyleIndex(for: $0.id) }
     )
     .shadow(color: .black.opacity(0.07), radius: 10, y: 4)
   }
