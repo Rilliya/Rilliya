@@ -180,6 +180,97 @@ struct RoutingPreparedAudioGraphTests {
   }
 
   @Test
+  func gainAppliesPolarityAndAcceptsHotMutedControlUpdates() throws {
+    let sourceID = UUID()
+    let gainID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(channelCount: 1, capacityFrameCount: 512)
+    try write([Array(repeating: 1, count: 260)], to: buffer)
+    let inverted = RoutingGainConfiguration(
+      gainDecibels: 0,
+      isMuted: false,
+      isPolarityInverted: true
+    )
+    let renderer = try makeRenderer(
+      nodes: [
+        sourceNode(id: sourceID, channelCount: 1),
+        gainNode(id: gainID, configuration: inverted),
+        outputNode(id: outputID),
+      ],
+      edges: [
+        edge(from: sourceID, .all, to: gainID, .all),
+        edge(from: gainID, .all, to: outputID, .all),
+      ],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer],
+      outputChannelCount: 1,
+      maximumFrameCount: 256
+    )
+
+    let initial = render(renderer, channelCount: 1, frameCount: 4)
+    try renderer.updateControls(
+      nodes: [
+        sourceNode(id: sourceID, channelCount: 1),
+        gainNode(
+          id: gainID,
+          configuration: RoutingGainConfiguration(
+            gainDecibels: 0,
+            isMuted: true,
+            isPolarityInverted: true
+          )
+        ),
+        outputNode(id: outputID),
+      ]
+    )
+    let muted = render(renderer, channelCount: 1, frameCount: 256)
+
+    #expect(initial.channels[0] == [-1, -1, -1, -1])
+    #expect(muted.channels[0][0] == -1)
+    #expect(muted.channels[0][120] > muted.channels[0][0])
+    #expect(abs(muted.channels[0][240]) < 0.000_001)
+    #expect(muted.channels[0][241...].allSatisfy { abs($0) < 0.000_001 })
+  }
+
+  @Test
+  func channelRouterReordersDuplicatesAndSilencesWithoutProcessingPCM() throws {
+    let sourceID = UUID()
+    let routerID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(channelCount: 2)
+    try write([[0.1, 0.2, 0.3], [-0.4, -0.5, -0.6]], to: buffer)
+    let configuration = RoutingChannelRouterConfiguration(
+      inputChannelCount: 2,
+      outputSources: [1, 0, 1, nil]
+    )
+    let renderer = try makeRenderer(
+      nodes: [
+        sourceNode(id: sourceID, channelCount: 2),
+        channelRouterNode(id: routerID, configuration: configuration),
+        outputNode(id: outputID),
+      ],
+      edges: [
+        edge(from: sourceID, .channel(0), to: routerID, .channel(0)),
+        edge(from: sourceID, .channel(1), to: routerID, .channel(1)),
+        edge(from: routerID, .channel(0), to: outputID, .all),
+        edge(from: routerID, .channel(1), to: outputID, .all),
+        edge(from: routerID, .channel(2), to: outputID, .all),
+        edge(from: routerID, .channel(3), to: outputID, .all),
+      ],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer],
+      outputChannelCount: 4
+    )
+
+    let rendered = render(renderer, channelCount: 4, frameCount: 3)
+
+    #expect(rendered.result == .rendered)
+    #expect(rendered.channels[0] == [-0.4, -0.5, -0.6])
+    #expect(rendered.channels[1] == [0.1, 0.2, 0.3])
+    #expect(rendered.channels[2] == [-0.4, -0.5, -0.6])
+    #expect(rendered.channels[3] == [0, 0, 0])
+  }
+
+  @Test
   func inputDeviceThroughVisualizerPreservesPCM() throws {
     let inputID = UUID()
     let visualizerID = UUID()
@@ -484,6 +575,28 @@ struct RoutingPreparedAudioGraphTests {
       value: .audioMixer(configuration: .initial),
       frame: .zero,
       audioChannelControls: controls
+    )
+  }
+
+  private func gainNode(
+    id: UUID,
+    configuration: RoutingGainConfiguration
+  ) -> RoutingWorkspaceNode {
+    RoutingWorkspaceNode(
+      id: id,
+      value: .gain(configuration: configuration),
+      frame: .zero
+    )
+  }
+
+  private func channelRouterNode(
+    id: UUID,
+    configuration: RoutingChannelRouterConfiguration
+  ) -> RoutingWorkspaceNode {
+    RoutingWorkspaceNode(
+      id: id,
+      value: .channelRouter(configuration: configuration),
+      frame: .zero
     )
   }
 

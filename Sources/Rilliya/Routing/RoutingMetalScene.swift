@@ -89,6 +89,10 @@ struct RoutingMetalScene {
         return "Visualizer"
       case .audioMixer:
         return "Audio Mixer"
+      case .gain:
+        return "Gain"
+      case .channelRouter:
+        return "Channel Router"
       case .peakLevel:
         return "Peak Level"
       case .signalGenerator:
@@ -114,6 +118,13 @@ struct RoutingMetalScene {
         return "\(count) selected channel\(count == 1 ? "" : "s")"
       case .audioMixer(let configuration):
         return "\(configuration.channelCount)-channel mix"
+      case .gain(let configuration):
+        if configuration.isMuted { return "Muted" }
+        return configuration.isPolarityInverted
+          ? "\(configuration.gainDescription) · Polarity inverted"
+          : configuration.gainDescription
+      case .channelRouter(let configuration):
+        return "\(configuration.inputChannelCount) in · \(configuration.outputChannelCount) out"
       case .peakLevel:
         return "Linear full-scale peak"
       case .signalGenerator(let configuration):
@@ -174,6 +185,8 @@ struct RoutingMetalScene {
       case .audioMixer:
         return supplement.audioSourceMeters.contains(where: { $0.peak > 0 })
           ? "Live mix" : "Waiting for routed audio"
+      case .gain, .channelRouter:
+        return "Ready to route"
       case .peakLevel:
         guard let signal = supplement.peakLevelSignal else { return "Waiting for routed audio" }
         return signal.isClipping ? "Clipping" : "Live peak"
@@ -229,7 +242,8 @@ struct RoutingMetalScene {
         return selection != nil
       case .outputAudio(let selection, _):
         return selection != nil
-      case .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay, .noiseGate:
+      case .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel, .signalGenerator,
+        .delay, .noiseGate:
         return false
       }
     }
@@ -243,8 +257,8 @@ struct RoutingMetalScene {
       switch value {
       case .applicationAudio:
         supplement.applicationIcon == nil
-      case .inputAudio, .outputAudio, .visualizer, .audioMixer, .peakLevel,
-        .signalGenerator, .delay, .noiseGate:
+      case .inputAudio, .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter,
+        .peakLevel, .signalGenerator, .delay, .noiseGate:
         true
       }
     }
@@ -261,6 +275,10 @@ struct RoutingMetalScene {
         return "waveform"
       case .audioMixer:
         return "slider.horizontal.3"
+      case .gain:
+        return "plusminus"
+      case .channelRouter:
+        return "arrow.left.arrow.right"
       case .peakLevel:
         return "gauge.with.dots.needle.50percent"
       case .signalGenerator:
@@ -289,10 +307,10 @@ struct RoutingMetalScene {
         return selection != nil
       case .outputAudio(let selection, .separate):
         return selection != nil
-      case .audioMixer:
+      case .audioMixer, .channelRouter:
         return true
       case .applicationAudio, .inputAudio, .outputAudio, .visualizer, .peakLevel,
-        .signalGenerator, .delay, .noiseGate:
+        .gain, .signalGenerator, .delay, .noiseGate:
         return false
       }
     }

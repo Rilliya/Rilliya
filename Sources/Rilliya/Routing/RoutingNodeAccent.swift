@@ -143,6 +143,8 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
   case outputAudio
   case visualizer
   case audioMixer
+  case gain
+  case channelRouter
   case peakLevel
   case signalGenerator
   case delay
@@ -155,6 +157,8 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .outputAudio: "Output Audio"
     case .visualizer: "Visualizer"
     case .audioMixer: "Audio Mixer"
+    case .gain: "Gain"
+    case .channelRouter: "Channel Router"
     case .peakLevel: "Peak Level"
     case .signalGenerator: "Signal Generator"
     case .delay: "Delay"
@@ -169,6 +173,8 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .outputAudio: "speaker.wave.2"
     case .visualizer: "waveform"
     case .audioMixer: "slider.horizontal.3"
+    case .gain: "plusminus"
+    case .channelRouter: "arrow.left.arrow.right"
     case .peakLevel: "gauge.with.dots.needle.50percent"
     case .signalGenerator: "waveform.path"
     case .delay: "clock.arrow.trianglehead.counterclockwise.rotate.90"
@@ -182,6 +188,8 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .inputAudio, .outputAudio: .brook
     case .visualizer: .seafoam
     case .audioMixer, .peakLevel: .pollen
+    case .gain: .honey
+    case .channelRouter: .mist
     case .signalGenerator: .poppy
     case .delay: .wisteria
     case .noiseGate: .lagoon
@@ -197,6 +205,8 @@ extension RoutingNodeValue {
     case .outputAudio: .outputAudio
     case .visualizer: .visualizer
     case .audioMixer: .audioMixer
+    case .gain: .gain
+    case .channelRouter: .channelRouter
     case .peakLevel: .peakLevel
     case .signalGenerator: .signalGenerator
     case .delay: .delay

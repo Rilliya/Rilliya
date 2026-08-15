@@ -178,11 +178,21 @@ private struct RoutingPreparedControlAddress {
   let channelIndex: Int
 }
 
+private enum RoutingPreparedGainControlAddress {
+  case audioChannel(RoutingPreparedControlAddress)
+  case gainNode(UUID)
+}
+
+private struct RoutingPreparedGainControl {
+  let linearGain: Float
+  let isMuted: Bool
+}
+
 private struct RoutingGainPlan {
   let inputBufferIndices: [Int]
   let outputBufferIndices: [Int]
-  let controls: [RoutingAudioChannelControl]
-  let controlAddresses: [RoutingPreparedControlAddress]
+  let controls: [RoutingPreparedGainControl]
+  let controlAddresses: [RoutingPreparedGainControlAddress]
 }
 
 private struct RoutingMixPlan {
@@ -310,6 +320,20 @@ private struct RoutingPreparedAudioGraphCompiler {
       )
     case .audioMixer:
       signal = try mixerSignal(node: node, address: address, visited: visited)
+    case .gain(let configuration):
+      signal = try gainSignal(
+        nodeID: node.id,
+        address: address,
+        configuration: configuration,
+        visited: visited
+      )
+    case .channelRouter(let configuration):
+      signal = try channelRouterSignal(
+        nodeID: node.id,
+        address: address,
+        configuration: configuration,
+        visited: visited
+      )
     case .delay(let configuration):
       signal = try delaySignal(
         nodeID: node.id,
@@ -395,9 +419,17 @@ private struct RoutingPreparedAudioGraphCompiler {
           RoutingGainPlan(
             inputBufferIndices: raw.map(\.bufferIndex),
             outputBufferIndices: outputIndices,
-            controls: raw.map { node.audioChannelControl(at: $0.channelIndex) },
+            controls: raw.map {
+              let control = node.audioChannelControl(at: $0.channelIndex)
+              return RoutingPreparedGainControl(
+                linearGain: control.linearGain,
+                isMuted: control.isMuted
+              )
+            },
             controlAddresses: raw.map {
-              RoutingPreparedControlAddress(nodeID: node.id, channelIndex: $0.channelIndex)
+              .audioChannel(
+                RoutingPreparedControlAddress(nodeID: node.id, channelIndex: $0.channelIndex)
+              )
             }
           )
         )
@@ -519,6 +551,77 @@ private struct RoutingPreparedAudioGraphCompiler {
     return zip(input, outputIndices).map {
       RoutingCompiledAudioChannel(channelIndex: $0.0.channelIndex, bufferIndex: $0.1)
     }
+  }
+
+  private mutating func gainSignal(
+    nodeID: UUID,
+    address: RoutingWorkspacePortAddress,
+    configuration: RoutingGainConfiguration,
+    visited: Set<RoutingWorkspacePortAddress>
+  ) throws -> [RoutingCompiledAudioChannel] {
+    guard address.portID.audioChannel == .all else {
+      throw RoutingPreparedAudioGraphError.invalidRoute
+    }
+    guard
+      let edge = sortedIncomingEdges(for: nodeID).first(where: {
+        $0.target.portID.audioChannel == .all
+      })
+    else {
+      return []
+    }
+    let input = try resolveOutput(edge.source, visited: visited)
+    guard !input.isEmpty else { return [] }
+    let outputIndices = allocateBuffers(count: input.count)
+    operationPlans.append(
+      .gain(
+        RoutingGainPlan(
+          inputBufferIndices: input.map(\.bufferIndex),
+          outputBufferIndices: outputIndices,
+          controls: input.map { _ in
+            RoutingPreparedGainControl(
+              linearGain: configuration.signedLinearGain,
+              isMuted: configuration.isMuted
+            )
+          },
+          controlAddresses: input.map { _ in .gainNode(nodeID) }
+        )
+      )
+    )
+    return zip(input, outputIndices).map {
+      RoutingCompiledAudioChannel(channelIndex: $0.0.channelIndex, bufferIndex: $0.1)
+    }
+  }
+
+  private mutating func channelRouterSignal(
+    nodeID: UUID,
+    address: RoutingWorkspacePortAddress,
+    configuration: RoutingChannelRouterConfiguration,
+    visited: Set<RoutingWorkspacePortAddress>
+  ) throws -> [RoutingCompiledAudioChannel] {
+    guard case .some(.channel(let outputChannel)) = address.portID.audioChannel,
+      configuration.outputSources.indices.contains(outputChannel),
+      let inputChannel = configuration.outputSources[outputChannel]
+    else {
+      return []
+    }
+    guard
+      let edge = sortedIncomingEdges(for: nodeID).first(where: {
+        $0.target.portID.audioChannel == .channel(inputChannel)
+      })
+    else {
+      return []
+    }
+    let input = try resolveOutput(edge.source, visited: visited)
+    guard let selected = input.first(where: { $0.channelIndex == inputChannel }) ?? input.first
+    else {
+      return []
+    }
+    return [
+      RoutingCompiledAudioChannel(
+        channelIndex: outputChannel,
+        bufferIndex: selected.bufferIndex
+      )
+    ]
   }
 
   private mutating func noiseGateSignal(
@@ -773,7 +876,7 @@ private final class RoutingPreparedCaptureRead {
 
 private final class RoutingPreparedGainOperation {
   private let processor: PreparedAudioChannelGainProcessor
-  private let controlAddresses: [RoutingPreparedControlAddress]
+  private let controlAddresses: [RoutingPreparedGainControlAddress]
   private let inputs: RoutingPreparedPointerList
   private let outputs: RoutingPreparedPointerList
 
@@ -818,8 +921,22 @@ private final class RoutingPreparedGainOperation {
 
   func updateControls(nodesByID: [UUID: RoutingWorkspaceNode]) throws {
     for (channel, address) in controlAddresses.enumerated() {
-      let control =
-        nodesByID[address.nodeID]?.audioChannelControl(at: address.channelIndex) ?? .unity
+      let control: RoutingPreparedGainControl
+      switch address {
+      case .audioChannel(let address):
+        let channelControl =
+          nodesByID[address.nodeID]?.audioChannelControl(at: address.channelIndex) ?? .unity
+        control = RoutingPreparedGainControl(
+          linearGain: channelControl.linearGain,
+          isMuted: channelControl.isMuted
+        )
+      case .gainNode(let nodeID):
+        guard case .gain(let configuration) = nodesByID[nodeID]?.value else { continue }
+        control = RoutingPreparedGainControl(
+          linearGain: configuration.signedLinearGain,
+          isMuted: configuration.isMuted
+        )
+      }
       try processor.controls.setControl(
         AudioChannelGainControl(
           linearGain: control.linearGain,

@@ -14,6 +14,8 @@ private enum RoutingPaletteItem: String, Codable, Transferable {
   case outputAudio = "moe.uwucocoa.rilliya.node.output-audio"
   case visualizer = "moe.uwucocoa.rilliya.node.visualizer"
   case audioMixer = "moe.uwucocoa.rilliya.node.audio-mixer"
+  case gain = "moe.uwucocoa.rilliya.node.gain"
+  case channelRouter = "moe.uwucocoa.rilliya.node.channel-router"
   case peakLevel = "moe.uwucocoa.rilliya.node.peak-level"
   case signalGenerator = "moe.uwucocoa.rilliya.node.signal-generator"
   case delay = "moe.uwucocoa.rilliya.node.delay"
@@ -26,6 +28,8 @@ private enum RoutingPaletteItem: String, Codable, Transferable {
     case .outputAudio: .outputAudio
     case .visualizer: .visualizer
     case .audioMixer: .audioMixer
+    case .gain: .gain
+    case .channelRouter: .channelRouter
     case .peakLevel: .peakLevel
     case .signalGenerator: .signalGenerator
     case .delay: .delay
@@ -281,6 +285,12 @@ struct RoutingCanvasView: View {
               context: context
             )
             .zIndex(context.isSelected ? 2 : 1)
+          case .gain(let configuration):
+            GainNodeView(configuration: configuration, context: context)
+              .zIndex(context.isSelected ? 2 : 1)
+          case .channelRouter(let configuration):
+            ChannelRouterNodeView(configuration: configuration, context: context)
+              .zIndex(context.isSelected ? 2 : 1)
           case .peakLevel:
             PeakLevelNodeView(
               signal: peakLevelSignal(for: node),
@@ -421,6 +431,8 @@ struct RoutingCanvasView: View {
           audioSourceMeters: meters,
           audioChannelControls: node.audioChannelControls
         )
+      case .gain, .channelRouter:
+        supplements[node.id] = .empty
       case .peakLevel:
         supplements[node.id] = RoutingMetalNodeSupplement(
           isRunning: false,
@@ -634,6 +646,14 @@ struct RoutingCanvasView: View {
           )
         }
       )
+    case .gain(let configuration):
+      SelectedGainInspector(configuration: configuration) { updated in
+        workspace.configureGain(updated, for: node.id)
+      }
+    case .channelRouter(let configuration):
+      SelectedChannelRouterInspector(configuration: configuration) { updated in
+        workspace.configureChannelRouter(updated, for: node.id)
+      }
     case .peakLevel:
       SelectedPeakLevelInspector(
         signal: RoutingPeakLevelSignalBuilder.build(
@@ -820,6 +840,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   let insertOutputAudio: () -> Void
   let insertVisualizer: () -> Void
   let insertAudioMixer: () -> Void
+  let insertGain: () -> Void
+  let insertChannelRouter: () -> Void
   let insertPeakLevel: () -> Void
   let insertSignalGenerator: () -> Void
   let insertDelay: () -> Void
@@ -837,6 +859,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     insertOutputAudio: @escaping () -> Void,
     insertVisualizer: @escaping () -> Void,
     insertAudioMixer: @escaping () -> Void,
+    insertGain: @escaping () -> Void,
+    insertChannelRouter: @escaping () -> Void,
     insertPeakLevel: @escaping () -> Void,
     insertSignalGenerator: @escaping () -> Void,
     insertDelay: @escaping () -> Void,
@@ -851,6 +875,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     self.insertOutputAudio = insertOutputAudio
     self.insertVisualizer = insertVisualizer
     self.insertAudioMixer = insertAudioMixer
+    self.insertGain = insertGain
+    self.insertChannelRouter = insertChannelRouter
     self.insertPeakLevel = insertPeakLevel
     self.insertSignalGenerator = insertSignalGenerator
     self.insertDelay = insertDelay
@@ -978,6 +1004,32 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       veil: accent(for: .audioMixer).veil,
       allowsClickInsertion: allowsClickInsertion,
       action: insertAudioMixer
+    )
+  }
+
+  private var gainItem: some View {
+    RoutingPaletteNodeItem(
+      item: .gain,
+      title: "Gain",
+      subtitle: "Adjust level and polarity",
+      systemImage: "plusminus",
+      foreground: accent(for: .gain).foreground,
+      veil: accent(for: .gain).veil,
+      allowsClickInsertion: allowsClickInsertion,
+      action: insertGain
+    )
+  }
+
+  private var channelRouterItem: some View {
+    RoutingPaletteNodeItem(
+      item: .channelRouter,
+      title: "Channel Router",
+      subtitle: "Reorder and duplicate channels",
+      systemImage: "arrow.left.arrow.right",
+      foreground: accent(for: .channelRouter).foreground,
+      veil: accent(for: .channelRouter).veil,
+      allowsClickInsertion: allowsClickInsertion,
+      action: insertChannelRouter
     )
   }
 
@@ -1112,6 +1164,12 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     if showsPaletteItem(title: "Audio Mixer", subtitle: "Mix routed channel levels") {
       audioMixerItem
     }
+    if showsPaletteItem(title: "Gain", subtitle: "Adjust level and polarity") {
+      gainItem
+    }
+    if showsPaletteItem(title: "Channel Router", subtitle: "Reorder and duplicate channels") {
+      channelRouterItem
+    }
     if showsPaletteItem(title: "Peak Level", subtitle: "Measure the strongest sample") {
       peakLevelItem
     }
@@ -1140,6 +1198,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       ("Output Audio", "Play through an output device"),
       ("Visualizer", "Inspect routed channels"),
       ("Audio Mixer", "Mix routed channel levels"),
+      ("Gain", "Adjust level and polarity"),
+      ("Channel Router", "Reorder and duplicate channels"),
       ("Peak Level", "Measure the strongest sample"),
       ("Signal Generator", "Create tones and colored noise"),
       ("Delay", "Add time and feedback"),
@@ -1313,6 +1373,18 @@ private struct RoutingCanvasDropPreview: View {
         "Audio Mixer",
         "Mix routed channel levels",
         "slider.horizontal.3"
+      )
+    case .gain:
+      return (
+        "Gain",
+        "0.0 dB",
+        "plusminus"
+      )
+    case .channelRouter:
+      return (
+        "Channel Router",
+        "2 inputs · 2 outputs",
+        "arrow.left.arrow.right"
       )
     case .peakLevel:
       return (
@@ -1903,6 +1975,147 @@ private struct AudioMixerNodeView: View {
       return channelIndex == 0 ? "L" : "R"
     }
     return "Ch \(channelIndex + 1)"
+  }
+}
+
+private struct GainNodeView: View {
+  let configuration: RoutingGainConfiguration
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  @Environment(\.flowingAccent) private var accent
+
+  var body: some View {
+    FlowingCard(
+      spacing: 10,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      HStack(spacing: 9) {
+        Image(systemName: "plusminus")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(accent.foreground)
+        VStack(alignment: .leading, spacing: 1) {
+          Text("Gain")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text(configuration.isPolarityInverted ? "Polarity inverted" : "Level utility")
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+        Spacer(minLength: 0)
+      }
+
+      HStack(spacing: 8) {
+        Text(configuration.isMuted ? "Muted" : configuration.gainDescription)
+          .font(.caption.monospacedDigit().weight(.semibold))
+          .foregroundStyle(configuration.isMuted ? FlowingPalette.faint : FlowingPalette.muted)
+        Spacer(minLength: 4)
+        if configuration.isPolarityInverted {
+          Text("Ø")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(accent.foreground)
+        }
+      }
+      .padding(.horizontal, 12)
+      .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+      .background(
+        accent.wash.opacity(configuration.isMuted ? 0.55 : 1),
+        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+      )
+      .padding(.horizontal, RoutingVisualizerLayout.portLabelGutter)
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width,
+      height: RoutingCanvasMetrics.baseNodeSize.height
+    )
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width * context.renderScale,
+      height: RoutingCanvasMetrics.baseNodeSize.height * context.renderScale,
+      alignment: .topLeading
+    )
+  }
+}
+
+private struct ChannelRouterNodeView: View {
+  let configuration: RoutingChannelRouterConfiguration
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  @Environment(\.flowingAccent) private var accent
+
+  var body: some View {
+    let size = RoutingCanvasMetrics.nodeSize(for: .channelRouter(configuration: configuration))
+    FlowingCard(
+      spacing: 10,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      HStack(spacing: 9) {
+        Image(systemName: "arrow.left.arrow.right")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(accent.foreground)
+        VStack(alignment: .leading, spacing: 1) {
+          Text("Channel Router")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text("\(configuration.inputChannelCount) in · \(configuration.outputChannelCount) out")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(FlowingPalette.muted)
+        }
+        Spacer(minLength: 0)
+      }
+
+      VStack(spacing: RoutingAudioMixerLayout.rowSpacing) {
+        ForEach(0..<rowCount, id: \.self) { row in
+          HStack(spacing: 8) {
+            Text(row < configuration.inputChannelCount ? "In \(row + 1)" : "")
+              .frame(width: 30, alignment: .leading)
+            Spacer(minLength: 0)
+            if row < configuration.outputChannelCount {
+              Text(mappingLabel(for: row))
+                .foregroundStyle(accent.foreground)
+              Image(systemName: "arrow.right")
+                .font(.system(size: 8, weight: .semibold))
+              Text("Out \(row + 1)")
+            }
+          }
+          .font(.system(size: 9, weight: .semibold, design: .monospaced))
+          .foregroundStyle(FlowingPalette.muted)
+          .frame(height: RoutingAudioMixerLayout.rowHeight)
+        }
+      }
+      .padding(.horizontal, RoutingAudioMixerLayout.portLabelGutter)
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(width: size.width, height: size.height)
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: size.width * context.renderScale,
+      height: size.height * context.renderScale,
+      alignment: .topLeading
+    )
+  }
+
+  private var rowCount: Int {
+    max(configuration.inputChannelCount, configuration.outputChannelCount)
+  }
+
+  private func mappingLabel(for outputChannel: Int) -> String {
+    guard let source = configuration.outputSources[outputChannel] else { return "Off" }
+    return "In \(source + 1)"
   }
 }
 
@@ -3286,6 +3499,247 @@ private struct SelectedAudioMixerInspector: View {
       get: { configuration.channelCount },
       set: { updateConfiguration(RoutingAudioMixerConfiguration(channelCount: $0)) }
     )
+  }
+}
+
+private struct SelectedGainInspector: View {
+  let configuration: RoutingGainConfiguration
+  let updateConfiguration: (RoutingGainConfiguration) -> Void
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Gain")
+          .font(.headline)
+          .foregroundStyle(FlowingPalette.ink)
+        Text("Adjust an audio bus without changing its channel layout.")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      VStack(alignment: .leading, spacing: 7) {
+        HStack {
+          Text("Level")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(FlowingPalette.muted)
+          Spacer(minLength: 8)
+          Text(configuration.gainDescription)
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(FlowingPalette.ink)
+        }
+        FlowingSlider(
+          "Gain level",
+          value: gain,
+          in: (RoutingGainConfiguration
+            .minimumGainDecibels...RoutingGainConfiguration.maximumGainDecibels),
+          formatValue: { value in
+            value <= RoutingGainConfiguration.minimumGainDecibels
+              ? "negative infinity decibels"
+              : "\(value.formatted(.number.precision(.fractionLength(1)))) decibels"
+          }
+        )
+      }
+
+      Divider()
+        .overlay(FlowingPalette.hairline)
+
+      FlowingSwitch("Mute output", isOn: isMuted)
+      FlowingSwitch("Invert polarity", isOn: isPolarityInverted)
+
+      FlowingCallout(
+        "Level and mute changes use a short realtime ramp to avoid clicks. Polarity inversion changes sample sign and adds no extra render pass.",
+        title: "Realtime Utility",
+        systemImage: "plusminus",
+        tone: .neutral
+      )
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  private var gain: Binding<Double> {
+    Binding(
+      get: { configuration.gainDecibels },
+      set: { gain in
+        updateConfiguration(
+          RoutingGainConfiguration(
+            gainDecibels: min(
+              max(gain, RoutingGainConfiguration.minimumGainDecibels),
+              RoutingGainConfiguration.maximumGainDecibels
+            ),
+            isMuted: configuration.isMuted,
+            isPolarityInverted: configuration.isPolarityInverted
+          )
+        )
+      }
+    )
+  }
+
+  private var isMuted: Binding<Bool> {
+    Binding(
+      get: { configuration.isMuted },
+      set: { isMuted in
+        updateConfiguration(
+          RoutingGainConfiguration(
+            gainDecibels: configuration.gainDecibels,
+            isMuted: isMuted,
+            isPolarityInverted: configuration.isPolarityInverted
+          )
+        )
+      }
+    )
+  }
+
+  private var isPolarityInverted: Binding<Bool> {
+    Binding(
+      get: { configuration.isPolarityInverted },
+      set: { isPolarityInverted in
+        updateConfiguration(
+          RoutingGainConfiguration(
+            gainDecibels: configuration.gainDecibels,
+            isMuted: configuration.isMuted,
+            isPolarityInverted: isPolarityInverted
+          )
+        )
+      }
+    )
+  }
+}
+
+private struct SelectedChannelRouterInspector: View {
+  let configuration: RoutingChannelRouterConfiguration
+  let updateConfiguration: (RoutingChannelRouterConfiguration) -> Void
+
+  private let channelCountOptions = [1, 2, 4, 6, 8]
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Channel Router")
+          .font(.headline)
+          .foregroundStyle(FlowingPalette.ink)
+        Text("Reorder, duplicate, or silence channels without mixing them.")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      HStack(alignment: .top, spacing: 12) {
+        channelCountPicker("Inputs", selection: inputChannelCount)
+        channelCountPicker("Outputs", selection: outputChannelCount)
+      }
+
+      Divider()
+        .overlay(FlowingPalette.hairline)
+
+      VStack(alignment: .leading, spacing: 8) {
+        Text("Output Mapping")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+        ForEach(0..<configuration.outputChannelCount, id: \.self) { outputChannel in
+          HStack(spacing: 10) {
+            Text("Out \(outputChannel + 1)")
+              .font(.system(.caption, design: .monospaced, weight: .semibold))
+              .foregroundStyle(FlowingPalette.muted)
+              .frame(width: 42, alignment: .leading)
+            FlowingSelect(
+              label: "Source for output channel \(outputChannel + 1)",
+              selection: sourceBinding(for: outputChannel),
+              options: sourceOptions,
+              minimumWidth: 146
+            )
+            .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+      }
+
+      FlowingCallout(
+        "One input may feed several outputs. Choose Silence to drop an output. Combining multiple inputs belongs to Audio Mixer, so routing never changes level implicitly.",
+        title: "Deterministic Mapping",
+        systemImage: "arrow.left.arrow.right",
+        tone: .neutral
+      )
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  private func channelCountPicker(_ title: String, selection: Binding<Int>) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      Text(title)
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(FlowingPalette.muted)
+      FlowingSelect(
+        label: "\(title) channel count",
+        selection: selection,
+        options: channelCountOptions.map { count in
+          FlowingSelectOption(count, label: channelCountLabel(count))
+        },
+        minimumWidth: 128
+      )
+      .fixedSize(horizontal: false, vertical: true)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+  }
+
+  private var inputChannelCount: Binding<Int> {
+    Binding(
+      get: { configuration.inputChannelCount },
+      set: { count in
+        updateConfiguration(
+          configuration.resized(
+            inputChannelCount: count,
+            outputChannelCount: configuration.outputChannelCount
+          )
+        )
+      }
+    )
+  }
+
+  private var outputChannelCount: Binding<Int> {
+    Binding(
+      get: { configuration.outputChannelCount },
+      set: { count in
+        updateConfiguration(
+          configuration.resized(
+            inputChannelCount: configuration.inputChannelCount,
+            outputChannelCount: count
+          )
+        )
+      }
+    )
+  }
+
+  private var sourceOptions: [FlowingSelectOption<Int?>] {
+    [FlowingSelectOption(nil, label: "Silence")]
+      + (0..<configuration.inputChannelCount).map { channel in
+        FlowingSelectOption(Optional(channel), label: "Input \(channel + 1)")
+      }
+  }
+
+  private func sourceBinding(for outputChannel: Int) -> Binding<Int?> {
+    Binding(
+      get: { configuration.outputSources[outputChannel] },
+      set: { source in
+        updateConfiguration(configuration.routing(sourceChannel: source, to: outputChannel))
+      }
+    )
+  }
+
+  private func channelCountLabel(_ count: Int) -> String {
+    switch count {
+    case 1: "Mono · 1 ch"
+    case 2: "Stereo · 2 ch"
+    case 4: "Quad · 4 ch"
+    case 6: "5.1 · 6 ch"
+    case 8: "7.1 · 8 ch"
+    default: "\(count) channels"
+    }
   }
 }
 

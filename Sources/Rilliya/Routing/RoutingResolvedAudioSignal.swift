@@ -56,6 +56,18 @@ struct RoutingAudioSignalResolver {
       )
     case .audioMixer:
       return audioMixerSignals(for: address, node: node, visited: visited)
+    case .gain(let configuration):
+      return gainSignals(
+        for: address,
+        configuration: configuration,
+        visited: visited
+      )
+    case .channelRouter(let configuration):
+      return channelRouterSignals(
+        for: address,
+        configuration: configuration,
+        visited: visited
+      )
     case .delay, .noiseGate:
       guard
         let edge = (incomingEdgesByNodeID[address.nodeID] ?? [])
@@ -69,6 +81,65 @@ struct RoutingAudioSignalResolver {
     case .peakLevel, .signalGenerator:
       return []
     }
+  }
+
+  private func gainSignals(
+    for address: RoutingWorkspacePortAddress,
+    configuration: RoutingGainConfiguration,
+    visited: Set<RoutingWorkspacePortAddress>
+  ) -> [RoutingResolvedAudioChannelSignal] {
+    guard address.portID.audioChannel == .all,
+      let edge = (incomingEdgesByNodeID[address.nodeID] ?? [])
+        .filter({ $0.target.portID.audioChannel == .all })
+        .sorted(by: { $0.id.uuidString < $1.id.uuidString })
+        .first
+    else {
+      return []
+    }
+    let gain = configuration.isMuted ? Float.zero : configuration.signedLinearGain
+    let magnitude = abs(gain)
+    return resolveOutput(edge.source, visited: visited).map { signal in
+      let peak = signal.peak * magnitude
+      return RoutingResolvedAudioChannelSignal(
+        channelIndex: signal.channelIndex,
+        rootMeanSquare: signal.rootMeanSquare * magnitude,
+        peak: peak,
+        isClipping: signal.isClipping || peak >= 1,
+        waveform: scaled(signal.waveform, by: gain)
+      )
+    }
+  }
+
+  private func channelRouterSignals(
+    for address: RoutingWorkspacePortAddress,
+    configuration: RoutingChannelRouterConfiguration,
+    visited: Set<RoutingWorkspacePortAddress>
+  ) -> [RoutingResolvedAudioChannelSignal] {
+    guard case .some(.channel(let outputChannel)) = address.portID.audioChannel,
+      configuration.outputSources.indices.contains(outputChannel),
+      let inputChannel = configuration.outputSources[outputChannel],
+      let edge = (incomingEdgesByNodeID[address.nodeID] ?? [])
+        .filter({ $0.target.portID.audioChannel == .channel(inputChannel) })
+        .sorted(by: { $0.id.uuidString < $1.id.uuidString })
+        .first
+    else {
+      return []
+    }
+    let signals = resolveOutput(edge.source, visited: visited)
+    guard
+      let selected = signals.first(where: { $0.channelIndex == inputChannel }) ?? signals.first
+    else {
+      return []
+    }
+    return [
+      RoutingResolvedAudioChannelSignal(
+        channelIndex: outputChannel,
+        rootMeanSquare: selected.rootMeanSquare,
+        peak: selected.peak,
+        isClipping: selected.isClipping,
+        waveform: selected.waveform
+      )
+    ]
   }
 
   private func sourceSignals(

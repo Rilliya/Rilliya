@@ -344,8 +344,15 @@ enum RoutingCanvasContentBuilder {
       )
       guard rowFrames.indices.contains(value.ordinal) else { return nil }
       return rowFrames[value.ordinal].midY
-    case .applicationAudio, .inputAudio, .outputAudio, .peakLevel, .signalGenerator, .delay,
-      .noiseGate:
+    case .channelRouter(let configuration):
+      let rowFrames = RoutingAudioMixerLayout.rowFrames(
+        in: localFrame,
+        channelCount: max(configuration.inputChannelCount, configuration.outputChannelCount)
+      )
+      guard rowFrames.indices.contains(value.ordinal) else { return nil }
+      return rowFrames[value.ordinal].midY
+    case .applicationAudio, .inputAudio, .outputAudio, .gain, .peakLevel, .signalGenerator,
+      .delay, .noiseGate:
       return nil
     }
   }
@@ -374,6 +381,13 @@ enum RoutingCanvasContentBuilder {
     case .audioMixer(let configuration):
       value = "\(configuration.channelCount)-channel mixer"
       hint = "Connect audio inputs and adjust each output channel level."
+    case .gain(let configuration):
+      value = configuration.isMuted ? "Muted" : configuration.gainDescription
+      hint = "Connect audio through this node to adjust level or invert polarity."
+    case .channelRouter(let configuration):
+      value =
+        "\(configuration.inputChannelCount) inputs routed to \(configuration.outputChannelCount) outputs"
+      hint = "Configure which input channel feeds each output channel."
     case .peakLevel:
       value = "Maximum linear full-scale sample"
       hint = "Connect one audio output to measure its current peak level."

@@ -188,6 +188,81 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func gainInsertionBuildsOneBusInputAndOutputAndStoresItsControls() throws {
+    let model = RoutingWorkspaceModel()
+    let center = CGPoint(x: 480, y: 300)
+    let nodeID = model.addGainNode(centeredAt: center)
+    let configuration = RoutingGainConfiguration(
+      gainDecibels: -12,
+      isMuted: true,
+      isPolarityInverted: true
+    )
+
+    model.configureGain(configuration, for: nodeID)
+
+    let node = try #require(model.node(id: nodeID))
+    #expect(node.value == .gain(configuration: configuration))
+    #expect(CGPoint(x: node.frame.midX, y: node.frame.midY) == center)
+    let ports = RoutingGraphPorts.values(for: node)
+    #expect(ports.count == 2)
+    #expect(ports[0].direction == .input)
+    #expect(ports[0].audioChannel == .all)
+    #expect(ports[0].connectionPolicy == .singleInput)
+    #expect(ports[1].direction == .output)
+    #expect(ports[1].audioChannel == .all)
+    #expect(ports[1].connectionPolicy == .fanOut)
+  }
+
+  @Test @MainActor
+  func channelRouterResizeAndRemapPreserveSurvivingPortAndEdgeIdentities() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    let routerID = model.addChannelRouterNode(centeredAt: CGPoint(x: 360, y: 0))
+    model.setApplicationChannelPresentation(.separate(channelCount: 2), for: sourceID)
+    try connectChannel(
+      sourceID: sourceID,
+      sourceChannel: 0,
+      targetID: routerID,
+      targetChannel: 0,
+      model: model
+    )
+    try connectChannel(
+      sourceID: sourceID,
+      sourceChannel: 1,
+      targetID: routerID,
+      targetChannel: 1,
+      model: model
+    )
+    let originalEdgeIDs = model.edges.map(\.id)
+    let originalFrame = try #require(model.node(id: routerID)).frame
+    let configuration = RoutingChannelRouterConfiguration(
+      inputChannelCount: 4,
+      outputSources: [1, 0, 1, nil]
+    )
+
+    model.configureChannelRouter(configuration, for: routerID)
+
+    let router = try #require(model.node(id: routerID))
+    #expect(router.value == .channelRouter(configuration: configuration))
+    #expect(model.edges.map(\.id) == originalEdgeIDs)
+    #expect(router.frame.midX == originalFrame.midX)
+    #expect(router.frame.midY == originalFrame.midY)
+    let ports = RoutingGraphPorts.values(for: router)
+    #expect(ports.filter { $0.direction == .input }.count == 4)
+    #expect(ports.filter { $0.direction == .output }.count == 4)
+    #expect(
+      ports.contains {
+        $0.direction == .input && $0.audioChannel == .channel(0)
+      }
+    )
+    #expect(
+      ports.contains {
+        $0.direction == .output && $0.audioChannel == .channel(1)
+      }
+    )
+  }
+
+  @Test @MainActor
   func inputAudioUsesPersistentDeviceIdentityAndRuntimeChannels() throws {
     let model = RoutingWorkspaceModel()
     let center = CGPoint(x: 420, y: 260)

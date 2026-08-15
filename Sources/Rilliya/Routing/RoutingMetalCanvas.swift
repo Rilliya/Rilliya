@@ -950,6 +950,16 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       appendVisualizer(node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
     case .audioMixer:
       appendAudioMixer(node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
+    case .gain:
+      appendGain(node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
+    case .channelRouter:
+      appendChannelRouter(
+        node: node,
+        frame: frame,
+        accent: accent,
+        palette: palette,
+        to: &geometry
+      )
     case .peakLevel:
       appendPeakLevel(node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
     case .signalGenerator:
@@ -1274,6 +1284,100 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         ),
         centeredIn: muteFrame,
         color: control.isMuted ? accent : palette.muted.withAlpha(0.7),
+        to: &geometry
+      )
+    }
+  }
+
+  private func appendGain(
+    node: RoutingMetalScene.Node,
+    frame: CGRect,
+    accent: SIMD4<Float>,
+    palette: RoutingMetalPalette,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
+    guard case .gain(let configuration) = node.value else { return }
+    let valueFrame = CGRect(
+      x: frame.minX + RoutingVisualizerLayout.horizontalInset
+        + RoutingVisualizerLayout.portLabelGutter,
+      y: frame.maxY - 48,
+      width: frame.width - 2 * RoutingVisualizerLayout.horizontalInset
+        - 2 * RoutingVisualizerLayout.portLabelGutter,
+      height: 34
+    )
+    geometry.shapes.append(
+      RoutingMetalShapeInstance(
+        rect: valueFrame,
+        fill: accent.withAlpha(configuration.isMuted ? 0.04 : 0.09),
+        border: .zero,
+        cornerRadius: 8,
+        borderWidth: 0,
+        opacity: 1
+      )
+    )
+    let label = configuration.isMuted ? "Muted" : configuration.gainDescription
+    append(
+      atlas: textAtlas.monospacedText(label, size: 10, weight: .semibold),
+      origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
+      color: configuration.isMuted ? palette.muted.withAlpha(0.54) : palette.muted,
+      to: &geometry
+    )
+    if configuration.isPolarityInverted {
+      append(
+        atlas: textAtlas.text("Ø", size: 11, weight: .semibold),
+        origin: CGPoint(x: valueFrame.maxX - 23, y: valueFrame.midY - 8),
+        color: accent,
+        to: &geometry
+      )
+    }
+  }
+
+  private func appendChannelRouter(
+    node: RoutingMetalScene.Node,
+    frame: CGRect,
+    accent: SIMD4<Float>,
+    palette: RoutingMetalPalette,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
+    guard case .channelRouter(let configuration) = node.value else { return }
+    let rowCount = max(configuration.inputChannelCount, configuration.outputChannelCount)
+    let rows = RoutingAudioMixerLayout.rowFrames(in: frame, channelCount: rowCount)
+    let routeStartX = frame.minX + 52
+    let routeEndX = frame.maxX - 52
+    let routeMidX = frame.midX
+
+    for inputChannel in 0..<configuration.inputChannelCount
+    where rows.indices.contains(inputChannel) {
+      append(
+        atlas: textAtlas.monospacedText("In \(inputChannel + 1)", size: 8, weight: .semibold),
+        origin: CGPoint(x: frame.minX + 15, y: rows[inputChannel].midY - 6),
+        color: palette.muted.withAlpha(0.82),
+        to: &geometry
+      )
+    }
+    for outputChannel in 0..<configuration.outputChannelCount
+    where rows.indices.contains(outputChannel) {
+      let label = "Out \(outputChannel + 1)"
+      if let entry = textAtlas.monospacedText(label, size: 8, weight: .semibold) {
+        append(
+          atlas: entry,
+          origin: CGPoint(x: frame.maxX - 15 - entry.size.width, y: rows[outputChannel].midY - 6),
+          color: palette.muted.withAlpha(0.82),
+          to: &geometry
+        )
+      }
+      guard let sourceChannel = configuration.outputSources[outputChannel],
+        rows.indices.contains(sourceChannel)
+      else { continue }
+      appendRoundStroke(
+        points: [
+          CGPoint(x: routeStartX, y: rows[sourceChannel].midY),
+          CGPoint(x: routeMidX, y: rows[sourceChannel].midY),
+          CGPoint(x: routeMidX, y: rows[outputChannel].midY),
+          CGPoint(x: routeEndX, y: rows[outputChannel].midY),
+        ],
+        width: 1.6 / camera.zoom,
+        color: accent.withAlpha(0.72),
         to: &geometry
       )
     }

@@ -91,6 +91,8 @@ extension RoutingNodeValue {
     switch self {
     case .noiseGate:
       .noiseGate(configuration: .initial)
+    case .gain:
+      .gain(configuration: .initial)
     default:
       self
     }
@@ -366,8 +368,8 @@ final class RoutingAudioOutputController {
             buffer = captureController.frameBuffer(for: node.id)
           case .inputAudio:
             buffer = inputCaptureController.frameBuffer(for: node.id)
-          case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay,
-            .noiseGate:
+          case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
+            .signalGenerator, .delay, .noiseGate:
             continue
           }
           guard let buffer else {

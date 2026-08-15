@@ -140,6 +140,61 @@ struct RoutingAudioOutputControllerTests {
   }
 
   @Test @MainActor
+  func gainControlUpdatesDoNotRestartOutputPlayback() async throws {
+    let generatorID = UUID()
+    let gainID = UUID()
+    let outputID = UUID()
+    let outputStarter = OutputTestPlaybackStarter()
+    let outputController = RoutingAudioOutputController(playbackStarter: outputStarter)
+    let captureController = RoutingCaptureController(captureStarter: OutputTestCaptureStarter())
+    let inputController = RoutingInputCaptureController()
+    let workflow = RoutingWorkflowModel(name: "Live Gain")
+    _ = workflow.workspace.addSignalGeneratorNode(centeredAt: .zero, id: generatorID)
+    _ = workflow.workspace.addGainNode(centeredAt: CGPoint(x: 300, y: 0), id: gainID)
+    _ = workflow.workspace.addOutputAudioNode(
+      centeredAt: CGPoint(x: 600, y: 0),
+      id: outputID
+    )
+    let deviceID = try #require(AudioDeviceID(rawValue: "test.output"))
+    workflow.workspace.selectOutputDevice(
+      RoutingOutputDeviceSelection(id: deviceID, displayName: "Test Output"),
+      for: outputID
+    )
+    try connect(sourceID: generatorID, targetID: gainID, in: workflow.workspace)
+    try connect(sourceID: gainID, targetID: outputID, in: workflow.workspace)
+    workflow.run()
+
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: captureController,
+      inputCaptureController: inputController
+    )
+    #expect(await eventually { outputController.state(for: outputID).isRunning })
+    #expect(await outputStarter.startCount == 1)
+
+    workflow.workspace.configureGain(
+      RoutingGainConfiguration(
+        gainDecibels: -18,
+        isMuted: false,
+        isPolarityInverted: true
+      ),
+      for: gainID
+    )
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: captureController,
+      inputCaptureController: inputController
+    )
+    await Task.yield()
+
+    #expect(await outputStarter.startCount == 1)
+    #expect(await outputStarter.stopCount == 0)
+    #expect(outputController.state(for: outputID).isRunning)
+
+    outputController.stopAll()
+  }
+
+  @Test @MainActor
   func oneCaptureBufferCannotFeedTwoIndependentOutputClocks() async throws {
     let processID = try #require(AudioProcessID(rawValue: 142))
     let sourceID = UUID()

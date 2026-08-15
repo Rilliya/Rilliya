@@ -186,6 +186,25 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
         (RoutingAudioMixerConfiguration
         .minimumChannelCount...RoutingAudioMixerConfiguration.maximumChannelCount).contains(
           configuration.channelCount)
+    case .gain(let configuration):
+      return configuration.gainDecibels.isFinite
+        && (RoutingGainConfiguration
+          .minimumGainDecibels...RoutingGainConfiguration.maximumGainDecibels).contains(
+            configuration.gainDecibels
+          )
+    case .channelRouter(let configuration):
+      return
+        (RoutingChannelRouterConfiguration
+        .minimumChannelCount...RoutingChannelRouterConfiguration.maximumChannelCount).contains(
+          configuration.inputChannelCount
+        )
+        && (RoutingChannelRouterConfiguration
+          .minimumChannelCount...RoutingChannelRouterConfiguration.maximumChannelCount).contains(
+            configuration.outputChannelCount
+          )
+        && configuration.outputSources.allSatisfy { source in
+          source.map { (0..<configuration.inputChannelCount).contains($0) } ?? true
+        }
     case .peakLevel:
       return true
     case .signalGenerator(let configuration):

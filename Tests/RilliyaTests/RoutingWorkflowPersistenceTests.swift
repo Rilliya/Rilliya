@@ -30,6 +30,31 @@ struct RoutingWorkflowPersistenceTests {
   }
 
   @Test
+  func gainAndChannelRouterConfigurationsRoundTripThroughTheWorkflowValueCodec() throws {
+    let values: [RoutingNodeValue] = [
+      .gain(
+        configuration: RoutingGainConfiguration(
+          gainDecibels: -18,
+          isMuted: true,
+          isPolarityInverted: true
+        )
+      ),
+      .channelRouter(
+        configuration: RoutingChannelRouterConfiguration(
+          inputChannelCount: 4,
+          outputSources: [3, 1, 1, nil]
+        )
+      ),
+    ]
+
+    for value in values {
+      let encoded = try JSONEncoder().encode(value)
+      let decoded = try JSONDecoder().decode(RoutingNodeValue.self, from: encoded)
+      #expect(decoded == value)
+    }
+  }
+
+  @Test
   func storeRoundTripRestoresGraphsSelectionViewportAndWorkflowOverrides() async throws {
     let fixture = try makeFixture()
     let store = RoutingWorkflowPersistenceStore(fileURL: fixture.fileURL)

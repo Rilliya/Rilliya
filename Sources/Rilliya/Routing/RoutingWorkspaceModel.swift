@@ -100,6 +100,10 @@ final class RoutingWorkspaceModel {
         .visualizer(configuration: .initial)
       case .audioMixer:
         .audioMixer(configuration: .initial)
+      case .gain:
+        .gain(configuration: .initial)
+      case .channelRouter:
+        .channelRouter(configuration: .initial)
       case .peakLevel:
         .peakLevel
       case .signalGenerator:
@@ -270,6 +274,30 @@ final class RoutingWorkspaceModel {
         )
       )
     )
+    rebuildCanvas()
+    return id
+  }
+
+  @discardableResult
+  func addGainNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    appendNode(id: id, value: .gain(configuration: .initial), centeredAt: worldPoint)
+    rebuildCanvas()
+    return id
+  }
+
+  @discardableResult
+  func addChannelRouterNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    appendNode(id: id, value: .channelRouter(configuration: .initial), centeredAt: worldPoint)
     rebuildCanvas()
     return id
   }
@@ -565,6 +593,37 @@ final class RoutingWorkspaceModel {
       return
     }
     nodes[index].value = .signalGenerator(configuration: configuration)
+    rebuildCanvas()
+  }
+
+  func configureGain(
+    _ configuration: RoutingGainConfiguration,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      case .gain(let previous) = nodes[index].value,
+      previous != configuration
+    else {
+      return
+    }
+    nodes[index].value = .gain(configuration: configuration)
+    rebuildCanvas()
+  }
+
+  func configureChannelRouter(
+    _ configuration: RoutingChannelRouterConfiguration,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      case .channelRouter(let previous) = nodes[index].value,
+      previous != configuration
+    else {
+      return
+    }
+    nodes[index].value = .channelRouter(configuration: configuration)
+    let availablePortIDs = Set(RoutingGraphPorts.values(for: nodes[index].value).map(\.id))
+    nodes[index].disabledPortIDs.formIntersection(availablePortIDs)
+    resizeNode(at: index)
     rebuildCanvas()
   }
 

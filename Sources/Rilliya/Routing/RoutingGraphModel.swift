@@ -122,6 +122,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
   )
   case visualizer(configuration: RoutingVisualizerConfiguration)
   case audioMixer(configuration: RoutingAudioMixerConfiguration)
+  case gain(configuration: RoutingGainConfiguration)
+  case channelRouter(configuration: RoutingChannelRouterConfiguration)
   case peakLevel
   case signalGenerator(configuration: RoutingSignalGeneratorConfiguration)
   case delay(configuration: RoutingDelayConfiguration)
@@ -131,8 +133,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     switch self {
     case .applicationAudio(let selection, _):
       return selection
-    case .inputAudio, .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator,
-      .delay, .noiseGate:
+    case .inputAudio, .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter,
+      .peakLevel, .signalGenerator, .delay, .noiseGate:
       return nil
     }
   }
@@ -157,12 +159,22 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     return configuration
   }
 
+  var gainConfiguration: RoutingGainConfiguration? {
+    guard case .gain(let configuration) = self else { return nil }
+    return configuration
+  }
+
+  var channelRouterConfiguration: RoutingChannelRouterConfiguration? {
+    guard case .channelRouter(let configuration) = self else { return nil }
+    return configuration
+  }
+
   var audioSourceChannelPresentation: RoutingChannelPresentation? {
     switch self {
     case .applicationAudio(_, let presentation), .inputAudio(_, let presentation):
       return presentation
-    case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay,
-      .noiseGate:
+    case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
+      .signalGenerator, .delay, .noiseGate:
       return nil
     }
   }
@@ -175,8 +187,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return .applicationAudio(selection: selection, channelPresentation: presentation)
     case .inputAudio(let selection, _):
       return .inputAudio(selection: selection, channelPresentation: presentation)
-    case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay,
-      .noiseGate:
+    case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
+      .signalGenerator, .delay, .noiseGate:
       return nil
     }
   }
@@ -205,6 +217,10 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return "Visualizer"
     case .audioMixer:
       return "Audio Mixer"
+    case .gain:
+      return "Gain"
+    case .channelRouter:
+      return "Channel Router"
     case .peakLevel:
       return "Peak Level"
     case .signalGenerator:
@@ -311,6 +327,142 @@ struct RoutingAudioMixerConfiguration: Codable, Equatable, Hashable, Sendable {
   func encode(to encoder: Encoder) throws {
     var container = encoder.singleValueContainer()
     try container.encode(channelCount)
+  }
+}
+
+struct RoutingGainConfiguration: Codable, Equatable, Hashable, Sendable {
+  static let minimumGainDecibels = -96.0
+  static let maximumGainDecibels = 24.0
+  static let initial = RoutingGainConfiguration(
+    gainDecibels: 0,
+    isMuted: false,
+    isPolarityInverted: false
+  )
+
+  var gainDecibels: Double
+  var isMuted: Bool
+  var isPolarityInverted: Bool
+
+  init(gainDecibels: Double, isMuted: Bool, isPolarityInverted: Bool) {
+    precondition(Self.isValidGain(gainDecibels))
+    self.gainDecibels = gainDecibels
+    self.isMuted = isMuted
+    self.isPolarityInverted = isPolarityInverted
+  }
+
+  var signedLinearGain: Float {
+    guard gainDecibels > Self.minimumGainDecibels else { return 0 }
+    let magnitude = Float(pow(10, gainDecibels / 20))
+    return isPolarityInverted ? -magnitude : magnitude
+  }
+
+  var gainDescription: String {
+    if gainDecibels <= Self.minimumGainDecibels { return "−∞ dB" }
+    return gainDecibels.formatted(
+      .number.sign(strategy: .always()).precision(.fractionLength(1))
+    ) + " dB"
+  }
+
+  private static func isValidGain(_ gainDecibels: Double) -> Bool {
+    gainDecibels.isFinite
+      && (minimumGainDecibels...maximumGainDecibels).contains(gainDecibels)
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case gainDecibels
+    case isMuted
+    case isPolarityInverted
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let gainDecibels = try container.decode(Double.self, forKey: .gainDecibels)
+    guard Self.isValidGain(gainDecibels) else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .gainDecibels,
+        in: container,
+        debugDescription: "Gain is outside the supported range."
+      )
+    }
+    self.init(
+      gainDecibels: gainDecibels,
+      isMuted: try container.decode(Bool.self, forKey: .isMuted),
+      isPolarityInverted: try container.decode(Bool.self, forKey: .isPolarityInverted)
+    )
+  }
+}
+
+struct RoutingChannelRouterConfiguration: Codable, Equatable, Hashable, Sendable {
+  static let minimumChannelCount = 1
+  static let maximumChannelCount = 8
+  static let initial = RoutingChannelRouterConfiguration(
+    inputChannelCount: 2,
+    outputSources: [0, 1]
+  )
+
+  var inputChannelCount: Int
+  var outputSources: [Int?]
+
+  init(inputChannelCount: Int, outputSources: [Int?]) {
+    precondition(Self.isValid(inputChannelCount: inputChannelCount, outputSources: outputSources))
+    self.inputChannelCount = inputChannelCount
+    self.outputSources = outputSources
+  }
+
+  var outputChannelCount: Int { outputSources.count }
+
+  func resized(inputChannelCount: Int, outputChannelCount: Int) -> Self {
+    precondition(
+      (Self.minimumChannelCount...Self.maximumChannelCount).contains(inputChannelCount)
+        && (Self.minimumChannelCount...Self.maximumChannelCount).contains(outputChannelCount)
+    )
+    let sources = (0..<outputChannelCount).map { outputChannel -> Int? in
+      if outputSources.indices.contains(outputChannel),
+        let source = outputSources[outputChannel],
+        source < inputChannelCount
+      {
+        return source
+      }
+      return outputChannel < inputChannelCount ? outputChannel : nil
+    }
+    return Self(inputChannelCount: inputChannelCount, outputSources: sources)
+  }
+
+  func routing(sourceChannel: Int?, to outputChannel: Int) -> Self {
+    precondition(outputSources.indices.contains(outputChannel))
+    if let sourceChannel {
+      precondition((0..<inputChannelCount).contains(sourceChannel))
+    }
+    var sources = outputSources
+    sources[outputChannel] = sourceChannel
+    return Self(inputChannelCount: inputChannelCount, outputSources: sources)
+  }
+
+  private static func isValid(inputChannelCount: Int, outputSources: [Int?]) -> Bool {
+    (minimumChannelCount...maximumChannelCount).contains(inputChannelCount)
+      && (minimumChannelCount...maximumChannelCount).contains(outputSources.count)
+      && outputSources.allSatisfy { source in
+        source.map { (0..<inputChannelCount).contains($0) } ?? true
+      }
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case inputChannelCount
+    case outputSources
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let inputChannelCount = try container.decode(Int.self, forKey: .inputChannelCount)
+    let outputSources = try container.decode([Int?].self, forKey: .outputSources)
+    guard Self.isValid(inputChannelCount: inputChannelCount, outputSources: outputSources) else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .outputSources,
+        in: container,
+        debugDescription: "Channel Router contains an invalid channel mapping."
+      )
+    }
+    self.init(inputChannelCount: inputChannelCount, outputSources: outputSources)
   }
 }
 
@@ -1004,7 +1156,20 @@ enum RoutingCanvasMetrics {
           RoutingAudioMixerLayout.nodeHeight(channelCount: configuration.channelCount)
         )
       )
-    case .peakLevel, .signalGenerator, .delay, .noiseGate:
+    case .channelRouter(let configuration):
+      return CGSize(
+        width: mixerNodeWidth,
+        height: max(
+          baseNodeSize.height,
+          RoutingAudioMixerLayout.nodeHeight(
+            channelCount: max(
+              configuration.inputChannelCount,
+              configuration.outputChannelCount
+            )
+          )
+        )
+      )
+    case .gain, .peakLevel, .signalGenerator, .delay, .noiseGate:
       return baseNodeSize
     }
     return CGSize(
@@ -1232,6 +1397,10 @@ enum RoutingGraphPorts {
       return visualizerValues(for: configuration)
     case .audioMixer(let configuration):
       return audioMixerValues(for: configuration)
+    case .gain:
+      return effectValues(outputName: "Adjusted Audio")
+    case .channelRouter(let configuration):
+      return channelRouterValues(for: configuration)
     case .peakLevel:
       return [
         RoutingGraphPortValue(
@@ -1401,6 +1570,32 @@ enum RoutingGraphPorts {
         connectionPolicy: .fanOut,
         ordinal: channel,
         total: configuration.channelCount
+      )
+    }
+    return inputs + outputs
+  }
+
+  private static func channelRouterValues(
+    for configuration: RoutingChannelRouterConfiguration
+  ) -> [RoutingGraphPortValue] {
+    let inputs = (0..<configuration.inputChannelCount).map { channel in
+      RoutingGraphPortValue(
+        direction: .input,
+        channel: .channel(channel),
+        name: "Input \(channel + 1)",
+        connectionPolicy: .singleInput,
+        ordinal: channel,
+        total: configuration.inputChannelCount
+      )
+    }
+    let outputs = (0..<configuration.outputChannelCount).map { channel in
+      RoutingGraphPortValue(
+        direction: .output,
+        channel: .channel(channel),
+        name: "Output \(channel + 1)",
+        connectionPolicy: .fanOut,
+        ordinal: channel,
+        total: configuration.outputChannelCount
       )
     }
     return inputs + outputs
