@@ -11,6 +11,7 @@ struct RoutingMetalAtlasEntry {
 final class RoutingMetalTextAtlas {
   private enum Key: Hashable {
     case text(String, CGFloat, CGFloat)
+    case monospacedText(String, CGFloat, CGFloat)
     case symbol(String, CGFloat, CGFloat)
     case applicationIcon(URL, CGFloat, CGFloat)
   }
@@ -56,6 +57,33 @@ final class RoutingMetalTextAtlas {
       string: value,
       attributes: [
         .font: NSFont.systemFont(ofSize: size, weight: weight),
+        .foregroundColor: NSColor.white,
+      ]
+    )
+    let measured = attributed.boundingRect(
+      with: CGSize(
+        width: CGFloat.greatestFiniteMagnitude,
+        height: CGFloat.greatestFiniteMagnitude
+      ),
+      options: [.usesFontLeading, .usesLineFragmentOrigin]
+    ).integral.size
+    return insert(key: key, size: measured) { rect in
+      attributed.draw(at: rect.origin)
+    }
+  }
+
+  func monospacedText(
+    _ value: String,
+    size: CGFloat,
+    weight: NSFont.Weight
+  ) -> RoutingMetalAtlasEntry? {
+    guard !value.isEmpty else { return nil }
+    let key = Key.monospacedText(value, size, weight.rawValue)
+    if let entry = entries[key] { return entry }
+    let attributed = NSAttributedString(
+      string: value,
+      attributes: [
+        .font: NSFont.monospacedSystemFont(ofSize: size, weight: weight),
         .foregroundColor: NSColor.white,
       ]
     )

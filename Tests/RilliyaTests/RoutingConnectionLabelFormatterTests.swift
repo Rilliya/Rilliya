@@ -26,7 +26,7 @@ struct RoutingConnectionLabelFormatterTests {
       )
     )
 
-    #expect(label == "2-channel bus · 48 kHz")
+    #expect(label == "2 ch · 48 kHz")
   }
 
   @Test

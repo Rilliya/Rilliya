@@ -838,8 +838,10 @@ private struct ApplicationAudioNodeView: View {
 
           Spacer(minLength: 6)
         }
+        .padding(.trailing, 38)
 
         nodeStatus
+          .padding(.trailing, 38)
       }
     }
     .overlay {
@@ -974,10 +976,8 @@ private struct RoutingWaveformDisplay: View {
       ForEach(signal.lanes) { lane in
         HStack(spacing: 5) {
           if configuration.mode == .separate {
-            Text(label(for: lane.id))
-              .font(.system(size: 8, weight: .semibold))
-              .foregroundStyle(FlowingPalette.muted)
-              .frame(width: 28, alignment: .leading)
+            Color.clear
+              .frame(width: 28)
           }
           Canvas { graphics, size in
             let samples = RoutingWaveformDisplayTransform.normalizedSamples(lane.samples)
@@ -1015,14 +1015,6 @@ private struct RoutingWaveformDisplay: View {
     .accessibilityValue("Live audio")
   }
 
-  private func label(for id: RoutingVisualizerLaneID) -> String {
-    switch id {
-    case .mixed:
-      return "Mix"
-    case .channel(let channel):
-      return "Ch \(channel + 1)"
-    }
-  }
 }
 
 private struct RoutingWaveformPlaceholder: View {
@@ -1050,21 +1042,29 @@ private struct RoutingAudioPortView: View {
         .overlay {
           Circle().strokeBorder(strokeColor, lineWidth: 1.5)
         }
+        .frame(width: 11 * context.renderScale, height: 11 * context.renderScale)
 
       Text(port.value.shortLabel)
-        .font(.system(size: 8 * context.renderScale, weight: .semibold))
+        .font(
+          .system(
+            size: 8 * context.renderScale,
+            weight: .semibold,
+            design: .monospaced
+          )
+        )
         .foregroundStyle(FlowingPalette.muted.opacity(0.76))
         .lineLimit(1)
         .frame(
-          width: 48 * context.renderScale,
+          width: 40 * context.renderScale,
           alignment: port.value.direction == .input ? .leading : .trailing
         )
         .offset(
-          x: (port.value.direction == .input ? 1 : -1) * 35 * context.renderScale
+          x: (port.value.direction == .input ? 1 : -1) * 30 * context.renderScale
         )
         .allowsHitTesting(false)
     }
-    .frame(width: 13 * context.renderScale, height: 13 * context.renderScale)
+    .frame(width: 26 * context.renderScale, height: 26 * context.renderScale)
+    .contentShape(Rectangle())
     .help(port.value.label)
     .accessibilityElement()
     .accessibilityLabel(port.value.label)

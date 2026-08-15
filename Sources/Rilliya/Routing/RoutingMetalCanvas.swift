@@ -91,7 +91,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     static let preferredSampleCount = 4
     static let nodeCornerRadius: CGFloat = 16
     static let iconFrame = CGRect(x: 14, y: 14, width: 38, height: 38)
-    static let portDiameter: CGFloat = 13
+    static let portDiameter: CGFloat = 11
     static let portHitRadius: CGFloat = 13
     static let edgeWidth: CGFloat = 1.6
     static let connectionPreviewWidth: CGFloat = 1.8
@@ -660,10 +660,12 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     palette: RoutingMetalPalette,
     to geometry: inout RoutingMetalFrameGeometry
   ) {
-    guard let entry = textAtlas.text(port.shortLabel, size: 8, weight: .semibold) else {
+    guard
+      let entry = textAtlas.monospacedText(port.shortLabel, size: 8, weight: .semibold)
+    else {
       return
     }
-    let gap: CGFloat = 11
+    let gap: CGFloat = 9
     let originX =
       port.direction == .input
       ? position.x + gap
@@ -691,7 +693,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     let statusFrame = CGRect(
       x: frame.minX + 14,
       y: frame.maxY - 44,
-      width: frame.width - 28,
+      width: frame.width - 66,
       height: 30
     )
     geometry.shapes.append(
@@ -782,23 +784,15 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
           opacity: 1
         )
       )
-      let labelWidth: CGFloat = configuration.mode == .separate ? 34 : 0
-      if configuration.mode == .separate {
-        append(
-          atlas: textAtlas.text(label(for: lane.id), size: 8, weight: .semibold),
-          origin: CGPoint(x: laneFrame.minX + 7, y: laneFrame.midY - 5),
-          color: palette.muted.withAlpha(0.72),
-          to: &geometry
-        )
-      }
+      let portLabelGutterWidth: CGFloat = configuration.mode == .separate ? 34 : 0
       let samples = RoutingWaveformDisplayTransform.normalizedSamples(lane.samples)
       guard samples.count > 1 else { continue }
       let middle = laneFrame.midY
       let amplitude = laneFrame.height * 0.42
       let points = samples.enumerated().map { index, sample in
         CGPoint(
-          x: laneFrame.minX + labelWidth + 8
-            + (laneFrame.width - labelWidth - 16) * CGFloat(index)
+          x: laneFrame.minX + portLabelGutterWidth + 8
+            + (laneFrame.width - portLabelGutterWidth - 16) * CGFloat(index)
               / CGFloat(samples.count - 1),
           y: middle - CGFloat(sample) * amplitude
         )
@@ -809,15 +803,6 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         color: accent.withAlpha(0.92),
         to: &geometry
       )
-    }
-  }
-
-  private func label(for laneID: RoutingVisualizerLaneID) -> String {
-    switch laneID {
-    case .mixed:
-      return "Mix"
-    case .channel(let channel):
-      return "Ch \(channel + 1)"
     }
   }
 

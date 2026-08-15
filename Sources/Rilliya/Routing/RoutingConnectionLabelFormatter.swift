@@ -53,8 +53,8 @@ enum RoutingConnectionLabelFormatter {
     format: ProcessOutputCaptureFormat?
   ) -> String {
     guard source.audioChannel == .all else { return source.shortLabel }
-    guard let count = format?.channelIDs.count else { return "All channels" }
-    return "\(count)-channel bus"
+    guard let count = format?.channelIDs.count else { return "All ch" }
+    return "\(count) ch"
   }
 
   private static func sampleRateDescription(_ sampleRate: Double) -> String {
