@@ -553,16 +553,18 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     }
 
     let iconFrame = Constants.iconFrame.offsetBy(dx: frame.minX, dy: frame.minY)
-    geometry.shapes.append(
-      RoutingMetalShapeInstance(
-        rect: iconFrame,
-        fill: node.miniMapStyleIndex == 0 ? palette.field : accent.withAlpha(0.12),
-        border: .zero,
-        cornerRadius: 10,
-        borderWidth: 0,
-        opacity: 1
+    if node.drawsIconPlate {
+      geometry.shapes.append(
+        RoutingMetalShapeInstance(
+          rect: iconFrame,
+          fill: node.miniMapStyleIndex == 0 ? palette.field : accent.withAlpha(0.12),
+          border: .zero,
+          cornerRadius: 10,
+          borderWidth: 0,
+          opacity: 1
+        )
       )
-    )
+    }
     if let applicationURL = node.applicationURL {
       append(
         atlas: textAtlas.applicationIcon(at: applicationURL, size: iconFrame.size),
@@ -619,7 +621,35 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
           opacity: 1
         )
       )
+      appendPortLabel(
+        port.value,
+        at: position,
+        palette: palette,
+        to: &geometry
+      )
     }
+  }
+
+  private func appendPortLabel(
+    _ port: RoutingGraphPortValue,
+    at position: CGPoint,
+    palette: RoutingMetalPalette,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
+    guard let entry = textAtlas.text(port.shortLabel, size: 8, weight: .semibold) else {
+      return
+    }
+    let gap: CGFloat = 11
+    let originX =
+      port.direction == .input
+      ? position.x + gap
+      : position.x - gap - entry.size.width
+    append(
+      atlas: entry,
+      origin: CGPoint(x: originX, y: position.y - entry.size.height / 2),
+      color: palette.muted.withAlpha(0.76),
+      to: &geometry
+    )
   }
 
   private func appendApplicationStatus(

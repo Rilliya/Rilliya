@@ -841,11 +841,13 @@ private struct ApplicationAudioNodeView: View {
   }
 
   private var applicationIcon: some View {
-    Group {
+    ZStack {
       if let application = selectedCatalogItem?.application {
         Image(nsImage: iconResolver.icon(for: application))
           .resizable()
       } else {
+        RoundedRectangle(cornerRadius: 9, style: .continuous)
+          .fill(FlowingPalette.field)
         Image(systemName: "macwindow")
           .resizable()
           .scaledToFit()
@@ -854,10 +856,6 @@ private struct ApplicationAudioNodeView: View {
       }
     }
     .frame(width: 38, height: 38)
-    .background(
-      FlowingPalette.field,
-      in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-    )
     .overlay(alignment: .bottomTrailing) {
       if selectedCatalogItem?.isRunning == true {
         Circle()
@@ -1034,15 +1032,30 @@ private struct RoutingAudioPortView: View {
   @Environment(\.flowingAccent) private var accent
 
   var body: some View {
-    Circle()
-      .fill(fillColor)
-      .overlay {
-        Circle().strokeBorder(strokeColor, lineWidth: 1.5)
-      }
-      .frame(width: 13 * context.renderScale, height: 13 * context.renderScale)
-      .help(port.value.label)
-      .accessibilityElement()
-      .accessibilityLabel(port.value.label)
+    ZStack {
+      Circle()
+        .fill(fillColor)
+        .overlay {
+          Circle().strokeBorder(strokeColor, lineWidth: 1.5)
+        }
+
+      Text(port.value.shortLabel)
+        .font(.system(size: 8 * context.renderScale, weight: .semibold))
+        .foregroundStyle(FlowingPalette.muted.opacity(0.76))
+        .lineLimit(1)
+        .frame(
+          width: 48 * context.renderScale,
+          alignment: port.value.direction == .input ? .leading : .trailing
+        )
+        .offset(
+          x: (port.value.direction == .input ? 1 : -1) * 35 * context.renderScale
+        )
+        .allowsHitTesting(false)
+    }
+    .frame(width: 13 * context.renderScale, height: 13 * context.renderScale)
+    .help(port.value.label)
+    .accessibilityElement()
+    .accessibilityLabel(port.value.label)
   }
 
   private var fillColor: Color {

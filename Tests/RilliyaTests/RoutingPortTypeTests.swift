@@ -5,6 +5,27 @@ import Testing
 @Suite("Routing port types")
 struct RoutingPortTypeTests {
   @Test
+  func audioPortLabelsStayCompactAndDoNotInventSpeakerRoles() {
+    let bus = RoutingGraphPortValue(
+      direction: .output,
+      channel: .all,
+      ordinal: 0,
+      total: 1
+    )
+    let channels = (0..<2).map {
+      RoutingGraphPortValue(
+        direction: .output,
+        channel: .channel($0),
+        ordinal: $0,
+        total: 2
+      )
+    }
+
+    #expect(bus.shortLabel == "All")
+    #expect(channels.map(\.shortLabel) == ["Ch 1", "Ch 2"])
+  }
+
+  @Test
   func semanticPortIdentityDoesNotDependOnPresentationOrType() {
     let first = RoutingGraphPortValue(
       direction: .output,

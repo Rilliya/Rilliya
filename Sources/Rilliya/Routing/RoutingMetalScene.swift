@@ -97,6 +97,10 @@ struct RoutingMetalScene {
       return selection?.applicationURL
     }
 
+    var drawsIconPlate: Bool {
+      applicationURL == nil
+    }
+
     var symbolName: String {
       switch value {
       case .applicationAudio:

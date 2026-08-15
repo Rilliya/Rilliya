@@ -231,6 +231,34 @@ struct RoutingGraphPortValue: Equatable, Sendable {
   var label: String {
     "\(name) \(direction == .input ? "input" : "output")"
   }
+
+  var shortLabel: String {
+    switch key {
+    case .audio(.all):
+      return "All"
+    case .audio(.channel(let index)):
+      return "Ch \(index + 1)"
+    case .named:
+      switch signalType {
+      case .audio:
+        return "Audio"
+      case .integer:
+        return "Int"
+      case .floatingPoint:
+        return "Float"
+      case .confidence:
+        return "Confidence"
+      case .boolean:
+        return "Bool"
+      case .text:
+        return "Text"
+      case .label:
+        return "Label"
+      case .structure:
+        return "Data"
+      }
+    }
+  }
 }
 
 struct RoutingGraphEdgeValue: Equatable, Sendable {
