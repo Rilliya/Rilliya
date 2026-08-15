@@ -427,37 +427,54 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     )
     encoder.drawPrimitives(type: .triangle, vertexStart: 0, vertexCount: 6)
 
-    drawInstances(
-      geometry.triangles,
-      buffers: &triangleBuffers,
-      pipeline: trianglePipeline,
-      encoder: encoder,
-      uniforms: &uniforms,
-      vertexCount: 3
-    )
-    drawInstances(
-      geometry.shapes,
-      buffers: &shapeBuffers,
-      pipeline: shapePipeline,
-      encoder: encoder,
-      uniforms: &uniforms
-    )
-    if !geometry.atlasItems.isEmpty {
-      let buffer = updateBuffer(values: geometry.atlasItems, buffers: &atlasBuffers)
-      encoder.setRenderPipelineState(atlasPipeline)
-      encoder.setVertexBytes(
-        &uniforms,
-        length: MemoryLayout<RoutingMetalUniforms>.stride,
-        index: 0
+    let triangleBuffer = prepareBuffer(values: geometry.triangles, buffers: &triangleBuffers)
+    let shapeBuffer = prepareBuffer(values: geometry.shapes, buffers: &shapeBuffers)
+    let atlasBuffer = prepareBuffer(values: geometry.atlasItems, buffers: &atlasBuffers)
+
+    if let triangleBuffer {
+      drawInstances(
+        geometry.backgroundTriangleRange,
+        instanceType: RoutingMetalTriangleInstance.self,
+        buffer: triangleBuffer,
+        pipeline: trianglePipeline,
+        encoder: encoder,
+        uniforms: &uniforms,
+        vertexCount: 3
       )
-      encoder.setVertexBuffer(buffer, offset: 0, index: 1)
-      encoder.setFragmentTexture(textAtlas.texture, index: 0)
-      encoder.drawPrimitives(
-        type: .triangle,
-        vertexStart: 0,
-        vertexCount: 6,
-        instanceCount: geometry.atlasItems.count
-      )
+    }
+    for range in geometry.nodeRanges {
+      if let shapeBuffer {
+        drawInstances(
+          range.shapeRange,
+          instanceType: RoutingMetalShapeInstance.self,
+          buffer: shapeBuffer,
+          pipeline: shapePipeline,
+          encoder: encoder,
+          uniforms: &uniforms
+        )
+      }
+      if let triangleBuffer {
+        drawInstances(
+          range.triangleRange,
+          instanceType: RoutingMetalTriangleInstance.self,
+          buffer: triangleBuffer,
+          pipeline: trianglePipeline,
+          encoder: encoder,
+          uniforms: &uniforms,
+          vertexCount: 3
+        )
+      }
+      if let atlasBuffer {
+        encoder.setFragmentTexture(textAtlas.texture, index: 0)
+        drawInstances(
+          range.atlasRange,
+          instanceType: RoutingMetalAtlasInstance.self,
+          buffer: atlasBuffer,
+          pipeline: atlasPipeline,
+          encoder: encoder,
+          uniforms: &uniforms
+        )
+      }
     }
     encoder.endEncoding()
     let inFlightSemaphore = inFlightSemaphore
@@ -486,8 +503,19 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         to: &frameGeometry
       )
     }
+    frameGeometry.backgroundTriangleRange = frameGeometry.triangles.indices
     for node in nodesInRenderOrder {
+      let shapeStart = frameGeometry.shapes.endIndex
+      let triangleStart = frameGeometry.triangles.endIndex
+      let atlasStart = frameGeometry.atlasItems.endIndex
       append(node: node, palette: palette, to: &frameGeometry)
+      frameGeometry.nodeRanges.append(
+        RoutingMetalNodeRange(
+          shapeRange: shapeStart..<frameGeometry.shapes.endIndex,
+          triangleRange: triangleStart..<frameGeometry.triangles.endIndex,
+          atlasRange: atlasStart..<frameGeometry.atlasItems.endIndex
+        )
+      )
     }
     return frameGeometry
   }
@@ -671,6 +699,22 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       width: frame.width - 28,
       height: 42
     )
+    let presentation = RoutingMetalVisualizerPresentation(
+      signal: node.supplement.visualizerSignal
+    )
+    guard case .waveform(let waveforms) = presentation else {
+      append(
+        atlas: textAtlas.text(
+          RoutingMetalVisualizerPresentation.waitingMessage,
+          size: 10,
+          weight: .medium
+        ),
+        centeredIn: waveformFrame,
+        color: palette.muted.withAlpha(0.72),
+        to: &geometry
+      )
+      return
+    }
     geometry.shapes.append(
       RoutingMetalShapeInstance(
         rect: waveformFrame,
@@ -681,52 +725,6 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         opacity: 1
       )
     )
-    guard let waveforms = node.supplement.visualizerSignal?.waveforms,
-      !waveforms.isEmpty
-    else {
-      let middle = waveformFrame.midY
-      let dashWidth: CGFloat = 3
-      let dashGap: CGFloat = 3
-      var x = waveformFrame.minX + 9
-      while x < waveformFrame.maxX - 9 {
-        appendStroke(
-          points: [
-            CGPoint(x: x, y: middle),
-            CGPoint(x: min(x + dashWidth, waveformFrame.maxX - 9), y: middle),
-          ],
-          width: 1 / camera.zoom,
-          color: accent.withAlpha(0.42),
-          to: &geometry
-        )
-        x += dashWidth + dashGap
-      }
-      let waitingText = textAtlas.text("Waiting for audio", size: 9, weight: .medium)
-      if let waitingText {
-        let labelFrame = CGRect(
-          x: waveformFrame.midX - waitingText.size.width / 2 - 6,
-          y: waveformFrame.midY - waitingText.size.height / 2,
-          width: waitingText.size.width + 12,
-          height: waitingText.size.height
-        )
-        geometry.shapes.append(
-          RoutingMetalShapeInstance(
-            rect: labelFrame,
-            fill: palette.field,
-            border: .zero,
-            cornerRadius: 0,
-            borderWidth: 0,
-            opacity: 1
-          )
-        )
-        append(
-          atlas: waitingText,
-          centeredIn: labelFrame,
-          color: palette.muted.withAlpha(0.72),
-          to: &geometry
-        )
-      }
-      return
-    }
     let laneHeight = waveformFrame.height / CGFloat(waveforms.count)
     for (laneIndex, samples) in waveforms.enumerated() where samples.count > 1 {
       let middle = waveformFrame.minY + laneHeight * (CGFloat(laneIndex) + 0.5)
@@ -997,28 +995,40 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   }
 
   private func drawInstances<T>(
-    _ values: [T],
-    buffers: inout [any MTLBuffer],
+    _ range: Range<Int>,
+    instanceType: T.Type,
+    buffer: any MTLBuffer,
     pipeline: any MTLRenderPipelineState,
     encoder: any MTLRenderCommandEncoder,
     uniforms: inout RoutingMetalUniforms,
     vertexCount: Int = 6
   ) {
-    guard !values.isEmpty else { return }
-    let buffer = updateBuffer(values: values, buffers: &buffers)
+    guard !range.isEmpty else { return }
     encoder.setRenderPipelineState(pipeline)
     encoder.setVertexBytes(
       &uniforms,
       length: MemoryLayout<RoutingMetalUniforms>.stride,
       index: 0
     )
-    encoder.setVertexBuffer(buffer, offset: 0, index: 1)
+    encoder.setVertexBuffer(
+      buffer,
+      offset: range.lowerBound * MemoryLayout<T>.stride,
+      index: 1
+    )
     encoder.drawPrimitives(
       type: .triangle,
       vertexStart: 0,
       vertexCount: vertexCount,
-      instanceCount: values.count
+      instanceCount: range.count
     )
+  }
+
+  private func prepareBuffer<T>(
+    values: [T],
+    buffers: inout [any MTLBuffer]
+  ) -> (any MTLBuffer)? {
+    guard !values.isEmpty else { return nil }
+    return updateBuffer(values: values, buffers: &buffers)
   }
 
   private func updateBuffer<T>(
@@ -1367,12 +1377,22 @@ private struct RoutingMetalFrameGeometry {
   var shapes: [RoutingMetalShapeInstance] = []
   var triangles: [RoutingMetalTriangleInstance] = []
   var atlasItems: [RoutingMetalAtlasInstance] = []
+  var backgroundTriangleRange = 0..<0
+  var nodeRanges: [RoutingMetalNodeRange] = []
 
   mutating func removeAll(keepingCapacity: Bool) {
     shapes.removeAll(keepingCapacity: keepingCapacity)
     triangles.removeAll(keepingCapacity: keepingCapacity)
     atlasItems.removeAll(keepingCapacity: keepingCapacity)
+    backgroundTriangleRange = 0..<0
+    nodeRanges.removeAll(keepingCapacity: keepingCapacity)
   }
+}
+
+private struct RoutingMetalNodeRange {
+  let shapeRange: Range<Int>
+  let triangleRange: Range<Int>
+  let atlasRange: Range<Int>
 }
 
 extension SIMD4 where Scalar == Float {

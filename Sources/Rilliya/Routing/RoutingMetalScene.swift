@@ -17,6 +17,21 @@ struct RoutingMetalNodeSupplement: Equatable {
   )
 }
 
+enum RoutingMetalVisualizerPresentation: Equatable {
+  static let waitingMessage = "Waiting for audio input"
+
+  case waiting
+  case waveform([[Float]])
+
+  init(signal: RoutingVisualizerSignal?) {
+    guard let waveforms = signal?.waveforms, !waveforms.isEmpty else {
+      self = .waiting
+      return
+    }
+    self = .waveform(waveforms)
+  }
+}
+
 struct RoutingMetalScene {
   struct Node: Identifiable {
     let id: RoutingCanvasElementID

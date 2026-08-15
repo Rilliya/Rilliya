@@ -94,6 +94,25 @@ struct RoutingMetalSceneTests {
     #expect(scene.nodes.first?.supplement.visualizerSignal == signal)
   }
 
+  @Test
+  func visualizerWithoutInputUsesTextOnlyWaitingPresentation() {
+    let presentation = RoutingMetalVisualizerPresentation(signal: nil)
+
+    #expect(presentation == .waiting)
+    #expect(RoutingMetalVisualizerPresentation.waitingMessage == "Waiting for audio input")
+  }
+
+  @Test
+  func visualizerWithInputUsesWaveformPresentation() {
+    let waveforms: [[Float]] = [[0, 0.25, -0.5, 0]]
+
+    let presentation = RoutingMetalVisualizerPresentation(
+      signal: RoutingVisualizerSignal(waveforms: waveforms)
+    )
+
+    #expect(presentation == .waveform(waveforms))
+  }
+
   @Test @MainActor
   func applicationNodeRetainsTheOriginalStatusSymbolAndCopy() throws {
     let model = RoutingWorkspaceModel()
