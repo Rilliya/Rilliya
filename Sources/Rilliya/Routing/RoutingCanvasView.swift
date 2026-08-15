@@ -223,6 +223,7 @@ struct RoutingCanvasView: View {
         nodeID: node.id,
         selection: selection,
         channelPresentation: channelPresentation,
+        isRouted: workspace.edges.contains { $0.source.nodeID == node.id },
         applicationCatalog: applicationCatalog,
         captureController: captureController,
         selectApplication: { selection in
@@ -889,6 +890,7 @@ private struct SelectedApplicationInspector: View {
   let nodeID: UUID
   let selection: RoutingApplicationSelection?
   let channelPresentation: RoutingChannelPresentation
+  let isRouted: Bool
   let applicationCatalog: InstalledApplicationCatalogController
   let captureController: RoutingCaptureController
   let selectApplication: (RoutingApplicationSelection?) -> Void
@@ -995,13 +997,13 @@ private struct SelectedApplicationInspector: View {
   private var captureContent: some View {
     switch captureController.state(for: nodeID) {
     case .idle:
-      if let processID = runningProcessID {
+      if isRouted, let processID = runningProcessID {
         HStack {
           VStack(alignment: .leading, spacing: 2) {
-            Text("Ready to Capture")
+            Text("Connected for Capture")
               .font(.caption.weight(.semibold))
               .foregroundStyle(FlowingPalette.ink)
-            Text("PID \(processID.rawValue) · normal playback stays audible")
+            Text("Starting PID \(processID.rawValue) automatically · playback stays audible")
               .font(.caption2)
               .foregroundStyle(FlowingPalette.muted)
             if let runningApplicationCount, runningApplicationCount > 1 {
@@ -1010,17 +1012,19 @@ private struct SelectedApplicationInspector: View {
                 .foregroundStyle(FlowingPalette.faint)
             }
           }
-          Spacer(minLength: 8)
-          Button("Start") {
-            captureController.start(nodeID: nodeID, processID: processID)
-          }
-          .buttonStyle(FlowingSoftButtonStyle(isProminent: true))
         }
-      } else if selection != nil {
+      } else if isRouted, selection != nil {
         FlowingCallout(
-          "Launch the selected application before starting capture.",
+          "Launch the selected application; its connected output will begin capturing automatically.",
           title: "Application is not running",
           systemImage: "play.circle",
+          tone: .neutral
+        )
+      } else if selection != nil {
+        FlowingCallout(
+          "Connect an output port to another audio node to begin capture.",
+          title: "Ready to Route",
+          systemImage: "point.3.connected.trianglepath.dotted",
           tone: .neutral
         )
       }
@@ -1051,11 +1055,6 @@ private struct SelectedApplicationInspector: View {
               .foregroundStyle(FlowingPalette.faint)
           }
         }
-        Spacer(minLength: 8)
-        Button("Stop") {
-          captureController.stop(nodeID: nodeID)
-        }
-        .buttonStyle(FlowingSoftButtonStyle())
       }
       .accessibilityElement(children: .combine)
       .accessibilityLabel("Capturing application audio")
@@ -1067,7 +1066,7 @@ private struct SelectedApplicationInspector: View {
           systemImage: "exclamationmark.triangle",
           tone: .warning
         )
-        if let processID = runningProcessID {
+        if isRouted, let processID = runningProcessID {
           Button("Try Again") {
             captureController.start(nodeID: nodeID, processID: processID)
           }

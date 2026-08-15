@@ -50,6 +50,9 @@ struct WorkspaceView: View {
         await applicationCatalog.refresh()
       }
     }
+    .onChange(of: captureRequirements, initial: true) { _, requirements in
+      captureController.reconcile(requirements: requirements)
+    }
     .onDisappear {
       applicationCatalog.cancelRefresh()
       captureController.stopAll()
@@ -60,6 +63,13 @@ struct WorkspaceView: View {
     FlowingPalette.canvas
       .ignoresSafeArea()
       .allowsHitTesting(false)
+  }
+
+  private var captureRequirements: RoutingCaptureRequirements {
+    RoutingCaptureRequirementResolver.resolve(
+      workflows: workflowLibrary.workflows,
+      catalogSnapshot: applicationCatalog.state.snapshot
+    )
   }
 
   private var workflowCanvas: some View {

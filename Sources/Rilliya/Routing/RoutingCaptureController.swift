@@ -136,6 +136,18 @@ final class RoutingCaptureController {
     beginStart(processID: processID, generation: generation)
   }
 
+  func reconcile(requirements: RoutingCaptureRequirements) {
+    for (nodeID, processID) in Array(processIDsByNode) {
+      guard requirements.processIDsByNode[nodeID] != processID else { continue }
+      detach(nodeID: nodeID, publishesIdleState: true)
+    }
+    for (nodeID, processID) in requirements.processIDsByNode.sorted(by: {
+      $0.key.uuidString < $1.key.uuidString
+    }) {
+      start(nodeID: nodeID, processID: processID)
+    }
+  }
+
   func stop(nodeID: UUID) {
     detach(nodeID: nodeID, publishesIdleState: true)
   }

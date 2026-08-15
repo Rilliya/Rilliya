@@ -75,6 +75,38 @@ struct RoutingCaptureControllerTests {
   }
 
   @Test @MainActor
+  func reconciliationKeepsSharedSourcesAndDetachesObsoleteConsumers() async throws {
+    let processID = try #require(AudioProcessID(rawValue: 93))
+    let starter = FakeRoutingProcessCaptureStarter()
+    let controller = RoutingCaptureController(captureStarter: starter)
+    let firstNodeID = UUID()
+    let secondNodeID = UUID()
+
+    controller.reconcile(
+      requirements: RoutingCaptureRequirements(
+        processIDsByNode: [firstNodeID: processID, secondNodeID: processID]
+      )
+    )
+    let bothRunning = await eventually {
+      controller.state(for: firstNodeID).isRunning
+        && controller.state(for: secondNodeID).isRunning
+    }
+    #expect(bothRunning)
+
+    controller.reconcile(
+      requirements: RoutingCaptureRequirements(processIDsByNode: [secondNodeID: processID])
+    )
+
+    #expect(controller.state(for: firstNodeID) == .idle)
+    #expect(controller.state(for: secondNodeID).isRunning)
+    #expect(controller.consumerCount(for: secondNodeID) == 1)
+    let startCount = await starter.startCount(for: processID)
+    let stopCount = await starter.stopCount(for: processID)
+    #expect(startCount == 1)
+    #expect(stopCount == 0)
+  }
+
+  @Test @MainActor
   func workflowSwitchingDoesNotStopASharedBackgroundCapture() async throws {
     let processID = try #require(AudioProcessID(rawValue: 96))
     let starter = FakeRoutingProcessCaptureStarter()
