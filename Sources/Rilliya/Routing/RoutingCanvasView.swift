@@ -134,6 +134,7 @@ struct RoutingCanvasView: View {
           scene: metalScene(for: context.content),
           inspectorID: selectedWorkspaceNodeID,
           inspector: AnyView(selectedNodeInspector),
+          removeNodes: workspace.removeNodes,
           removeEdges: workspace.removeEdges,
           toggleEdgeEnabled: workspace.toggleEdgeEnabled,
           togglePortEnabled: workspace.togglePortEnabled,

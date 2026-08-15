@@ -8,6 +8,7 @@ struct RoutingMetalViewport: View {
   let scene: RoutingMetalScene
   let inspectorID: UUID?
   let inspector: AnyView
+  let removeNodes: (Set<UUID>) -> Void
   let removeEdges: (Set<UUID>) -> Void
   let toggleEdgeEnabled: (UUID) -> Void
   let togglePortEnabled: (UUID, RoutingGraphPortID) -> Void
@@ -23,6 +24,7 @@ struct RoutingMetalViewport: View {
     scene: RoutingMetalScene,
     inspectorID: UUID?,
     inspector: AnyView,
+    removeNodes: @escaping (Set<UUID>) -> Void,
     removeEdges: @escaping (Set<UUID>) -> Void,
     toggleEdgeEnabled: @escaping (UUID) -> Void,
     togglePortEnabled: @escaping (UUID, RoutingGraphPortID) -> Void,
@@ -34,6 +36,7 @@ struct RoutingMetalViewport: View {
     self.scene = scene
     self.inspectorID = inspectorID
     self.inspector = inspector
+    self.removeNodes = removeNodes
     self.removeEdges = removeEdges
     self.toggleEdgeEnabled = toggleEdgeEnabled
     self.togglePortEnabled = togglePortEnabled
@@ -59,6 +62,7 @@ struct RoutingMetalViewport: View {
           onSelectionChange: updateSelection,
           onMoveNode: moveNode,
           onConnect: connect,
+          onDeleteNodes: removeNodes,
           onDeleteEdges: removeEdges,
           onToggleEdgeEnabled: toggleEdgeEnabled,
           onTogglePortEnabled: togglePortEnabled,

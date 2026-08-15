@@ -46,6 +46,7 @@ struct RoutingMetalCanvas: NSViewRepresentable {
   let onSelectionChange: (Set<RoutingCanvasElementID>) -> Void
   let onMoveNode: (RoutingCanvasElementID, CGSize) -> Void
   let onConnect: (RoutingCanvasElementID, RoutingCanvasElementID) -> Void
+  let onDeleteNodes: (Set<UUID>) -> Void
   let onDeleteEdges: (Set<UUID>) -> Void
   let onToggleEdgeEnabled: (UUID) -> Void
   let onTogglePortEnabled: (UUID, RoutingGraphPortID) -> Void
@@ -82,6 +83,7 @@ struct RoutingMetalCanvas: NSViewRepresentable {
     view.onSelectionChange = onSelectionChange
     view.onMoveNode = onMoveNode
     view.onConnect = onConnect
+    view.onDeleteNodes = onDeleteNodes
     view.onDeleteEdges = onDeleteEdges
     view.onToggleEdgeEnabled = onToggleEdgeEnabled
     view.onTogglePortEnabled = onTogglePortEnabled
@@ -94,6 +96,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   var onSelectionChange: ((Set<RoutingCanvasElementID>) -> Void)?
   var onMoveNode: ((RoutingCanvasElementID, CGSize) -> Void)?
   var onConnect: ((RoutingCanvasElementID, RoutingCanvasElementID) -> Void)?
+  var onDeleteNodes: ((Set<UUID>) -> Void)?
   var onDeleteEdges: ((Set<UUID>) -> Void)?
   var onToggleEdgeEnabled: ((UUID) -> Void)?
   var onTogglePortEnabled: ((UUID, RoutingGraphPortID) -> Void)?
@@ -131,6 +134,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   private var hoveredNodeID: RoutingCanvasElementID?
   private var hoveredPortID: RoutingCanvasElementID?
   private var hoveredEdgeID: RoutingCanvasElementID?
+  private var contextNodeIDs: Set<UUID> = []
   private var contextEdgeID: UUID?
   private var contextPortAddress: RoutingWorkspacePortAddress?
   private var mouseDownViewportPoint: CGPoint?
@@ -395,6 +399,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
 
   override func keyDown(with event: NSEvent) {
     if event.keyCode == 51 || event.keyCode == 117 {
+      let nodeIDs = Set(
+        scene.nodes.filter { selection.contains($0.id) }.map(\.workspaceID)
+      )
+      if !nodeIDs.isEmpty {
+        onDeleteNodes?(nodeIDs)
+        updateSelection([])
+        return
+      }
       let edgeIDs = Set(
         scene.edges.filter { selection.contains($0.id) }.map(\.workspaceID)
       )
@@ -439,6 +451,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     let viewportPoint = convert(event.locationInWindow, from: nil)
     let worldPoint = camera.worldPoint(for: viewportPoint)
     if let port = port(at: worldPoint) {
+      contextNodeIDs = []
       contextEdgeID = nil
       contextPortAddress = RoutingWorkspacePortAddress(
         nodeID: port.workspaceNodeID,
@@ -454,8 +467,31 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       menu.addItem(toggleItem)
       return menu
     }
+    if let node = node(at: worldPoint) {
+      if !selection.contains(node.id) {
+        updateSelection([node.id])
+      }
+      contextNodeIDs = Set(
+        scene.nodes
+          .filter { selection.contains($0.id) || $0.id == node.id }
+          .map(\.workspaceID)
+      )
+      contextEdgeID = nil
+      contextPortAddress = nil
+
+      let menu = NSMenu(title: "Node")
+      let deleteItem = NSMenuItem(
+        title: contextNodeIDs.count == 1 ? "Delete Node" : "Delete \(contextNodeIDs.count) Nodes",
+        action: #selector(deleteContextNode),
+        keyEquivalent: ""
+      )
+      deleteItem.target = self
+      menu.addItem(deleteItem)
+      return menu
+    }
     guard let edge = edge(at: worldPoint) else { return nil }
     updateSelection([edge.id])
+    contextNodeIDs = []
     contextPortAddress = nil
     contextEdgeID = edge.workspaceID
 
@@ -482,6 +518,13 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     guard let contextEdgeID else { return }
     onToggleEdgeEnabled?(contextEdgeID)
     self.contextEdgeID = nil
+  }
+
+  @objc private func deleteContextNode() {
+    guard !contextNodeIDs.isEmpty else { return }
+    onDeleteNodes?(contextNodeIDs)
+    updateSelection([])
+    contextNodeIDs = []
   }
 
   @objc private func deleteContextEdge() {

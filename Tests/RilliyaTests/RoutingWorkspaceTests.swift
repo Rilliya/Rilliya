@@ -303,6 +303,37 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func removingNodesAlsoRemovesRoutesAndRuntimeState() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    let visualizerID = model.addVisualizerNode(centeredAt: CGPoint(x: 400, y: 0))
+    try connectAggregate(sourceID: sourceID, targetID: visualizerID, model: model)
+    model.synchronizeCaptureFormats([
+      sourceID: try captureFormat(channelCount: 2)
+    ])
+
+    model.removeNodes(ids: [sourceID])
+
+    #expect(model.nodes.map(\.id) == [visualizerID])
+    #expect(model.edges.isEmpty)
+    #expect(model.runtimeCaptureFormats[sourceID] == nil)
+    #expect(model.captureSourceNodeIDs.isEmpty)
+    #expect(model.canvasContent?.presentation.nodes.count == 1)
+    #expect(model.canvasContent?.presentation.edges.isEmpty == true)
+  }
+
+  @Test @MainActor
+  func removingUnknownNodesDoesNotRebuildTheCanvas() throws {
+    let model = RoutingWorkspaceModel()
+    _ = model.addVisualizerNode(centeredAt: .zero)
+    let snapshotID = try #require(model.canvasContent?.presentation.snapshotID)
+
+    model.removeNodes(ids: [UUID()])
+
+    #expect(model.canvasContent?.presentation.snapshotID == snapshotID)
+  }
+
+  @Test @MainActor
   func peakLevelAcceptsOnlyOneEnabledInput() throws {
     let model = RoutingWorkspaceModel()
     let firstSourceID = model.addApplicationAudioNode(centeredAt: .zero)

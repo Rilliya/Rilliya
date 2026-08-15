@@ -435,6 +435,31 @@ final class RoutingWorkspaceModel {
     rebuildCanvas()
   }
 
+  func removeNodes(ids: Set<UUID>) {
+    let removedNodeIDs = ids.intersection(nodes.map(\.id))
+    guard !removedNodeIDs.isEmpty else { return }
+
+    nodes.removeAll { removedNodeIDs.contains($0.id) }
+    edges.removeAll {
+      removedNodeIDs.contains($0.source.nodeID)
+        || removedNodeIDs.contains($0.target.nodeID)
+    }
+    runtimeCaptureFormats = runtimeCaptureFormats.filter {
+      !removedNodeIDs.contains($0.key)
+    }
+
+    var nextPendingSources: [UUID: Set<UUID>] = [:]
+    for (visualizerID, sourceIDs) in pendingSeparateSourcesByVisualizer
+    where !removedNodeIDs.contains(visualizerID) {
+      let retainedSourceIDs = sourceIDs.subtracting(removedNodeIDs)
+      if !retainedSourceIDs.isEmpty {
+        nextPendingSources[visualizerID] = retainedSourceIDs
+      }
+    }
+    pendingSeparateSourcesByVisualizer = nextPendingSources
+    rebuildCanvas()
+  }
+
   func toggleEdgeEnabled(id: UUID) {
     guard let index = edges.firstIndex(where: { $0.id == id }) else { return }
     if edges[index].isEnabled {
