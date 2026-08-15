@@ -65,6 +65,12 @@ final class RilliyaSettings {
     }
   }
 
+  var addsNodesOnPaletteClick: Bool {
+    didSet {
+      defaults.set(addsNodesOnPaletteClick, forKey: Keys.addsNodesOnPaletteClick)
+    }
+  }
+
   @ObservationIgnored private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
@@ -83,6 +89,9 @@ final class RilliyaSettings {
     showsDisabledPortCrosses =
       defaults.object(forKey: Keys.showsDisabledPortCrosses) as? Bool
       ?? true
+    addsNodesOnPaletteClick =
+      defaults.object(forKey: Keys.addsNodesOnPaletteClick) as? Bool
+      ?? false
   }
 
   private enum Keys {
@@ -94,5 +103,7 @@ final class RilliyaSettings {
       "moe.uwucocoa.rilliya.shows-minimap-by-default"
     static let showsDisabledPortCrosses =
       "moe.uwucocoa.rilliya.shows-disabled-port-crosses"
+    static let addsNodesOnPaletteClick =
+      "moe.uwucocoa.rilliya.adds-nodes-on-palette-click"
   }
 }

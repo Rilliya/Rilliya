@@ -90,8 +90,7 @@ struct RoutingMetalScene {
         let count = configuration.normalizedSelectedChannels.count
         return "\(count) selected channel\(count == 1 ? "" : "s")"
       case .peakLevel:
-        guard let signal = supplement.peakLevelSignal else { return "Waiting for audio" }
-        return "\(signal.linearDescription) linear"
+        return "Linear full-scale peak"
       }
     }
 

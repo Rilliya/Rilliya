@@ -26,6 +26,10 @@ struct RoutingInputCaptureControllerTests {
     #expect(await starter.startCount(for: deviceID) == 1)
     #expect(controller.consumerCount(for: firstNodeID) == 2)
 
+    controller.start(nodeID: firstNodeID, deviceID: deviceID)
+    #expect(await starter.startCount(for: deviceID) == 1)
+    #expect(controller.consumerCount(for: firstNodeID) == 2)
+
     let snapshot = try makeSnapshot(deviceID: deviceID)
     await starter.emit(snapshot)
     let bothReceivedSnapshot = await eventually {

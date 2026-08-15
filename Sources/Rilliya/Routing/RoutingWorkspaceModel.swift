@@ -135,7 +135,11 @@ final class RoutingWorkspaceModel {
     for nodeID: UUID
   ) {
     guard let index = nodes.firstIndex(where: { $0.id == nodeID }) else { return }
-    guard case .applicationAudio(_, let channelPresentation) = nodes[index].value else { return }
+    guard
+      case .applicationAudio(let currentSelection, let channelPresentation) =
+        nodes[index].value,
+      currentSelection != selection
+    else { return }
     nodes[index].value = .applicationAudio(
       selection: selection,
       channelPresentation: channelPresentation
@@ -150,7 +154,9 @@ final class RoutingWorkspaceModel {
     for nodeID: UUID
   ) {
     guard let index = nodes.firstIndex(where: { $0.id == nodeID }) else { return }
-    guard case .inputAudio(_, let channelPresentation) = nodes[index].value else { return }
+    guard case .inputAudio(let currentSelection, let channelPresentation) = nodes[index].value,
+      currentSelection != selection
+    else { return }
     nodes[index].value = .inputAudio(
       selection: selection,
       channelPresentation: channelPresentation

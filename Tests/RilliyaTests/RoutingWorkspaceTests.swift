@@ -103,9 +103,16 @@ struct RoutingWorkspaceTests {
       nodeID: try inputCaptureFormat(deviceID: deviceID, channelCount: 2)
     ])
 
+    let synchronizedFormat = try #require(model.runtimeCaptureFormats[nodeID])
+    let synchronizedContent = try #require(model.canvasContent)
+    model.selectInputDevice(selection, for: nodeID)
+
     let node = try #require(model.node(id: nodeID))
     #expect(node.value.inputDeviceSelection == selection)
     #expect(node.value.channelPresentation == .separate(channelCount: 2))
+    #expect(model.runtimeCaptureFormats[nodeID] == synchronizedFormat)
+    #expect(
+      model.canvasContent?.presentation.snapshotID == synchronizedContent.presentation.snapshotID)
     #expect(CGPoint(x: node.frame.midX, y: node.frame.midY) == center)
     let ports = RoutingGraphPorts.values(for: node)
     #expect(ports.count == 2)

@@ -22,6 +22,7 @@ struct WorkspaceView: View {
 
       RoutingNodePaletteView(
         applicationCatalog: applicationCatalog,
+        allowsClickInsertion: settings.addsNodesOnPaletteClick,
         insertApplicationAudio: insertApplicationAudio,
         insertInputAudio: insertInputAudio,
         insertVisualizer: insertVisualizer,

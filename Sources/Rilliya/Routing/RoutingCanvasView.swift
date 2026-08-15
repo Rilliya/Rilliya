@@ -321,6 +321,7 @@ struct RoutingCanvasView: View {
         channelPresentation: channelPresentation,
         isRouted: workspace.edges.contains { $0.isEnabled && $0.source.nodeID == node.id },
         applicationCatalog: applicationCatalog,
+        iconResolver: iconResolver,
         captureController: captureController,
         selectApplication: { selection in
           workspace.selectApplication(selection, for: node.id)
@@ -498,6 +499,7 @@ private enum RoutingNodePaletteMetrics {
 struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
 
   let applicationCatalog: InstalledApplicationCatalogController
+  let allowsClickInsertion: Bool
   let insertApplicationAudio: () -> Void
   let insertInputAudio: () -> Void
   let insertVisualizer: () -> Void
@@ -506,6 +508,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
 
   init(
     applicationCatalog: InstalledApplicationCatalogController,
+    allowsClickInsertion: Bool,
     insertApplicationAudio: @escaping () -> Void,
     insertInputAudio: @escaping () -> Void,
     insertVisualizer: @escaping () -> Void,
@@ -513,6 +516,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     @ViewBuilder workflowNavigation: () -> WorkflowNavigation
   ) {
     self.applicationCatalog = applicationCatalog
+    self.allowsClickInsertion = allowsClickInsertion
     self.insertApplicationAudio = insertApplicationAudio
     self.insertInputAudio = insertInputAudio
     self.insertVisualizer = insertVisualizer
@@ -581,7 +585,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     .shadow(color: .black.opacity(0.06), radius: 18, y: 8)
     .padding(.leading, 12)
     .padding(.trailing, 10)
-    .padding(.vertical, 12)
+    .padding(.top, 22)
+    .padding(.bottom, 12)
     .frame(width: 286)
     .frame(maxHeight: .infinity, alignment: .top)
     .background(Color.clear)
@@ -595,6 +600,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       systemImage: "waveform",
       foreground: FlowingAccent.seafoam.foreground,
       veil: FlowingAccent.seafoam.veil,
+      allowsClickInsertion: allowsClickInsertion,
       action: insertVisualizer
     )
   }
@@ -607,6 +613,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       systemImage: "waveform.badge.mic",
       foreground: FlowingAccent.brook.foreground,
       veil: FlowingAccent.brook.veil,
+      allowsClickInsertion: allowsClickInsertion,
       action: insertInputAudio
     )
   }
@@ -619,6 +626,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       systemImage: "gauge.with.dots.needle.50percent",
       foreground: FlowingAccent.pollen.foreground,
       veil: FlowingAccent.pollen.veil,
+      allowsClickInsertion: allowsClickInsertion,
       action: insertPeakLevel
     )
   }
@@ -659,6 +667,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       systemImage: "macwindow.on.rectangle",
       foreground: FlowingAccent.fern.foreground,
       veil: FlowingAccent.fern.veil,
+      allowsClickInsertion: allowsClickInsertion,
       action: insertApplicationAudio
     )
   }
@@ -683,64 +692,85 @@ private struct RoutingPaletteNodeItem: View {
   let systemImage: String
   let foreground: Color
   let veil: Color
+  let allowsClickInsertion: Bool
   let action: () -> Void
 
   @State private var isHovering = false
 
   var body: some View {
-    Button(action: action) {
-      FlowingCard(
-        spacing: 0,
-        contentInsets: EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12)
-      ) {
-        HStack(spacing: 11) {
-          Image(systemName: systemImage)
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(foreground)
-            .frame(width: 32, height: 32)
-            .background(
-              veil,
-              in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-            )
-
-          VStack(alignment: .leading, spacing: 2) {
-            Text(title)
-              .font(.callout.weight(.semibold))
-              .foregroundStyle(FlowingPalette.ink)
-            Text(subtitle)
-              .font(.caption)
-              .foregroundStyle(FlowingPalette.muted)
-          }
-
-          Spacer(minLength: 6)
-
-          Image(systemName: "line.3.horizontal")
-            .font(.system(size: 10, weight: .semibold))
-            .foregroundStyle(isHovering ? foreground : FlowingPalette.faint)
-            .accessibilityHidden(true)
-        }
+    interactiveCard
+      .draggable(item) {
+        RoutingPaletteDragPreview(
+          title: title,
+          subtitle: subtitle,
+          systemImage: systemImage,
+          foreground: foreground,
+          veil: veil
+        )
       }
-      .overlay {
-        RoundedRectangle(cornerRadius: 14, style: .continuous)
-          .strokeBorder(isHovering ? foreground.opacity(0.28) : Color.clear)
-      }
-      .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
-    }
-    .buttonStyle(.plain)
-    .draggable(item) {
-      RoutingPaletteDragPreview(
-        title: title,
-        subtitle: subtitle,
-        systemImage: systemImage,
-        foreground: foreground,
-        veil: veil
+      .onHover { isHovering = $0 }
+      .scaleEffect(isHovering ? 1.012 : 1)
+      .animation(.easeOut(duration: 0.14), value: isHovering)
+      .help(
+        allowsClickInsertion
+          ? "Drag or click to add \(title)" : "Drag \(title) onto the canvas"
       )
+      .accessibilityHint(
+        allowsClickInsertion
+          ? "Drag to the canvas or press to add in the visible workspace"
+          : "Drag this node onto the canvas"
+      )
+  }
+
+  @ViewBuilder
+  private var interactiveCard: some View {
+    if allowsClickInsertion {
+      Button(action: action) {
+        card
+      }
+      .buttonStyle(.plain)
+    } else {
+      card
     }
-    .onHover { isHovering = $0 }
-    .scaleEffect(isHovering ? 1.012 : 1)
-    .animation(.easeOut(duration: 0.14), value: isHovering)
-    .help("Drag \(title) onto the canvas")
-    .accessibilityHint("Drag to the canvas or press to add in the visible workspace")
+  }
+
+  private var card: some View {
+    FlowingCard(
+      spacing: 0,
+      contentInsets: EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12)
+    ) {
+      HStack(spacing: 11) {
+        Image(systemName: systemImage)
+          .font(.system(size: 15, weight: .semibold))
+          .foregroundStyle(foreground)
+          .frame(width: 32, height: 32)
+          .background(
+            veil,
+            in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+          )
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text(title)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text(subtitle)
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+
+        Spacer(minLength: 6)
+
+        Image(systemName: "line.3.horizontal")
+          .font(.system(size: 10, weight: .semibold))
+          .foregroundStyle(isHovering ? foreground : FlowingPalette.faint)
+          .accessibilityHidden(true)
+      }
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(isHovering ? foreground.opacity(0.28) : Color.clear)
+    }
+    .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
   }
 }
 
@@ -1436,6 +1466,7 @@ private struct SelectedApplicationInspector: View {
   let channelPresentation: RoutingChannelPresentation
   let isRouted: Bool
   let applicationCatalog: InstalledApplicationCatalogController
+  let iconResolver: NSWorkspaceInstalledApplicationIconResolver
   let captureController: RoutingCaptureController
   let selectApplication: (RoutingApplicationSelection?) -> Void
   let setChannelPresentation: (RoutingChannelPresentation) -> Void
@@ -1658,10 +1689,10 @@ private struct SelectedApplicationInspector: View {
         tone: .warning
       )
     } else {
-      FlowingSearchPicker(
-        label: "Installed Applications",
+      InstalledApplicationSearchPicker(
+        items: catalogItems,
         selection: pickerSelection,
-        options: pickerOptions,
+        iconResolver: iconResolver,
         maximumVisibleOptions: 8
       )
     }
@@ -1671,20 +1702,13 @@ private struct SelectedApplicationInspector: View {
     Binding(
       get: { selectedCatalogItem?.application.bundleURL.absoluteString ?? "" },
       set: { selectedID in
+        guard selectedID != selectedCatalogItem?.application.bundleURL.absoluteString else {
+          return
+        }
         captureController.stop(nodeID: nodeID)
         selectApplication(selection(for: selectedID))
       }
     )
-  }
-
-  private var pickerOptions: [FlowingSelectOption<String>] {
-    [FlowingSelectOption("", label: "No Application")]
-      + catalogItems.map { item in
-        FlowingSelectOption(
-          item.application.bundleURL.absoluteString,
-          label: item.application.displayName
-        )
-      }
   }
 
   private func selection(for selectedID: String) -> RoutingApplicationSelection? {
@@ -1906,6 +1930,7 @@ private struct SelectedInputAudioInspector: View {
     Binding(
       get: { selection?.id.rawValue ?? "" },
       set: { selectedID in
+        guard selectedID != selection?.id.rawValue else { return }
         captureController.stop(nodeID: nodeID)
         selectDevice(selection(for: selectedID))
       }

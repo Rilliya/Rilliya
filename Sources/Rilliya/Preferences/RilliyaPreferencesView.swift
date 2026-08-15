@@ -56,6 +56,18 @@ private struct RilliyaCanvasPreferencesPane: View {
       }
 
       PreferencesSection(
+        "Node Palette",
+        footer: "Dragging a node onto the canvas always remains available."
+      ) {
+        PreferencesSwitchRow(
+          symbol: "cursorarrow.click",
+          title: "Click to add nodes",
+          caption: "Let a single click add a node near the visible workspace center.",
+          isOn: $settings.addsNodesOnPaletteClick
+        )
+      }
+
+      PreferencesSection(
         "Connection Information",
         footer:
           "Format details appear only after Rilliya has learned the source's live audio format."

@@ -560,7 +560,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       )
     }
     if let atlasBuffer {
-      encoder.setFragmentTexture(textAtlas.texture, index: 0)
+      encoder.setFragmentTexture(textAtlas.glyphTexture, index: 0)
+      encoder.setFragmentTexture(textAtlas.colorTexture, index: 1)
       drawInstances(
         geometry.backgroundAtlasRange,
         instanceType: RoutingMetalAtlasInstance.self,
@@ -593,7 +594,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         )
       }
       if let atlasBuffer {
-        encoder.setFragmentTexture(textAtlas.texture, index: 0)
+        encoder.setFragmentTexture(textAtlas.glyphTexture, index: 0)
+        encoder.setFragmentTexture(textAtlas.colorTexture, index: 1)
         drawInstances(
           range.atlasRange,
           instanceType: RoutingMetalAtlasInstance.self,
@@ -614,6 +616,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   }
 
   private func makeFrameGeometry(palette: RoutingMetalPalette) -> RoutingMetalFrameGeometry {
+    textAtlas.beginFrame()
     frameGeometry.removeAll(keepingCapacity: true)
     for edge in scene.edges {
       append(edge: edge, palette: palette, to: &frameGeometry)
@@ -955,21 +958,19 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
           )
         )
       }
-      if let decibels = textAtlas.monospacedText(
-        meter?.decibelsDescription ?? "−∞",
+      let decibels = meter?.decibelsDescription ?? "−∞"
+      let decibelSize = dynamicMonospacedTextSize(decibels, size: 7.5, weight: .medium)
+      appendDynamicMonospacedText(
+        decibels,
         size: 7.5,
-        weight: .medium
-      ) {
-        append(
-          atlas: decibels,
-          origin: CGPoint(
-            x: row.maxX - decibels.size.width,
-            y: row.midY - decibels.size.height / 2
-          ),
-          color: meter?.isClipping == true ? palette.poppy : palette.muted,
-          to: &geometry
-        )
-      }
+        weight: .medium,
+        origin: CGPoint(
+          x: row.maxX - decibelSize.width,
+          y: row.midY - decibelSize.height / 2
+        ),
+        color: meter?.isClipping == true ? palette.poppy : palette.muted,
+        to: &geometry
+      )
     }
   }
 
@@ -1070,27 +1071,30 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       )
       return
     }
-    append(
-      atlas: textAtlas.monospacedText(signal.linearDescription, size: 16, weight: .semibold),
+    appendDynamicMonospacedText(
+      signal.linearDescription,
+      size: 16,
+      weight: .semibold,
       origin: CGPoint(x: valueFrame.minX + 12, y: valueFrame.midY - 10),
       color: signal.isClipping ? palette.poppy : palette.ink,
       to: &geometry
     )
-    if let decibels = textAtlas.monospacedText(
+    let decibelSize = dynamicMonospacedTextSize(
       signal.decibelsDescription,
       size: 9,
       weight: .medium
-    ) {
-      append(
-        atlas: decibels,
-        origin: CGPoint(
-          x: valueFrame.maxX - 12 - decibels.size.width,
-          y: valueFrame.midY - decibels.size.height / 2
-        ),
-        color: palette.muted,
-        to: &geometry
-      )
-    }
+    )
+    appendDynamicMonospacedText(
+      signal.decibelsDescription,
+      size: 9,
+      weight: .medium,
+      origin: CGPoint(
+        x: valueFrame.maxX - 12 - decibelSize.width,
+        y: valueFrame.midY - decibelSize.height / 2
+      ),
+      color: palette.muted,
+      to: &geometry
+    )
   }
 
   private func accent(
@@ -1339,9 +1343,50 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         textureOrigin: entry.textureOrigin,
         textureSize: entry.textureSize,
         color: color,
-        opacity: 1
+        opacity: 1,
+        textureKind: entry.textureKind.rawValue
       )
     )
+  }
+
+  private func dynamicMonospacedTextSize(
+    _ value: String,
+    size: CGFloat,
+    weight: NSFont.Weight
+  ) -> CGSize {
+    RoutingDynamicMonospacedText.glyphs(in: value).reduce(into: CGSize.zero) {
+      result, glyph in
+      guard let entry = textAtlas.monospacedText(glyph, size: size, weight: weight)
+      else {
+        return
+      }
+      result.width += entry.size.width
+      result.height = max(result.height, entry.size.height)
+    }
+  }
+
+  private func appendDynamicMonospacedText(
+    _ value: String,
+    size: CGFloat,
+    weight: NSFont.Weight,
+    origin: CGPoint,
+    color: SIMD4<Float>,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
+    var x = origin.x
+    for glyph in RoutingDynamicMonospacedText.glyphs(in: value) {
+      guard let entry = textAtlas.monospacedText(glyph, size: size, weight: weight)
+      else {
+        continue
+      }
+      append(
+        atlas: entry,
+        origin: CGPoint(x: x, y: origin.y),
+        color: color,
+        to: &geometry
+      )
+      x += entry.size.width
+    }
   }
 
   private func append(
@@ -1621,7 +1666,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       float2 textureSize;
       float4 color;
       float opacity;
-      float3 padding;
+      uint textureKind;
+      float2 padding;
     };
 
     struct GridOutput {
@@ -1650,6 +1696,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       float2 uv;
       float4 color [[flat]];
       float opacity [[flat]];
+      uint textureKind [[flat]];
     };
 
     constant float2 quadVertices[6] = {
@@ -1759,18 +1806,24 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       output.uv = instance.textureOrigin + float2(corner.x, 1 - corner.y) * instance.textureSize;
       output.color = instance.color;
       output.opacity = instance.opacity;
+      output.textureKind = instance.textureKind;
       return output;
     }
 
     fragment float4 atlasFragment(
       AtlasOutput input [[stage_in]],
-      texture2d<float> atlas [[texture(0)]]
+      texture2d<float> glyphAtlas [[texture(0)]],
+      texture2d<float> colorAtlas [[texture(1)]]
     ) {
       constexpr sampler textureSampler(filter::linear, address::clamp_to_edge);
-      float4 sample = atlas.sample(textureSampler, input.uv);
-      float4 color = sample * input.color;
-      color.a *= input.opacity;
-      return color;
+      if (input.textureKind == 0) {
+        float coverage = glyphAtlas.sample(textureSampler, input.uv).r;
+        return float4(input.color.rgb, input.color.a * coverage * input.opacity);
+      }
+      float4 sample = colorAtlas.sample(textureSampler, input.uv);
+      sample *= input.color;
+      sample.a *= input.opacity;
+      return sample;
     }
     """
 }
@@ -1873,7 +1926,8 @@ private struct RoutingMetalAtlasInstance {
   var textureSize: SIMD2<Float>
   var color: SIMD4<Float>
   var opacity: Float
-  var padding = SIMD3<Float>.zero
+  var textureKind: UInt32
+  var padding = SIMD2<Float>.zero
 }
 
 private struct RoutingMetalFrameGeometry {
