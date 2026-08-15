@@ -16,6 +16,19 @@ private enum RoutingPaletteItem: String, Codable, Transferable {
   case signalGenerator = "moe.uwucocoa.rilliya.node.signal-generator"
   case delay = "moe.uwucocoa.rilliya.node.delay"
 
+  var kind: RoutingNodeKind {
+    switch self {
+    case .applicationAudio: .applicationAudio
+    case .inputAudio: .inputAudio
+    case .outputAudio: .outputAudio
+    case .visualizer: .visualizer
+    case .audioMixer: .audioMixer
+    case .peakLevel: .peakLevel
+    case .signalGenerator: .signalGenerator
+    case .delay: .delay
+    }
+  }
+
   static var transferRepresentation: some TransferRepresentation {
     CodableRepresentation(contentType: .plainText)
   }
@@ -38,6 +51,7 @@ struct RoutingCanvasView: View {
   let inputCaptureController: RoutingInputCaptureController
   let outputController: RoutingAudioOutputController
   let sessionID: FlowingGraphCanvasSessionID
+  let isWorkflowRunning: Bool
 
   @Binding var session: FlowingGraphCanvasSessionState<RoutingCanvasSchema>
   let isMiniMapVisible: Bool
@@ -78,7 +92,8 @@ struct RoutingCanvasView: View {
       if let dropPreview {
         RoutingCanvasDropPreview(
           item: dropPreview.item,
-          isExpanded: dropPreview.isExpanded
+          isExpanded: dropPreview.isExpanded,
+          accent: settings.resolvedAccentID(for: dropPreview.item.kind).accent
         )
         .position(dropPreview.location)
         .allowsHitTesting(false)
@@ -167,47 +182,50 @@ struct RoutingCanvasView: View {
       onIntent: workspace.send,
       background: { RoutingCanvasGrid(context: $0) },
       node: { node, context in
-        switch node.value {
-        case .applicationAudio:
-          ApplicationAudioNodeView(
-            node: node,
-            context: context,
-            applicationCatalog: applicationCatalog,
-            iconResolver: iconResolver
-          )
-          .zIndex(context.isSelected ? 2 : 1)
-        case .inputAudio:
-          InputAudioNodeView(node: node, context: context)
+        Group {
+          switch node.value {
+          case .applicationAudio:
+            ApplicationAudioNodeView(
+              node: node,
+              context: context,
+              applicationCatalog: applicationCatalog,
+              iconResolver: iconResolver
+            )
             .zIndex(context.isSelected ? 2 : 1)
-        case .outputAudio:
-          OutputAudioNodeView(node: node, context: context)
+          case .inputAudio:
+            InputAudioNodeView(node: node, context: context)
+              .zIndex(context.isSelected ? 2 : 1)
+          case .outputAudio:
+            OutputAudioNodeView(node: node, context: context)
+              .zIndex(context.isSelected ? 2 : 1)
+          case .visualizer(let configuration):
+            VisualizerNodeView(
+              configuration: configuration,
+              snapshot: visualizerSnapshot(for: node),
+              context: context
+            )
             .zIndex(context.isSelected ? 2 : 1)
-        case .visualizer(let configuration):
-          VisualizerNodeView(
-            configuration: configuration,
-            snapshot: visualizerSnapshot(for: node),
-            context: context
-          )
-          .zIndex(context.isSelected ? 2 : 1)
-        case .audioMixer(let configuration):
-          AudioMixerNodeView(
-            configuration: configuration,
-            context: context
-          )
-          .zIndex(context.isSelected ? 2 : 1)
-        case .peakLevel:
-          PeakLevelNodeView(
-            signal: peakLevelSignal(for: node),
-            context: context
-          )
-          .zIndex(context.isSelected ? 2 : 1)
-        case .signalGenerator(let configuration):
-          SignalGeneratorNodeView(configuration: configuration, context: context)
+          case .audioMixer(let configuration):
+            AudioMixerNodeView(
+              configuration: configuration,
+              context: context
+            )
             .zIndex(context.isSelected ? 2 : 1)
-        case .delay(let configuration):
-          DelayNodeView(configuration: configuration, context: context)
+          case .peakLevel:
+            PeakLevelNodeView(
+              signal: peakLevelSignal(for: node),
+              context: context
+            )
             .zIndex(context.isSelected ? 2 : 1)
+          case .signalGenerator(let configuration):
+            SignalGeneratorNodeView(configuration: configuration, context: context)
+              .zIndex(context.isSelected ? 2 : 1)
+          case .delay(let configuration):
+            DelayNodeView(configuration: configuration, context: context)
+              .zIndex(context.isSelected ? 2 : 1)
+          }
         }
+        .flowingAccent(resolvedAccentID(for: node).accent)
       },
       edge: { _, context in
         FlowingGraphCanvasDefaultEdge(
@@ -349,8 +367,30 @@ struct RoutingCanvasView: View {
     return RoutingMetalScene(
       content: content,
       supplements: supplements,
+      accentIDs: Dictionary(
+        uniqueKeysWithValues: workspace.nodes.map { ($0.id, resolvedAccentID(for: $0)) }
+      ),
       connectionInformationLevel: settings.connectionInformationLevel
     )
+  }
+
+  private func resolvedAccentID(for node: RoutingWorkspaceNode) -> RoutingAccentID {
+    RoutingNodeAccentResolver.resolve(
+      nodeOverride: node.accentOverride,
+      typeOverride: settings.nodeAccentOverride(for: node.value.kind),
+      kind: node.value.kind
+    )
+  }
+
+  private func resolvedAccentID(
+    for node: FlowingGraphPresentationNode<RoutingCanvasSchema>
+  ) -> RoutingAccentID {
+    guard case .node(let nodeID) = node.address.elementID,
+      let workspaceNode = workspace.node(id: nodeID)
+    else {
+      return settings.resolvedAccentID(for: node.value.kind)
+    }
+    return resolvedAccentID(for: workspaceNode)
   }
 
   private func isRunning(_ selection: RoutingApplicationSelection?) -> Bool {
@@ -391,8 +431,17 @@ struct RoutingCanvasView: View {
     if let nodeID = selectedWorkspaceNodeID,
       let node = workspace.node(id: nodeID)
     {
-      selectedNodeInspectorContent(node: node)
-        .frame(width: 330)
+      VStack(spacing: 10) {
+        selectedNodeInspectorContent(node: node)
+        RoutingNodeColorOverrideCard(
+          kind: node.value.kind,
+          selection: node.accentOverride,
+          inheritedAccentID: settings.resolvedAccentID(for: node.value.kind),
+          setSelection: { workspace.setAccentOverride($0, for: node.id) }
+        )
+      }
+      .flowingAccent(resolvedAccentID(for: node).accent)
+      .frame(width: 330)
     }
   }
 
@@ -444,6 +493,7 @@ struct RoutingCanvasView: View {
         nodeID: node.id,
         selection: selection,
         channelPresentation: channelPresentation,
+        isWorkflowRunning: isWorkflowRunning,
         isRouted: workspace.edges.contains { $0.isEnabled && $0.source.nodeID == node.id },
         audioCatalog: audioCatalog,
         captureController: inputCaptureController,
@@ -679,6 +729,7 @@ struct RoutingCanvasView: View {
 struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
 
   let applicationCatalog: InstalledApplicationCatalogController
+  let settings: RilliyaSettings
   let allowsClickInsertion: Bool
   let insertApplicationAudio: () -> Void
   let insertInputAudio: () -> Void
@@ -692,6 +743,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
 
   init(
     applicationCatalog: InstalledApplicationCatalogController,
+    settings: RilliyaSettings,
     allowsClickInsertion: Bool,
     insertApplicationAudio: @escaping () -> Void,
     insertInputAudio: @escaping () -> Void,
@@ -704,6 +756,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     @ViewBuilder workflowNavigation: () -> WorkflowNavigation
   ) {
     self.applicationCatalog = applicationCatalog
+    self.settings = settings
     self.allowsClickInsertion = allowsClickInsertion
     self.insertApplicationAudio = insertApplicationAudio
     self.insertInputAudio = insertInputAudio
@@ -791,8 +844,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       title: "Visualizer",
       subtitle: "Inspect routed channels",
       systemImage: "waveform",
-      foreground: FlowingAccent.seafoam.foreground,
-      veil: FlowingAccent.seafoam.veil,
+      foreground: accent(for: .visualizer).foreground,
+      veil: accent(for: .visualizer).veil,
       allowsClickInsertion: allowsClickInsertion,
       action: insertVisualizer
     )
@@ -804,8 +857,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       title: "Input Audio",
       subtitle: "Capture an input device",
       systemImage: "waveform.badge.mic",
-      foreground: FlowingAccent.brook.foreground,
-      veil: FlowingAccent.brook.veil,
+      foreground: accent(for: .inputAudio).foreground,
+      veil: accent(for: .inputAudio).veil,
       allowsClickInsertion: allowsClickInsertion,
       action: insertInputAudio
     )
@@ -817,8 +870,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       title: "Output Audio",
       subtitle: "Play through an output device",
       systemImage: "speaker.wave.2",
-      foreground: FlowingAccent.brook.foreground,
-      veil: FlowingAccent.brook.veil,
+      foreground: accent(for: .outputAudio).foreground,
+      veil: accent(for: .outputAudio).veil,
       allowsClickInsertion: allowsClickInsertion,
       action: insertOutputAudio
     )
@@ -830,8 +883,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       title: "Audio Mixer",
       subtitle: "Mix routed channel levels",
       systemImage: "slider.horizontal.3",
-      foreground: FlowingAccent.pollen.foreground,
-      veil: FlowingAccent.pollen.veil,
+      foreground: accent(for: .audioMixer).foreground,
+      veil: accent(for: .audioMixer).veil,
       allowsClickInsertion: allowsClickInsertion,
       action: insertAudioMixer
     )
@@ -843,8 +896,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       title: "Peak Level",
       subtitle: "Measure the strongest sample",
       systemImage: "gauge.with.dots.needle.50percent",
-      foreground: FlowingAccent.pollen.foreground,
-      veil: FlowingAccent.pollen.veil,
+      foreground: accent(for: .peakLevel).foreground,
+      veil: accent(for: .peakLevel).veil,
       allowsClickInsertion: allowsClickInsertion,
       action: insertPeakLevel
     )
@@ -856,8 +909,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       title: "Signal Generator",
       subtitle: "Create tones and colored noise",
       systemImage: "waveform.path",
-      foreground: FlowingAccent.poppy.foreground,
-      veil: FlowingAccent.poppy.veil,
+      foreground: accent(for: .signalGenerator).foreground,
+      veil: accent(for: .signalGenerator).veil,
       allowsClickInsertion: allowsClickInsertion,
       action: insertSignalGenerator
     )
@@ -869,8 +922,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       title: "Delay",
       subtitle: "Add time and feedback",
       systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90",
-      foreground: FlowingAccent.wisteria.foreground,
-      veil: FlowingAccent.wisteria.veil,
+      foreground: accent(for: .delay).foreground,
+      veil: accent(for: .delay).veil,
       allowsClickInsertion: allowsClickInsertion,
       action: insertDelay
     )
@@ -910,8 +963,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       title: "Application Audio",
       subtitle: "Capture an app output",
       systemImage: "macwindow.on.rectangle",
-      foreground: FlowingAccent.fern.foreground,
-      veil: FlowingAccent.fern.veil,
+      foreground: accent(for: .applicationAudio).foreground,
+      veil: accent(for: .applicationAudio).veil,
       allowsClickInsertion: allowsClickInsertion,
       action: insertApplicationAudio
     )
@@ -927,6 +980,10 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
         tone: .warning
       )
     }
+  }
+
+  private func accent(for kind: RoutingNodeKind) -> FlowingAccent {
+    settings.resolvedAccentID(for: kind).accent
   }
 }
 
@@ -1059,85 +1116,70 @@ private struct RoutingPaletteDragPreview: View {
 private struct RoutingCanvasDropPreview: View {
   let item: RoutingPaletteItem
   let isExpanded: Bool
+  let accent: FlowingAccent
 
-  private var presentation: (String, String, String, Color, Color) {
+  private var presentation: (String, String, String) {
     switch item {
     case .applicationAudio:
       return (
         "Application Audio",
         "Choose an application",
-        "macwindow.on.rectangle",
-        FlowingAccent.fern.foreground,
-        FlowingAccent.fern.veil
+        "macwindow.on.rectangle"
       )
     case .inputAudio:
       return (
         "Input Audio",
         "Choose an input device",
-        "waveform.badge.mic",
-        FlowingAccent.brook.foreground,
-        FlowingAccent.brook.veil
+        "waveform.badge.mic"
       )
     case .outputAudio:
       return (
         "Output Audio",
         "Choose an output device",
-        "speaker.wave.2",
-        FlowingAccent.brook.foreground,
-        FlowingAccent.brook.veil
+        "speaker.wave.2"
       )
     case .visualizer:
       return (
         "Visualizer",
         "Waiting for audio input",
-        "waveform",
-        FlowingAccent.seafoam.foreground,
-        FlowingAccent.seafoam.veil
+        "waveform"
       )
     case .audioMixer:
       return (
         "Audio Mixer",
         "Mix routed channel levels",
-        "slider.horizontal.3",
-        FlowingAccent.pollen.foreground,
-        FlowingAccent.pollen.veil
+        "slider.horizontal.3"
       )
     case .peakLevel:
       return (
         "Peak Level",
         "Waiting for audio input",
-        "gauge.with.dots.needle.50percent",
-        FlowingAccent.pollen.foreground,
-        FlowingAccent.pollen.veil
+        "gauge.with.dots.needle.50percent"
       )
     case .signalGenerator:
       return (
         "Signal Generator",
         "Sine · 440 Hz",
-        "waveform.path",
-        FlowingAccent.poppy.foreground,
-        FlowingAccent.poppy.veil
+        "waveform.path"
       )
     case .delay:
       return (
         "Delay",
         "250 ms · 50% wet",
-        "clock.arrow.trianglehead.counterclockwise.rotate.90",
-        FlowingAccent.wisteria.foreground,
-        FlowingAccent.wisteria.veil
+        "clock.arrow.trianglehead.counterclockwise.rotate.90"
       )
     }
   }
 
   var body: some View {
-    let (title, subtitle, systemImage, foreground, veil) = presentation
+    let (title, subtitle, systemImage) = presentation
     VStack(alignment: .leading, spacing: isExpanded ? 11 : 0) {
       HStack(spacing: 11) {
         Image(systemName: systemImage)
           .font(.system(size: 16, weight: .semibold))
-          .foregroundStyle(foreground)
+          .foregroundStyle(accent.foreground)
           .frame(width: 38, height: 38)
-          .background(veil, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
+          .background(accent.veil, in: RoundedRectangle(cornerRadius: 9, style: .continuous))
 
         VStack(alignment: .leading, spacing: 2) {
           Text(title)
@@ -1177,7 +1219,7 @@ private struct RoutingCanvasDropPreview: View {
     )
     .overlay {
       RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .strokeBorder(foreground.opacity(0.36))
+        .strokeBorder(accent.foreground.opacity(0.36))
     }
     .shadow(color: .black.opacity(0.11), radius: 12, y: 5)
     .opacity(isExpanded ? 0 : 0.98)
@@ -1404,7 +1446,7 @@ private struct InputAudioNodeView: View {
   let node: FlowingGraphPresentationNode<RoutingCanvasSchema>
   let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
 
-  private let accent = FlowingAccent.brook
+  @Environment(\.flowingAccent) private var accent
 
   private var selection: RoutingInputDeviceSelection? {
     node.value.inputDeviceSelection
@@ -1483,7 +1525,7 @@ private struct OutputAudioNodeView: View {
   let node: FlowingGraphPresentationNode<RoutingCanvasSchema>
   let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
 
-  private let accent = FlowingAccent.brook
+  @Environment(\.flowingAccent) private var accent
 
   private var selection: RoutingOutputDeviceSelection? {
     node.value.outputDeviceSelection
@@ -1626,7 +1668,7 @@ private struct AudioMixerNodeView: View {
   let configuration: RoutingAudioMixerConfiguration
   let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
 
-  private let accent = FlowingAccent.pollen
+  @Environment(\.flowingAccent) private var accent
 
   var body: some View {
     let size = RoutingCanvasMetrics.nodeSize(for: .audioMixer(configuration: configuration))
@@ -1696,7 +1738,7 @@ private struct PeakLevelNodeView: View {
   let signal: RoutingPeakLevelSignal?
   let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
 
-  private let accent = FlowingAccent.pollen
+  @Environment(\.flowingAccent) private var accent
 
   var body: some View {
     FlowingCard(
@@ -1763,7 +1805,7 @@ private struct SignalGeneratorNodeView: View {
   let configuration: RoutingSignalGeneratorConfiguration
   let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
 
-  private let accent = FlowingAccent.poppy
+  @Environment(\.flowingAccent) private var accent
 
   var body: some View {
     FlowingCard(
@@ -1832,7 +1874,7 @@ private struct DelayNodeView: View {
   let configuration: RoutingDelayConfiguration
   let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
 
-  private let accent = FlowingAccent.wisteria
+  @Environment(\.flowingAccent) private var accent
 
   var body: some View {
     FlowingCard(
@@ -2024,6 +2066,43 @@ private struct RoutingAudioPortView: View {
 private enum RoutingPortDisplayMode: Hashable {
   case aggregate
   case separate
+}
+
+private struct RoutingNodeColorOverrideCard: View {
+  let kind: RoutingNodeKind
+  let selection: RoutingAccentID?
+  let inheritedAccentID: RoutingAccentID
+  let setSelection: (RoutingAccentID?) -> Void
+
+  var body: some View {
+    FlowingCard(
+      spacing: 0,
+      contentInsets: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)
+    ) {
+      HStack(spacing: 10) {
+        RoutingAccentSwatch(accentID: selection ?? inheritedAccentID)
+
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Node Color")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text("Override \(kind.title) for this workflow node.")
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+
+        Spacer(minLength: 8)
+
+        RoutingAccentPicker(
+          selection: selection,
+          inheritedAccentID: inheritedAccentID,
+          inheritedLabel: "Type Default",
+          setSelection: setSelection
+        )
+      }
+    }
+    .shadow(color: .black.opacity(0.05), radius: 8, y: 3)
+  }
 }
 
 private struct SelectedApplicationInspector: View {
@@ -2311,6 +2390,7 @@ private struct SelectedInputAudioInspector: View {
   let nodeID: UUID
   let selection: RoutingInputDeviceSelection?
   let channelPresentation: RoutingChannelPresentation
+  let isWorkflowRunning: Bool
   let isRouted: Bool
   let audioCatalog: AudioCatalogController
   let captureController: RoutingInputCaptureController
@@ -2367,6 +2447,15 @@ private struct SelectedInputAudioInspector: View {
       }
 
       captureContent
+
+      if let mutedChannelDescription {
+        FlowingCallout(
+          "Unmute the channel or raise its gain before expecting audible output.",
+          title: "\(mutedChannelDescription) muted",
+          systemImage: "speaker.slash.fill",
+          tone: .neutral
+        )
+      }
 
       Divider()
         .overlay(FlowingPalette.hairline)
@@ -2447,6 +2536,20 @@ private struct SelectedInputAudioInspector: View {
 
   @ViewBuilder
   private var captureContent: some View {
+    if !isWorkflowRunning, isRouted, selection != nil {
+      FlowingCallout(
+        "Run this workflow to open the input device and start routed playback.",
+        title: "Workflow Paused",
+        systemImage: "pause.circle",
+        tone: .neutral
+      )
+    } else {
+      captureStateContent
+    }
+  }
+
+  @ViewBuilder
+  private var captureStateContent: some View {
     switch captureController.state(for: nodeID) {
     case .idle:
       if isRouted, selectedDevice?.isAlive == true {
@@ -2517,6 +2620,24 @@ private struct SelectedInputAudioInspector: View {
         }
       }
     }
+  }
+
+  private var mutedChannelDescription: String? {
+    let mutedChannels =
+      channelControls
+      .filter(\.value.isMuted)
+      .keys
+      .sorted()
+      .map { mutedChannelLabel($0, channelCount: channelPresentation.channelCount ?? 1) }
+    guard !mutedChannels.isEmpty else { return nil }
+    return mutedChannels.formatted(.list(type: .and))
+  }
+
+  private func mutedChannelLabel(_ index: Int, channelCount: Int) -> String {
+    if channelCount == 2 {
+      return index == 0 ? "Left channel" : "Right channel"
+    }
+    return "Channel \(index + 1)"
   }
 
   private var pickerSelection: Binding<String> {

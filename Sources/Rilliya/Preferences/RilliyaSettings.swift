@@ -71,6 +71,8 @@ final class RilliyaSettings {
     }
   }
 
+  private(set) var nodeAccentOverrides: [RoutingNodeKind: RoutingAccentID]
+
   @ObservationIgnored private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
@@ -92,6 +94,44 @@ final class RilliyaSettings {
     addsNodesOnPaletteClick =
       defaults.object(forKey: Keys.addsNodesOnPaletteClick) as? Bool
       ?? false
+    nodeAccentOverrides = Self.decodeNodeAccentOverrides(
+      defaults.dictionary(forKey: Keys.nodeAccentOverrides) ?? [:]
+    )
+  }
+
+  func nodeAccentOverride(for kind: RoutingNodeKind) -> RoutingAccentID? {
+    nodeAccentOverrides[kind]
+  }
+
+  func setNodeAccentOverride(_ accentID: RoutingAccentID?, for kind: RoutingNodeKind) {
+    guard nodeAccentOverrides[kind] != accentID else { return }
+    var updated = nodeAccentOverrides
+    updated[kind] = accentID
+    nodeAccentOverrides = updated
+    defaults.set(
+      Dictionary(uniqueKeysWithValues: updated.map { ($0.key.rawValue, $0.value.rawValue) }),
+      forKey: Keys.nodeAccentOverrides
+    )
+  }
+
+  func resolvedAccentID(for kind: RoutingNodeKind) -> RoutingAccentID {
+    RoutingNodeAccentResolver.resolve(
+      nodeOverride: nil,
+      typeOverride: nodeAccentOverrides[kind],
+      kind: kind
+    )
+  }
+
+  nonisolated private static func decodeNodeAccentOverrides(
+    _ dictionary: [String: Any]
+  ) -> [RoutingNodeKind: RoutingAccentID] {
+    dictionary.reduce(into: [:]) { result, entry in
+      guard let kind = RoutingNodeKind(rawValue: entry.key),
+        let rawAccent = entry.value as? String,
+        let accent = RoutingAccentID(rawValue: rawAccent)
+      else { return }
+      result[kind] = accent
+    }
   }
 
   private enum Keys {
@@ -105,5 +145,7 @@ final class RilliyaSettings {
       "moe.uwucocoa.rilliya.shows-disabled-port-crosses"
     static let addsNodesOnPaletteClick =
       "moe.uwucocoa.rilliya.adds-nodes-on-palette-click"
+    static let nodeAccentOverrides =
+      "moe.uwucocoa.rilliya.node-accent-overrides"
   }
 }

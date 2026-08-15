@@ -561,19 +561,22 @@ struct RoutingWorkspaceNode: Codable, Equatable, Identifiable, Sendable {
   var frame: CGRect
   var disabledPortIDs: Set<RoutingGraphPortID>
   var audioChannelControls: [Int: RoutingAudioChannelControl]
+  var accentOverride: RoutingAccentID?
 
   init(
     id: UUID,
     value: RoutingNodeValue,
     frame: CGRect,
     disabledPortIDs: Set<RoutingGraphPortID> = [],
-    audioChannelControls: [Int: RoutingAudioChannelControl] = [:]
+    audioChannelControls: [Int: RoutingAudioChannelControl] = [:],
+    accentOverride: RoutingAccentID? = nil
   ) {
     self.id = id
     self.value = value
     self.frame = frame
     self.disabledPortIDs = disabledPortIDs
     self.audioChannelControls = audioChannelControls
+    self.accentOverride = accentOverride
   }
 
   func isPortEnabled(_ portID: RoutingGraphPortID) -> Bool {
@@ -590,6 +593,7 @@ struct RoutingWorkspaceNode: Codable, Equatable, Identifiable, Sendable {
     case frame
     case disabledPortIDs
     case audioChannelControls
+    case accentOverride
   }
 
   init(from decoder: Decoder) throws {
@@ -605,7 +609,11 @@ struct RoutingWorkspaceNode: Codable, Equatable, Identifiable, Sendable {
       audioChannelControls: try container.decodeIfPresent(
         [Int: RoutingAudioChannelControl].self,
         forKey: .audioChannelControls
-      ) ?? [:]
+      ) ?? [:],
+      accentOverride: try container.decodeIfPresent(
+        RoutingAccentID.self,
+        forKey: .accentOverride
+      )
     )
   }
 }

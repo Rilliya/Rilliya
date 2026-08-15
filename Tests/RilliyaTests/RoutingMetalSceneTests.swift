@@ -196,8 +196,8 @@ struct RoutingMetalSceneTests {
     #expect(scene.nodes.first?.title == "Peak Level")
     #expect(scene.nodes.first?.subtitle == "Linear full-scale peak")
     let node = try #require(scene.nodes.first)
-    #expect(node.miniMapStyleIndex == 5)
-    #expect(scene.miniMapStyleIndex(for: node.id) == 5)
+    #expect(node.miniMapStyleIndex == RoutingAccentID.pollen.paletteIndex)
+    #expect(scene.miniMapStyleIndex(for: node.id) == RoutingAccentID.pollen.paletteIndex)
   }
 
   @Test @MainActor
@@ -220,7 +220,7 @@ struct RoutingMetalSceneTests {
     #expect(node.subtitle == "Triangle · 880 Hz")
     #expect(node.status == "Ready to route")
     #expect(node.symbolName == "waveform.path")
-    #expect(node.miniMapStyleIndex == 6)
+    #expect(node.miniMapStyleIndex == RoutingAccentID.poppy.paletteIndex)
     #expect(node.ports.count == 1)
     #expect(node.ports.first?.value.audioChannel == .channel(0))
   }
@@ -245,8 +245,24 @@ struct RoutingMetalSceneTests {
     #expect(node.subtitle == "750 ms")
     #expect(node.status == "Ready to route")
     #expect(node.symbolName == "clock.arrow.trianglehead.counterclockwise.rotate.90")
-    #expect(node.miniMapStyleIndex == 7)
+    #expect(node.miniMapStyleIndex == RoutingAccentID.wisteria.paletteIndex)
     #expect(node.ports.count == 2)
+  }
+
+  @Test @MainActor
+  func sceneUsesTheResolvedPerNodeAccent() throws {
+    let model = RoutingWorkspaceModel()
+    let nodeID = model.addVisualizerNode(centeredAt: CGPoint(x: 100, y: 100))
+    let scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [:],
+      accentIDs: [nodeID: .fuchsia]
+    )
+    let node = try #require(scene.nodes.first)
+
+    #expect(node.accentID == .fuchsia)
+    #expect(node.miniMapStyleIndex == RoutingAccentID.fuchsia.paletteIndex)
+    #expect(scene.miniMapStyleIndex(for: node.id) == RoutingAccentID.fuchsia.paletteIndex)
   }
 
   @Test @MainActor

@@ -19,7 +19,7 @@ enum RoutingConnectionLabelFormatter {
     )
     guard level == .format else { return route }
     guard source.signalType == .audio, target.signalType == .audio else { return route }
-    guard let format else { return "\(route) · format pending" }
+    guard let format else { return route }
     return "\(route) · \(sampleRateDescription(format.sampleRate))"
   }
 

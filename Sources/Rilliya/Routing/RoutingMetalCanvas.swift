@@ -789,7 +789,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     let frame = translatedFrame(of: node)
     let isSelected = selection.contains(node.id)
     let isHovered = hoveredNodeID == node.id
-    let accent = accent(for: node, palette: palette)
+    let accent = accent(for: node)
     geometry.shapes.append(
       RoutingMetalShapeInstance(
         rect: frame,
@@ -818,7 +818,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       geometry.shapes.append(
         RoutingMetalShapeInstance(
           rect: iconFrame,
-          fill: node.miniMapStyleIndex == 0 ? palette.field : accent.withAlpha(0.12),
+          fill: node.usesNeutralPlaceholderIcon ? palette.field : accent.withAlpha(0.12),
           border: .zero,
           cornerRadius: 10,
           borderWidth: 0,
@@ -843,7 +843,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       append(
         atlas: textAtlas.symbol(node.symbolName, pointSize: 16, weight: .semibold),
         centeredIn: iconFrame,
-        color: node.miniMapStyleIndex == 0 ? palette.muted : accent,
+        color: node.usesNeutralPlaceholderIcon ? palette.muted : accent,
         to: &geometry
       )
     }
@@ -1399,26 +1399,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     )
   }
 
-  private func accent(
-    for node: RoutingMetalScene.Node,
-    palette: RoutingMetalPalette
-  ) -> SIMD4<Float> {
-    switch node.miniMapStyleIndex {
-    case 0:
-      palette.fern
-    case 1:
-      palette.brook
-    case 2:
-      palette.brook
-    case 3:
-      palette.seafoam
-    case 4:
-      palette.pollen
-    case 7:
-      palette.wisteria
-    default:
-      palette.poppy
-    }
+  private func accent(for node: RoutingMetalScene.Node) -> SIMD4<Float> {
+    let rgb = node.accentID.baseRGB
+    return SIMD4(
+      Float((rgb >> 16) & 0xFF) / 255,
+      Float((rgb >> 8) & 0xFF) / 255,
+      Float(rgb & 0xFF) / 255,
+      1
+    )
   }
 
   private func iconFrame(for nodeFrame: CGRect) -> CGRect {

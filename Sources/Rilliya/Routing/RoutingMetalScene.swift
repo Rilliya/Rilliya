@@ -76,6 +76,7 @@ struct RoutingMetalScene {
     let frame: CGRect
     let ports: [Port]
     let supplement: RoutingMetalNodeSupplement
+    let accentID: RoutingAccentID
 
     var title: String {
       switch value {
@@ -265,16 +266,12 @@ struct RoutingMetalScene {
     }
 
     var miniMapStyleIndex: Int {
-      switch value {
-      case .applicationAudio: 0
-      case .inputAudio: 1
-      case .outputAudio: 2
-      case .visualizer: 3
-      case .audioMixer: 4
-      case .peakLevel: 5
-      case .signalGenerator: 6
-      case .delay: 7
-      }
+      accentID.paletteIndex
+    }
+
+    var usesNeutralPlaceholderIcon: Bool {
+      guard case .applicationAudio = value else { return false }
+      return true
     }
 
     var embedsPortLabels: Bool {
@@ -328,6 +325,7 @@ struct RoutingMetalScene {
   init(
     content: RoutingCanvasContent,
     supplements: [UUID: RoutingMetalNodeSupplement],
+    accentIDs: [UUID: RoutingAccentID] = [:],
     connectionInformationLevel: RoutingConnectionInformationLevel = .format
   ) {
     contentID = content.id
@@ -368,7 +366,8 @@ struct RoutingMetalScene {
           value: presentationNode.value,
           frame: frame,
           ports: ports,
-          supplement: supplements[workspaceID] ?? .empty
+          supplement: supplements[workspaceID] ?? .empty,
+          accentID: accentIDs[workspaceID] ?? presentationNode.value.kind.builtInAccentID
         )
       )
     }

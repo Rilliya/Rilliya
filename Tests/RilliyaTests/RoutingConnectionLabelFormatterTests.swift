@@ -60,6 +60,19 @@ struct RoutingConnectionLabelFormatterTests {
     #expect(label == nil)
   }
 
+  @Test
+  func unknownFormatsKeepTheCompactRouteLabel() {
+    let label = RoutingConnectionLabelFormatter.label(
+      level: .format,
+      source: audioPort(direction: .output, channel: .all),
+      target: audioPort(direction: .input, channel: .all),
+      targetNode: .visualizer(configuration: .initial),
+      format: nil
+    )
+
+    #expect(label == "All ch")
+  }
+
   private func audioPort(
     direction: RoutingPortDirection,
     channel: RoutingAudioPortChannel

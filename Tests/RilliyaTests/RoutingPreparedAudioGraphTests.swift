@@ -179,6 +179,34 @@ struct RoutingPreparedAudioGraphTests {
   }
 
   @Test
+  func inputDeviceThroughVisualizerPreservesPCM() throws {
+    let inputID = UUID()
+    let visualizerID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(channelCount: 1)
+    try write([[0.2, -0.35, 0.6, -0.8]], to: buffer)
+    let renderer = try makeRenderer(
+      nodes: [
+        inputSourceNode(id: inputID),
+        separateVisualizerNode(id: visualizerID),
+        outputNode(id: outputID),
+      ],
+      edges: [
+        edge(from: inputID, .channel(0), to: visualizerID, .channel(0)),
+        edge(from: visualizerID, .channel(0), to: outputID, .channel(0)),
+      ],
+      outputNodeID: outputID,
+      frameBuffers: [inputID: buffer],
+      outputChannelCount: 1
+    )
+
+    let rendered = render(renderer, channelCount: 1, frameCount: 4)
+
+    #expect(rendered.result == .rendered)
+    #expect(rendered.channels[0] == [0.2, -0.35, 0.6, -0.8])
+  }
+
+  @Test
   func delayRunsInTopologicalOrderBetweenMixers() throws {
     let sourceID = UUID()
     let firstMixerID = UUID()
@@ -336,10 +364,35 @@ struct RoutingPreparedAudioGraphTests {
     )
   }
 
+  private func inputSourceNode(id: UUID) -> RoutingWorkspaceNode {
+    RoutingWorkspaceNode(
+      id: id,
+      value: .inputAudio(
+        selection: nil,
+        channelPresentation: .separate(channelCount: 1)
+      ),
+      frame: .zero
+    )
+  }
+
   private func visualizerNode(id: UUID) -> RoutingWorkspaceNode {
     RoutingWorkspaceNode(
       id: id,
       value: .visualizer(configuration: .initial),
+      frame: .zero
+    )
+  }
+
+  private func separateVisualizerNode(id: UUID) -> RoutingWorkspaceNode {
+    RoutingWorkspaceNode(
+      id: id,
+      value: .visualizer(
+        configuration: RoutingVisualizerConfiguration(
+          mode: .separate,
+          availableChannelCount: 1,
+          selectedChannels: [0]
+        )
+      ),
       frame: .zero
     )
   }

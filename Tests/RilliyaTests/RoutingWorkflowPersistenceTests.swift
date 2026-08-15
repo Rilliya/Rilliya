@@ -38,6 +38,10 @@ struct RoutingWorkflowPersistenceTests {
         .audioChannelControls[0]
         == RoutingAudioChannelControl(gainDecibels: -8, isMuted: true)
     )
+    #expect(
+      restoredFirst.workspace.nodes.first { $0.id == fixture.sourceID }?
+        .accentOverride == .rose
+    )
     #expect(restoredFirst.canvasSession.viewport.transform.zoom == 1.4)
     #expect(restoredFirst.canvasSession.viewport.transform.offset.width == 48)
     #expect(restoredFirst.canvasSession.viewport.transform.offset.height == -32)
@@ -139,7 +143,8 @@ struct RoutingWorkflowPersistenceTests {
       frame: CGRect(x: 80, y: 120, width: 252, height: 80),
       audioChannelControls: [
         0: RoutingAudioChannelControl(gainDecibels: -8, isMuted: true)
-      ]
+      ],
+      accentOverride: .rose
     )
     let visualizer = RoutingWorkspaceNode(
       id: visualizerID,

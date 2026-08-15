@@ -151,12 +151,9 @@ struct RoutingMetalViewport: View {
         edge: FlowingAccent.fern.fill.opacity(0.28),
         viewportFill: FlowingAccent.fern.fill.opacity(0.1),
         viewportStroke: FlowingAccent.fern.fill.opacity(0.9),
-        nodeStyles: [
-          FlowingGraphMiniMapNodeStyle(fill: FlowingAccent.fern.fill.opacity(0.78)),
-          FlowingGraphMiniMapNodeStyle(fill: FlowingAccent.brook.fill.opacity(0.78)),
-          FlowingGraphMiniMapNodeStyle(fill: FlowingAccent.seafoam.fill.opacity(0.78)),
-          FlowingGraphMiniMapNodeStyle(fill: FlowingAccent.pollen.fill.opacity(0.78)),
-        ],
+        nodeStyles: RoutingAccentID.allCases.map {
+          FlowingGraphMiniMapNodeStyle(fill: $0.accent.fill.opacity(0.78))
+        },
         cornerRadius: 12
       ),
       nodeStyleIndex: { scene.miniMapStyleIndex(for: $0.id) }

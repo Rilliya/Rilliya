@@ -29,6 +29,7 @@ struct WorkspaceView: View {
 
       RoutingNodePaletteView(
         applicationCatalog: applicationCatalog,
+        settings: settings,
         allowsClickInsertion: settings.addsNodesOnPaletteClick,
         insertApplicationAudio: insertApplicationAudio,
         insertInputAudio: insertInputAudio,
@@ -452,6 +453,7 @@ private struct RoutingWorkflowCanvas: View {
       inputCaptureController: inputCaptureController,
       outputController: outputController,
       sessionID: workflow.canvasSessionID,
+      isWorkflowRunning: workflow.isRunning,
       session: $workflow.canvasSession,
       isMiniMapVisible: workflow.showsMiniMap(
         globalDefault: settings.showsMiniMapByDefault

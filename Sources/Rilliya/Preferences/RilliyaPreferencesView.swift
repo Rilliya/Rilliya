@@ -68,6 +68,20 @@ private struct RilliyaCanvasPreferencesPane: View {
       }
 
       PreferencesSection(
+        "Node Colors",
+        footer:
+          "These colors are the default for each node type. A node-specific color chosen in a workflow takes priority."
+      ) {
+        ForEach(RoutingNodeKind.allCases, id: \.self) { kind in
+          RilliyaNodeColorPreferenceRow(
+            kind: kind,
+            selection: settings.nodeAccentOverride(for: kind),
+            setSelection: { settings.setNodeAccentOverride($0, for: kind) }
+          )
+        }
+      }
+
+      PreferencesSection(
         "Connection Information",
         footer:
           "Format details appear only after Rilliya has learned the source's live audio format."
@@ -114,6 +128,38 @@ private struct RilliyaCanvasPreferencesPane: View {
         )
       }
     }
+  }
+}
+
+private struct RilliyaNodeColorPreferenceRow: View {
+  let kind: RoutingNodeKind
+  let selection: RoutingAccentID?
+  let setSelection: (RoutingAccentID?) -> Void
+
+  var body: some View {
+    HStack(spacing: 12) {
+      RoutingAccentSwatch(accentID: selection ?? kind.builtInAccentID)
+
+      Image(systemName: kind.systemImage)
+        .font(.system(size: 13, weight: .semibold))
+        .foregroundStyle((selection ?? kind.builtInAccentID).accent.foreground)
+        .frame(width: 18)
+
+      Text(kind.title)
+        .font(.callout)
+        .foregroundStyle(FlowingPalette.ink)
+
+      Spacer(minLength: 12)
+
+      RoutingAccentPicker(
+        selection: selection,
+        inheritedAccentID: kind.builtInAccentID,
+        inheritedLabel: "Rilliya Default",
+        setSelection: setSelection
+      )
+    }
+    .padding(.horizontal, 14)
+    .frame(minHeight: 44)
   }
 }
 

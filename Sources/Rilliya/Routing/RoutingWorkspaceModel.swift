@@ -630,6 +630,14 @@ final class RoutingWorkspaceModel {
     nodes.first { $0.id == id }
   }
 
+  func setAccentOverride(_ accentID: RoutingAccentID?, for nodeID: UUID) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      nodes[index].accentOverride != accentID
+    else { return }
+    nodes[index].accentOverride = accentID
+    rebuildCanvas()
+  }
+
   func elementID(for nodeID: UUID) -> RoutingCanvasElementID? {
     canvasContent?.presentation.nodes.first { presentationNode in
       guard case .node(let presentedNodeID) = presentationNode.address.elementID else {
