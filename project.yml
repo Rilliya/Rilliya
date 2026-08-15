@@ -69,6 +69,8 @@ targets:
         product: FlowingDayGraphLayout
       - package: FlowingDayUI
         product: FlowingDayGraphCanvas
+      - package: FlowingDayUI
+        product: FlowingDayPreferences
 
   RilliyaTests:
     type: bundle.unit-test

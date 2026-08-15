@@ -24,6 +24,7 @@ private struct RoutingDropPreviewState: Identifiable, Equatable {
 
 struct RoutingCanvasView: View {
   let workspace: RoutingWorkspaceModel
+  let settings: RilliyaSettings
   let applicationCatalog: InstalledApplicationCatalogController
   let iconResolver: NSWorkspaceInstalledApplicationIconResolver
   let captureController: RoutingCaptureController
@@ -179,17 +180,24 @@ struct RoutingCanvasView: View {
       case .applicationAudio(let selection, _):
         let state = captureController.state(for: node.id)
         let isCapturing: Bool
+        let captureFormat: ProcessOutputCaptureFormat?
         switch state {
-        case .starting, .running:
+        case .starting:
           isCapturing = true
+          captureFormat = nil
+        case .running(let format):
+          isCapturing = true
+          captureFormat = format
         case .idle, .failed:
           isCapturing = false
+          captureFormat = nil
         }
         supplements[node.id] = RoutingMetalNodeSupplement(
           isRunning: isRunning(selection),
           isCapturing: isCapturing,
           captureConsumerCount: captureController.consumerCount(for: node.id),
-          visualizerSignal: nil
+          visualizerSignal: nil,
+          captureFormat: captureFormat
         )
       case .visualizer(let configuration):
         supplements[node.id] = RoutingMetalNodeSupplement(
@@ -204,7 +212,11 @@ struct RoutingCanvasView: View {
         )
       }
     }
-    return RoutingMetalScene(content: content, supplements: supplements)
+    return RoutingMetalScene(
+      content: content,
+      supplements: supplements,
+      connectionInformationLevel: settings.connectionInformationLevel
+    )
   }
 
   private func isRunning(_ selection: RoutingApplicationSelection?) -> Bool {

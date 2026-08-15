@@ -95,6 +95,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     static let portHitRadius: CGFloat = 13
     static let edgeWidth: CGFloat = 1.6
     static let connectionPreviewWidth: CGFloat = 1.8
+    static let edgeLabelMinimumZoom: CGFloat = 0.58
     static let waveformWidth: CGFloat = 2
     static let fitPadding: CGFloat = 58
   }
@@ -442,6 +443,27 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         vertexCount: 3
       )
     }
+    if let shapeBuffer {
+      drawInstances(
+        geometry.backgroundShapeRange,
+        instanceType: RoutingMetalShapeInstance.self,
+        buffer: shapeBuffer,
+        pipeline: shapePipeline,
+        encoder: encoder,
+        uniforms: &uniforms
+      )
+    }
+    if let atlasBuffer {
+      encoder.setFragmentTexture(textAtlas.texture, index: 0)
+      drawInstances(
+        geometry.backgroundAtlasRange,
+        instanceType: RoutingMetalAtlasInstance.self,
+        buffer: atlasBuffer,
+        pipeline: atlasPipeline,
+        encoder: encoder,
+        uniforms: &uniforms
+      )
+    }
     for range in geometry.nodeRanges {
       if let shapeBuffer {
         drawInstances(
@@ -504,6 +526,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       )
     }
     frameGeometry.backgroundTriangleRange = frameGeometry.triangles.indices
+    frameGeometry.backgroundShapeRange = frameGeometry.shapes.indices
+    frameGeometry.backgroundAtlasRange = frameGeometry.atlasItems.indices
     for node in nodesInRenderOrder {
       let shapeStart = frameGeometry.shapes.endIndex
       let triangleStart = frameGeometry.triangles.endIndex
@@ -818,6 +842,56 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       color: palette.fern.withAlpha(selection.contains(edge.id) ? 0.9 : 0.58),
       to: &geometry
     )
+    guard camera.zoom >= Constants.edgeLabelMinimumZoom,
+      let label = edge.label,
+      let entry = textAtlas.text(label, size: 8.5, weight: .medium)
+    else {
+      return
+    }
+    let center = midpoint(of: points(for: route))
+    let labelFrame = CGRect(
+      x: center.x - (entry.size.width + 14) / 2,
+      y: center.y - (entry.size.height + 6) / 2,
+      width: entry.size.width + 14,
+      height: entry.size.height + 6
+    )
+    geometry.shapes.append(
+      RoutingMetalShapeInstance(
+        rect: labelFrame,
+        fill: palette.control.withAlpha(0.96),
+        border: palette.border,
+        cornerRadius: Float(labelFrame.height / 2),
+        borderWidth: Float(1 / camera.zoom),
+        opacity: 1
+      )
+    )
+    append(
+      atlas: entry,
+      centeredIn: labelFrame,
+      color: palette.muted,
+      to: &geometry
+    )
+  }
+
+  private func midpoint(of points: [CGPoint]) -> CGPoint {
+    guard let first = points.first else { return .zero }
+    guard points.count > 1 else { return first }
+    let lengths = zip(points, points.dropFirst()).map { distance(from: $0, to: $1) }
+    let total = lengths.reduce(0, +)
+    guard total > 0 else { return first }
+    let target = total / 2
+    var traversed: CGFloat = 0
+    for (index, length) in lengths.enumerated() {
+      if traversed + length >= target {
+        let progress = (target - traversed) / max(length, 0.000_1)
+        return CGPoint(
+          x: points[index].x + (points[index + 1].x - points[index].x) * progress,
+          y: points[index].y + (points[index + 1].y - points[index].y) * progress
+        )
+      }
+      traversed += length
+    }
+    return points.last ?? first
   }
 
   private func appendConnectionPreview(
@@ -1463,6 +1537,8 @@ private struct RoutingMetalFrameGeometry {
   var triangles: [RoutingMetalTriangleInstance] = []
   var atlasItems: [RoutingMetalAtlasInstance] = []
   var backgroundTriangleRange = 0..<0
+  var backgroundShapeRange = 0..<0
+  var backgroundAtlasRange = 0..<0
   var nodeRanges: [RoutingMetalNodeRange] = []
 
   mutating func removeAll(keepingCapacity: Bool) {
@@ -1470,6 +1546,8 @@ private struct RoutingMetalFrameGeometry {
     triangles.removeAll(keepingCapacity: keepingCapacity)
     atlasItems.removeAll(keepingCapacity: keepingCapacity)
     backgroundTriangleRange = 0..<0
+    backgroundShapeRange = 0..<0
+    backgroundAtlasRange = 0..<0
     nodeRanges.removeAll(keepingCapacity: keepingCapacity)
   }
 }

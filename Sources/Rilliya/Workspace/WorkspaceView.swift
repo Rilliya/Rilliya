@@ -5,6 +5,8 @@ import RilliyaKit
 import SwiftUI
 
 struct WorkspaceView: View {
+  let settings: RilliyaSettings
+
   @State private var workflowLibrary = RoutingWorkflowLibrary()
   @State private var applicationCatalog = InstalledApplicationCatalogController()
   @State private var iconResolver = NSWorkspaceInstalledApplicationIconResolver()
@@ -76,6 +78,7 @@ struct WorkspaceView: View {
     ZStack(alignment: .topLeading) {
       RoutingWorkflowCanvas(
         workflow: workflowLibrary.selectedWorkflow,
+        settings: settings,
         applicationCatalog: applicationCatalog,
         iconResolver: iconResolver,
         captureController: captureController
@@ -122,6 +125,7 @@ struct WorkspaceView: View {
 private struct RoutingWorkflowCanvas: View {
   @Bindable var workflow: RoutingWorkflowModel
 
+  let settings: RilliyaSettings
   let applicationCatalog: InstalledApplicationCatalogController
   let iconResolver: NSWorkspaceInstalledApplicationIconResolver
   let captureController: RoutingCaptureController
@@ -129,6 +133,7 @@ private struct RoutingWorkflowCanvas: View {
   var body: some View {
     RoutingCanvasView(
       workspace: workflow.workspace,
+      settings: settings,
       applicationCatalog: applicationCatalog,
       iconResolver: iconResolver,
       captureController: captureController,
@@ -212,7 +217,7 @@ private struct RoutingWorkflowSwitcher: View {
 }
 
 #Preview {
-  WorkspaceView()
+  WorkspaceView(settings: RilliyaSettings.shared)
     .flowingAccent(.fern)
     .frame(width: 1_080, height: 680)
 }

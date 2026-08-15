@@ -2,18 +2,35 @@ import FlowingDayGraphCanvas
 import FlowingDayGraphComposition
 import FlowingDayGraphLayout
 import Foundation
+import RilliyaKit
 
 struct RoutingMetalNodeSupplement: Equatable {
   let isRunning: Bool
   let isCapturing: Bool
   let captureConsumerCount: Int
   let visualizerSignal: RoutingVisualizerSignal?
+  let captureFormat: ProcessOutputCaptureFormat?
+
+  init(
+    isRunning: Bool,
+    isCapturing: Bool,
+    captureConsumerCount: Int,
+    visualizerSignal: RoutingVisualizerSignal?,
+    captureFormat: ProcessOutputCaptureFormat? = nil
+  ) {
+    self.isRunning = isRunning
+    self.isCapturing = isCapturing
+    self.captureConsumerCount = captureConsumerCount
+    self.visualizerSignal = visualizerSignal
+    self.captureFormat = captureFormat
+  }
 
   static let empty = RoutingMetalNodeSupplement(
     isRunning: false,
     isCapturing: false,
     captureConsumerCount: 0,
-    visualizerSignal: nil
+    visualizerSignal: nil,
+    captureFormat: nil
   )
 }
 
@@ -131,6 +148,9 @@ struct RoutingMetalScene {
     let route: FlowingGraphEdgeRoute
     let sourceNodeID: RoutingCanvasElementID
     let targetNodeID: RoutingCanvasElementID
+    let sourcePort: Port
+    let targetPort: Port
+    let label: String?
   }
 
   let contentID: FlowingLayoutInputID
@@ -143,7 +163,8 @@ struct RoutingMetalScene {
 
   init(
     content: RoutingCanvasContent,
-    supplements: [UUID: RoutingMetalNodeSupplement]
+    supplements: [UUID: RoutingMetalNodeSupplement],
+    connectionInformationLevel: RoutingConnectionInformationLevel = .format
   ) {
     contentID = content.id
     presentationSnapshotID = content.presentation.snapshotID
@@ -189,21 +210,33 @@ struct RoutingMetalScene {
     }
 
     nodes = nextNodes
+    let nextNodesByID = Dictionary(uniqueKeysWithValues: nextNodes.map { ($0.id, $0) })
     portByID = nextPortsByID
     edges = content.presentation.edges.compactMap { presentationEdge in
       guard let route = content.route(for: presentationEdge.localID),
         case .directed(.port(let sourcePortID), .port(let targetPortID)) =
           presentationEdge.endpoints,
-        let sourceNodeID = nextPortsByID[sourcePortID]?.nodeID,
-        let targetNodeID = nextPortsByID[targetPortID]?.nodeID
+        let sourcePort = nextPortsByID[sourcePortID],
+        let targetPort = nextPortsByID[targetPortID],
+        let sourceNode = nextNodesByID[sourcePort.nodeID],
+        let targetNode = nextNodesByID[targetPort.nodeID]
       else {
         return nil
       }
       return Edge(
         id: presentationEdge.id,
         route: route,
-        sourceNodeID: sourceNodeID,
-        targetNodeID: targetNodeID
+        sourceNodeID: sourcePort.nodeID,
+        targetNodeID: targetPort.nodeID,
+        sourcePort: sourcePort,
+        targetPort: targetPort,
+        label: RoutingConnectionLabelFormatter.label(
+          level: connectionInformationLevel,
+          source: sourcePort.value,
+          target: targetPort.value,
+          targetNode: targetNode.value,
+          format: sourceNode.supplement.captureFormat
+        )
       )
     }
     contentBounds =
