@@ -184,7 +184,10 @@ private actor FakeRoutingInputCaptureStarter: RoutingInputCaptureStarting {
       sampleRate: 48_000,
       channelIDs: [channelID]
     )
-    return FakeRoutingInputCaptureSession(format: format) { [self] in
+    let frameBuffer = try AudioRealtimeFrameBuffer(
+      format: AudioProcessingFormat(sampleRate: format.sampleRate, channelCount: 1)
+    )
+    return FakeRoutingInputCaptureSession(format: format, frameBuffer: frameBuffer) { [self] in
       await recordStop(for: deviceID)
     }
   }
@@ -232,15 +235,18 @@ private enum FakeRoutingInputCaptureError: Error {
 
 private actor FakeRoutingInputCaptureSession: RoutingInputCaptureSession {
   nonisolated let format: DeviceInputCaptureFormat
+  nonisolated let frameBuffer: AudioRealtimeFrameBuffer
 
   private let stopHandler: @Sendable () async -> Void
   private var isStopped = false
 
   init(
     format: DeviceInputCaptureFormat,
+    frameBuffer: AudioRealtimeFrameBuffer,
     stopHandler: @escaping @Sendable () async -> Void
   ) {
     self.format = format
+    self.frameBuffer = frameBuffer
     self.stopHandler = stopHandler
   }
 

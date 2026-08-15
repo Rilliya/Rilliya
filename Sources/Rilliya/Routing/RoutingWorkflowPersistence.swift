@@ -133,6 +133,13 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
         return false
       }
       return isValid(presentation)
+    case .outputAudio(let selection, let presentation):
+      if let selection,
+        selection.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      {
+        return false
+      }
+      return isValid(presentation)
     case .visualizer(let configuration):
       let requestedChannels = configuration.channelSelection.requestedChannels
       return (1...RoutingVisualizerConfiguration.maximumAvailableChannelCount).contains(

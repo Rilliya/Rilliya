@@ -15,6 +15,7 @@ struct WorkspaceView: View {
   @State private var iconResolver = NSWorkspaceInstalledApplicationIconResolver()
   @State private var captureController = RoutingCaptureController()
   @State private var inputCaptureController = RoutingInputCaptureController()
+  @State private var outputController = RoutingAudioOutputController()
   @State private var workflowPersistenceStore = RoutingWorkflowPersistenceStore()
   @State private var didRestoreWorkflows = false
   @State private var workflowSaveTask: Task<Void, Never>?
@@ -31,6 +32,7 @@ struct WorkspaceView: View {
         allowsClickInsertion: settings.addsNodesOnPaletteClick,
         insertApplicationAudio: insertApplicationAudio,
         insertInputAudio: insertInputAudio,
+        insertOutputAudio: insertOutputAudio,
         insertVisualizer: insertVisualizer,
         insertAudioMixer: insertAudioMixer,
         insertPeakLevel: insertPeakLevel
@@ -121,6 +123,13 @@ struct WorkspaceView: View {
         )
       }
     }
+    .onChange(of: outputReconciliationToken, initial: true) {
+      outputController.reconcile(
+        workflows: workflowLibrary.workflows,
+        captureController: captureController,
+        inputCaptureController: inputCaptureController
+      )
+    }
     .onChange(of: settings.defaultSeparateChannelLayout, initial: true) { _, layout in
       let formats = captureController.states.compactMapValues {
         state -> ProcessOutputCaptureFormat? in
@@ -160,11 +169,20 @@ struct WorkspaceView: View {
       audioCatalog.stop()
       captureController.stopAll()
       inputCaptureController.stopAll()
+      outputController.stopAll()
     }
   }
 
   private var workflowPersistenceToken: RoutingWorkflowPersistenceToken {
     RoutingWorkflowPersistenceToken(library: workflowLibrary)
+  }
+
+  private var outputReconciliationToken: RoutingAudioOutputReconciliationToken {
+    RoutingAudioOutputReconciliationToken(
+      workflows: workflowLibrary.workflows,
+      processStates: captureController.states,
+      inputStates: inputCaptureController.states
+    )
   }
 
   private var usesWorkflowPersistence: Bool {
@@ -267,7 +285,8 @@ struct WorkspaceView: View {
       audioCatalog: audioCatalog,
       iconResolver: iconResolver,
       captureController: captureController,
-      inputCaptureController: inputCaptureController
+      inputCaptureController: inputCaptureController,
+      outputController: outputController
     )
   }
 
@@ -296,6 +315,17 @@ struct WorkspaceView: View {
   private func insertInputAudio() {
     let workflow = workflowLibrary.selectedWorkflow
     let nodeID = workflow.workspace.addInputAudioNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
+      )
+    )
+    selectNode(nodeID, in: workflow)
+  }
+
+  private func insertOutputAudio() {
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addOutputAudioNode(
       centeredAt: RoutingNodeInsertion.point(
         in: workflow.canvasSession.viewport.visibleWorldRect,
         existingNodeCount: workflow.workspace.nodes.count
@@ -333,6 +363,44 @@ struct WorkspaceView: View {
   }
 }
 
+private struct RoutingAudioOutputReconciliationToken: Equatable {
+  struct Workflow: Equatable {
+    let id: UUID
+    let revision: UInt64
+  }
+
+  struct ProcessState: Equatable {
+    let nodeID: UUID
+    let state: RoutingCaptureState
+  }
+
+  struct InputState: Equatable {
+    let nodeID: UUID
+    let state: RoutingInputCaptureState
+  }
+
+  let workflows: [Workflow]
+  let processStates: [ProcessState]
+  let inputStates: [InputState]
+
+  @MainActor
+  init(
+    workflows: [RoutingWorkflowModel],
+    processStates: [UUID: RoutingCaptureState],
+    inputStates: [UUID: RoutingInputCaptureState]
+  ) {
+    self.workflows = workflows.map {
+      Workflow(id: $0.id, revision: $0.workspace.persistenceRevision)
+    }
+    self.processStates = processStates.map {
+      ProcessState(nodeID: $0.key, state: $0.value)
+    }.sorted { $0.nodeID.uuidString < $1.nodeID.uuidString }
+    self.inputStates = inputStates.map {
+      InputState(nodeID: $0.key, state: $0.value)
+    }.sorted { $0.nodeID.uuidString < $1.nodeID.uuidString }
+  }
+}
+
 private struct RoutingWorkflowCanvas: View {
   @Bindable var workflow: RoutingWorkflowModel
 
@@ -342,6 +410,7 @@ private struct RoutingWorkflowCanvas: View {
   let iconResolver: NSWorkspaceInstalledApplicationIconResolver
   let captureController: RoutingCaptureController
   let inputCaptureController: RoutingInputCaptureController
+  let outputController: RoutingAudioOutputController
 
   var body: some View {
     RoutingCanvasView(
@@ -352,6 +421,7 @@ private struct RoutingWorkflowCanvas: View {
       iconResolver: iconResolver,
       captureController: captureController,
       inputCaptureController: inputCaptureController,
+      outputController: outputController,
       sessionID: workflow.canvasSessionID,
       session: $workflow.canvasSession,
       isMiniMapVisible: workflow.showsMiniMap(

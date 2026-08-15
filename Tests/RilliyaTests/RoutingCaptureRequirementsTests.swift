@@ -106,6 +106,40 @@ struct RoutingCaptureRequirementsTests {
     #expect(requirements.inputDeviceIDsByNode == [sourceID: deviceID])
   }
 
+  @Test @MainActor
+  func processTapMutesOrdinaryPlaybackOnlyWhenItsGraphReachesAnOutputDevice() throws {
+    let musicURL = URL(fileURLWithPath: "/Applications/Music.app")
+    let processID = try #require(AudioProcessID(rawValue: 72))
+    let outputDeviceID = try #require(AudioDeviceID(rawValue: "test.output"))
+    let workflow = RoutingWorkflowModel(name: "Reroute")
+    let sourceID = workflow.workspace.addApplicationAudioNode(centeredAt: .zero)
+    let outputID = workflow.workspace.addOutputAudioNode(centeredAt: CGPoint(x: 400, y: 0))
+    workflow.workspace.selectApplication(
+      RoutingApplicationSelection(
+        stableID: musicURL.absoluteString,
+        applicationURL: musicURL,
+        bundleIdentifier: "com.apple.Music",
+        displayName: "Music"
+      ),
+      for: sourceID
+    )
+    workflow.workspace.selectOutputDevice(
+      RoutingOutputDeviceSelection(id: outputDeviceID, displayName: "Test Output"),
+      for: outputID
+    )
+    try connect(sourceID: sourceID, targetID: outputID, in: workflow.workspace)
+
+    let requirements = RoutingCaptureRequirementResolver.resolve(
+      workflows: [workflow],
+      catalogSnapshot: catalogSnapshot(
+        applicationURL: musicURL,
+        processIdentifiers: [processID.rawValue]
+      )
+    )
+
+    #expect(requirements.muteBehaviorsByProcess[processID] == .mutedWhileTapped)
+  }
+
   @MainActor
   private func connect(
     sourceID: UUID,

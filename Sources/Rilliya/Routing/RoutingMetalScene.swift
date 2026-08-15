@@ -15,6 +15,7 @@ struct RoutingMetalNodeSupplement: Equatable {
   let audioSourceMeters: [RoutingAudioChannelMeterSignal]
   let audioChannelControls: [Int: RoutingAudioChannelControl]
   let applicationIcon: NSImage?
+  let audioOutputState: RoutingAudioOutputState?
 
   init(
     isRunning: Bool,
@@ -25,7 +26,8 @@ struct RoutingMetalNodeSupplement: Equatable {
     captureFormat: RoutingAudioCaptureFormat? = nil,
     audioSourceMeters: [RoutingAudioChannelMeterSignal] = [],
     audioChannelControls: [Int: RoutingAudioChannelControl] = [:],
-    applicationIcon: NSImage? = nil
+    applicationIcon: NSImage? = nil,
+    audioOutputState: RoutingAudioOutputState? = nil
   ) {
     self.isRunning = isRunning
     self.isCapturing = isCapturing
@@ -36,6 +38,7 @@ struct RoutingMetalNodeSupplement: Equatable {
     self.audioSourceMeters = audioSourceMeters
     self.audioChannelControls = audioChannelControls
     self.applicationIcon = applicationIcon
+    self.audioOutputState = audioOutputState
   }
 
   static let empty = RoutingMetalNodeSupplement(
@@ -80,6 +83,8 @@ struct RoutingMetalScene {
         return "Application Audio"
       case .inputAudio:
         return "Input Audio"
+      case .outputAudio:
+        return "Output Audio"
       case .visualizer:
         return "Visualizer"
       case .audioMixer:
@@ -95,6 +100,8 @@ struct RoutingMetalScene {
         return selection?.displayName ?? "Choose an application"
       case .inputAudio(let selection, _):
         return selection?.displayName ?? "Choose an input device"
+      case .outputAudio(let selection, _):
+        return selection?.displayName ?? "Choose an output device"
       case .visualizer(let configuration):
         if configuration.mode == .mixed { return "Mixed waveform" }
         let count = configuration.normalizedSelectedChannels.count
@@ -126,6 +133,21 @@ struct RoutingMetalScene {
         }
         if supplement.isRunning { return "Ready to capture" }
         return selection == nil ? "Select to configure" : "Input device is unavailable"
+      case .outputAudio(let selection, _):
+        switch supplement.audioOutputState {
+        case .waitingForCapture:
+          return "Waiting for routed capture"
+        case .starting:
+          return "Preparing output device"
+        case .running:
+          return "Playing routed audio"
+        case .failed:
+          return "Output stopped"
+        case .idle, .none:
+          break
+        }
+        if supplement.isRunning { return "Ready for routed audio" }
+        return selection == nil ? "Select to configure" : "Output device is unavailable"
       case .visualizer:
         return supplement.visualizerSignal == nil ? "Waiting for routed audio" : "Live waveform"
       case .audioMixer:
@@ -147,6 +169,11 @@ struct RoutingMetalScene {
       return selection == nil ? "Select this node to configure" : nil
     }
 
+    var outputDeviceStatusText: String? {
+      guard case .outputAudio(let selection, _) = value else { return nil }
+      return selection == nil ? "Select this node to configure" : nil
+    }
+
     var applicationStatusSymbolName: String? {
       guard case .applicationAudio(let selection, _) = value else { return nil }
       return selection == nil ? "cursorarrow.click" : nil
@@ -154,6 +181,11 @@ struct RoutingMetalScene {
 
     var inputDeviceStatusSymbolName: String? {
       guard case .inputAudio(let selection, _) = value else { return nil }
+      return selection == nil ? "cursorarrow.click" : nil
+    }
+
+    var outputDeviceStatusSymbolName: String? {
+      guard case .outputAudio(let selection, _) = value else { return nil }
       return selection == nil ? "cursorarrow.click" : nil
     }
 
@@ -167,6 +199,8 @@ struct RoutingMetalScene {
       case .applicationAudio(let selection, _):
         return selection != nil
       case .inputAudio(let selection, _):
+        return selection != nil
+      case .outputAudio(let selection, _):
         return selection != nil
       case .visualizer, .audioMixer, .peakLevel:
         return false
@@ -182,7 +216,7 @@ struct RoutingMetalScene {
       switch value {
       case .applicationAudio:
         supplement.applicationIcon == nil
-      case .inputAudio, .visualizer, .audioMixer, .peakLevel:
+      case .inputAudio, .outputAudio, .visualizer, .audioMixer, .peakLevel:
         true
       }
     }
@@ -193,6 +227,8 @@ struct RoutingMetalScene {
         return applicationURL == nil ? "macwindow" : "app.dashed"
       case .inputAudio:
         return "waveform.badge.mic"
+      case .outputAudio:
+        return "speaker.wave.2"
       case .visualizer:
         return "waveform"
       case .audioMixer:
@@ -206,9 +242,10 @@ struct RoutingMetalScene {
       switch value {
       case .applicationAudio: 0
       case .inputAudio: 1
-      case .visualizer: 2
-      case .audioMixer: 3
-      case .peakLevel: 4
+      case .outputAudio: 2
+      case .visualizer: 3
+      case .audioMixer: 4
+      case .peakLevel: 5
       }
     }
 
@@ -218,9 +255,11 @@ struct RoutingMetalScene {
         return selection != nil
       case .inputAudio(let selection, .separate):
         return selection != nil
+      case .outputAudio(let selection, .separate):
+        return selection != nil
       case .audioMixer:
         return true
-      case .applicationAudio, .inputAudio, .visualizer, .peakLevel:
+      case .applicationAudio, .inputAudio, .outputAudio, .visualizer, .peakLevel:
         return false
       }
     }

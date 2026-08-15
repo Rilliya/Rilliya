@@ -178,7 +178,8 @@ enum RoutingCanvasContentBuilder {
     let localFrame = CGRect(origin: .zero, size: node.frame.size)
     switch node.value {
     case .applicationAudio(_, .separate(let channelCount)),
-      .inputAudio(_, .separate(let channelCount)):
+      .inputAudio(_, .separate(let channelCount)),
+      .outputAudio(_, .separate(let channelCount)):
       let rowFrames = RoutingAudioSourceLayout.rowFrames(
         in: localFrame,
         channelCount: channelCount
@@ -212,7 +213,7 @@ enum RoutingCanvasContentBuilder {
       )
       guard rowFrames.indices.contains(value.ordinal) else { return nil }
       return rowFrames[value.ordinal].midY
-    case .applicationAudio, .inputAudio, .peakLevel:
+    case .applicationAudio, .inputAudio, .outputAudio, .peakLevel:
       return nil
     }
   }
@@ -229,6 +230,9 @@ enum RoutingCanvasContentBuilder {
     case .inputAudio(let selection, _):
       value = selection?.displayName ?? "No input device selected"
       hint = "Select an audio input device whose channels will be routed."
+    case .outputAudio(let selection, _):
+      value = selection?.displayName ?? "No output device selected"
+      hint = "Select an audio output device that will receive routed channels."
     case .visualizer(let configuration):
       value =
         configuration.mode == .mixed

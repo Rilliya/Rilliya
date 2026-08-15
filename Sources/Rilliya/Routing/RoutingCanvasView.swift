@@ -9,6 +9,7 @@ import SwiftUI
 private enum RoutingPaletteItem: String, Codable, Transferable {
   case applicationAudio = "moe.uwucocoa.rilliya.node.application-audio"
   case inputAudio = "moe.uwucocoa.rilliya.node.input-audio"
+  case outputAudio = "moe.uwucocoa.rilliya.node.output-audio"
   case visualizer = "moe.uwucocoa.rilliya.node.visualizer"
   case audioMixer = "moe.uwucocoa.rilliya.node.audio-mixer"
   case peakLevel = "moe.uwucocoa.rilliya.node.peak-level"
@@ -33,6 +34,7 @@ struct RoutingCanvasView: View {
   let iconResolver: NSWorkspaceInstalledApplicationIconResolver
   let captureController: RoutingCaptureController
   let inputCaptureController: RoutingInputCaptureController
+  let outputController: RoutingAudioOutputController
   let sessionID: FlowingGraphCanvasSessionID
 
   @Binding var session: FlowingGraphCanvasSessionState<RoutingCanvasSchema>
@@ -175,6 +177,9 @@ struct RoutingCanvasView: View {
         case .inputAudio:
           InputAudioNodeView(node: node, context: context)
             .zIndex(context.isSelected ? 2 : 1)
+        case .outputAudio:
+          OutputAudioNodeView(node: node, context: context)
+            .zIndex(context.isSelected ? 2 : 1)
         case .visualizer(let configuration):
           VisualizerNodeView(
             configuration: configuration,
@@ -271,6 +276,14 @@ struct RoutingCanvasView: View {
           audioSourceMeters: audioSourceMeters(for: node),
           audioChannelControls: node.audioChannelControls
         )
+      case .outputAudio(let selection, _):
+        supplements[node.id] = RoutingMetalNodeSupplement(
+          isRunning: isOutputAvailable(selection),
+          isCapturing: false,
+          captureConsumerCount: 0,
+          visualizerSignal: nil,
+          audioOutputState: outputController.state(for: node.id)
+        )
       case .visualizer(let configuration):
         supplements[node.id] = RoutingMetalNodeSupplement(
           isRunning: false,
@@ -350,6 +363,13 @@ struct RoutingCanvasView: View {
   private func isAvailable(_ selection: RoutingInputDeviceSelection?) -> Bool {
     guard let selection else { return false }
     return audioCatalog.state.snapshot?.inputDevices.contains {
+      $0.id == selection.id && $0.isAlive
+    } == true
+  }
+
+  private func isOutputAvailable(_ selection: RoutingOutputDeviceSelection?) -> Bool {
+    guard let selection else { return false }
+    return audioCatalog.state.snapshot?.outputDevices.contains {
       $0.id == selection.id && $0.isAlive
     } == true
   }
@@ -435,6 +455,19 @@ struct RoutingCanvasView: View {
             nodeID: node.id,
             channelIndex: channelIndex
           )
+        }
+      )
+    case .outputAudio(let selection, let channelPresentation):
+      SelectedOutputAudioInspector(
+        selection: selection,
+        channelPresentation: channelPresentation,
+        state: outputController.state(for: node.id),
+        audioCatalog: audioCatalog,
+        selectDevice: { selection in
+          workspace.selectOutputDevice(selection, for: node.id)
+        },
+        setChannelPresentation: { presentation in
+          workspace.setOutputDeviceChannelPresentation(presentation, for: node.id)
         }
       )
     case .visualizer(let configuration):
@@ -557,6 +590,8 @@ struct RoutingCanvasView: View {
         nodeID = workspace.addApplicationAudioNode(centeredAt: worldPoint)
       case .inputAudio:
         nodeID = workspace.addInputAudioNode(centeredAt: worldPoint)
+      case .outputAudio:
+        nodeID = workspace.addOutputAudioNode(centeredAt: worldPoint)
       case .visualizer:
         nodeID = workspace.addVisualizerNode(centeredAt: worldPoint)
       case .audioMixer:
@@ -623,6 +658,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   let allowsClickInsertion: Bool
   let insertApplicationAudio: () -> Void
   let insertInputAudio: () -> Void
+  let insertOutputAudio: () -> Void
   let insertVisualizer: () -> Void
   let insertAudioMixer: () -> Void
   let insertPeakLevel: () -> Void
@@ -633,6 +669,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     allowsClickInsertion: Bool,
     insertApplicationAudio: @escaping () -> Void,
     insertInputAudio: @escaping () -> Void,
+    insertOutputAudio: @escaping () -> Void,
     insertVisualizer: @escaping () -> Void,
     insertAudioMixer: @escaping () -> Void,
     insertPeakLevel: @escaping () -> Void,
@@ -642,6 +679,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     self.allowsClickInsertion = allowsClickInsertion
     self.insertApplicationAudio = insertApplicationAudio
     self.insertInputAudio = insertInputAudio
+    self.insertOutputAudio = insertOutputAudio
     self.insertVisualizer = insertVisualizer
     self.insertAudioMixer = insertAudioMixer
     self.insertPeakLevel = insertPeakLevel
@@ -672,6 +710,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
             VStack(spacing: 10) {
               applicationAudioItem
               inputAudioItem
+              outputAudioItem
               visualizerItem
               audioMixerItem
               peakLevelItem
@@ -737,6 +776,19 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       veil: FlowingAccent.brook.veil,
       allowsClickInsertion: allowsClickInsertion,
       action: insertInputAudio
+    )
+  }
+
+  private var outputAudioItem: some View {
+    RoutingPaletteNodeItem(
+      item: .outputAudio,
+      title: "Output Audio",
+      subtitle: "Play through an output device",
+      systemImage: "speaker.wave.2",
+      foreground: FlowingAccent.brook.foreground,
+      veil: FlowingAccent.brook.veil,
+      allowsClickInsertion: allowsClickInsertion,
+      action: insertOutputAudio
     )
   }
 
@@ -968,6 +1020,14 @@ private struct RoutingCanvasDropPreview: View {
         FlowingAccent.brook.foreground,
         FlowingAccent.brook.veil
       )
+    case .outputAudio:
+      return (
+        "Output Audio",
+        "Choose an output device",
+        "speaker.wave.2",
+        FlowingAccent.brook.foreground,
+        FlowingAccent.brook.veil
+      )
     case .visualizer:
       return (
         "Visualizer",
@@ -1018,7 +1078,7 @@ private struct RoutingCanvasDropPreview: View {
 
       if isExpanded {
         Text(
-          item == .applicationAudio || item == .inputAudio
+          item == .applicationAudio || item == .inputAudio || item == .outputAudio
             ? "Select this node to configure" : "Waiting for audio input"
         )
         .font(.caption)
@@ -1320,6 +1380,85 @@ private struct InputAudioNodeView: View {
             in: RoundedRectangle(cornerRadius: 8, style: .continuous)
           )
           .padding(.trailing, 38)
+        }
+      }
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(width: size.width, height: size.height)
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: size.width * context.renderScale,
+      height: size.height * context.renderScale,
+      alignment: .topLeading
+    )
+  }
+}
+
+private struct OutputAudioNodeView: View {
+  let node: FlowingGraphPresentationNode<RoutingCanvasSchema>
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  private let accent = FlowingAccent.brook
+
+  private var selection: RoutingOutputDeviceSelection? {
+    node.value.outputDeviceSelection
+  }
+
+  var body: some View {
+    let size = RoutingCanvasMetrics.nodeSize(for: node.value)
+    FlowingCard(
+      spacing: 0,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      VStack(alignment: .leading, spacing: 11) {
+        HStack(spacing: 11) {
+          Image(systemName: "speaker.wave.2")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(accent.foreground)
+            .frame(width: 38, height: 38)
+            .background(
+              accent.veil,
+              in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+            )
+
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Output Audio")
+              .font(.caption.weight(.medium))
+              .foregroundStyle(FlowingPalette.muted)
+            Text(selection?.displayName ?? "Choose an output device")
+              .font(.callout.weight(.semibold))
+              .foregroundStyle(FlowingPalette.ink)
+              .lineLimit(1)
+          }
+
+          Spacer(minLength: 6)
+        }
+        .padding(.leading, 38)
+
+        if selection == nil {
+          HStack(spacing: 7) {
+            Image(systemName: "cursorarrow.click")
+              .font(.system(size: 9, weight: .semibold))
+            Text("Select this node to configure")
+              .font(.caption)
+              .lineLimit(1)
+            Spacer(minLength: 0)
+          }
+          .foregroundStyle(accent.foreground)
+          .padding(.horizontal, 10)
+          .frame(height: 30)
+          .background(
+            accent.wash,
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+          )
+          .padding(.leading, 38)
         }
       }
     }
@@ -2221,6 +2360,215 @@ private struct SelectedInputAudioInspector: View {
       let device = devices.first(where: { $0.id.rawValue == selectedID })
     else { return nil }
     return RoutingInputDeviceSelection(id: device.id, displayName: device.name)
+  }
+}
+
+private struct SelectedOutputAudioInspector: View {
+  let selection: RoutingOutputDeviceSelection?
+  let channelPresentation: RoutingChannelPresentation
+  let state: RoutingAudioOutputState
+  let audioCatalog: AudioCatalogController
+  let selectDevice: (RoutingOutputDeviceSelection?) -> Void
+  let setChannelPresentation: (RoutingChannelPresentation) -> Void
+
+  private var devices: [AudioDevice] {
+    audioCatalog.state.snapshot?.outputDevices ?? []
+  }
+
+  private var selectedDevice: AudioDevice? {
+    guard let selection else { return nil }
+    return devices.first { $0.id == selection.id }
+  }
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      HStack(alignment: .firstTextBaseline, spacing: 10) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Output Audio")
+            .font(.headline)
+            .foregroundStyle(FlowingPalette.ink)
+          Text("Choose any hardware or virtual output device.")
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+
+        Spacer(minLength: 4)
+
+        if selectedDevice?.isAlive == true {
+          Circle()
+            .fill(Color(nsColor: .systemGreen))
+            .frame(width: 9, height: 9)
+            .accessibilityLabel("Available")
+        }
+      }
+
+      devicePickerContent
+
+      if let selectedDevice, let endpoint = selectedDevice.output {
+        Text(
+          "\(endpoint.channelCount) ch · "
+            + "\(selectedDevice.nominalSampleRate.formatted()) Hz"
+            + (endpoint.isDefault ? " · Default Output" : "")
+        )
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(FlowingPalette.muted)
+      }
+
+      outputStateContent
+
+      Divider()
+        .overlay(FlowingPalette.hairline)
+
+      VStack(alignment: .leading, spacing: 9) {
+        Text("Input Ports")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+
+        FlowingSegmentedControl(
+          label: "Input port presentation",
+          selection: portDisplayMode,
+          options: [
+            FlowingSegmentOption(.aggregate, label: "All Channels"),
+            FlowingSegmentOption(.separate, label: "Separate"),
+          ]
+        )
+
+        if case .separate = channelPresentation {
+          HStack {
+            Text("Channels")
+              .font(.caption)
+              .foregroundStyle(FlowingPalette.muted)
+            Spacer(minLength: 8)
+            FlowingStepper(
+              "Input channel count",
+              value: separateChannelCount,
+              in: 1...RoutingVisualizerConfiguration.maximumAvailableChannelCount,
+              step: 1
+            )
+          }
+        }
+
+        Text("Playback uses the selected device's live format when the route starts.")
+          .font(.caption2)
+          .foregroundStyle(FlowingPalette.faint)
+      }
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  @ViewBuilder
+  private var outputStateContent: some View {
+    switch state {
+    case .idle:
+      EmptyView()
+    case .waitingForCapture:
+      Label("Waiting for routed capture", systemImage: "hourglass")
+        .font(.caption)
+        .foregroundStyle(FlowingPalette.muted)
+    case .starting:
+      HStack(spacing: 8) {
+        ProgressView()
+          .controlSize(.small)
+        Text("Preparing output device…")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+    case .running(let format):
+      Label(
+        "Playing \(format.channelIDs.count) ch · \(format.sampleRate.formatted()) Hz",
+        systemImage: "speaker.wave.2.fill"
+      )
+      .font(.caption.monospacedDigit())
+      .foregroundStyle(FlowingAccent.fern.foreground)
+    case .failed(let message):
+      FlowingCallout(message, title: "Output stopped", tone: .warning)
+    }
+  }
+
+  @ViewBuilder
+  private var devicePickerContent: some View {
+    if audioCatalog.state.isInitialLoad, devices.isEmpty {
+      HStack(spacing: 9) {
+        ProgressView()
+          .controlSize(.small)
+        Text("Discovering output devices…")
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    } else if let errorMessage = audioCatalog.state.rootErrorMessage, devices.isEmpty {
+      FlowingCallout(
+        errorMessage,
+        title: "Output devices unavailable",
+        tone: .warning
+      )
+    } else {
+      FlowingSearchPicker(
+        label: "Output Devices",
+        selection: pickerSelection,
+        options: pickerOptions,
+        maximumVisibleOptions: 8
+      )
+    }
+  }
+
+  private var pickerSelection: Binding<String> {
+    Binding(
+      get: { selection?.id.rawValue ?? "" },
+      set: { selectedID in
+        guard selectedID != selection?.id.rawValue else { return }
+        selectDevice(selection(for: selectedID))
+      }
+    )
+  }
+
+  private var pickerOptions: [FlowingSelectOption<String>] {
+    [FlowingSelectOption("", label: "No Output Device")]
+      + devices.map { device in
+        let suffix = device.output?.isDefault == true ? " · Default" : ""
+        return FlowingSelectOption(
+          device.id.rawValue,
+          label: device.name + suffix
+        )
+      }
+  }
+
+  private var portDisplayMode: Binding<RoutingPortDisplayMode> {
+    Binding(
+      get: {
+        switch channelPresentation {
+        case .aggregate: .aggregate
+        case .separate: .separate
+        }
+      },
+      set: { mode in
+        switch mode {
+        case .aggregate:
+          setChannelPresentation(.aggregate)
+        case .separate:
+          let deviceChannels = selectedDevice?.output?.channelCount
+          setChannelPresentation(
+            .separate(channelCount: channelPresentation.channelCount ?? deviceChannels ?? 2)
+          )
+        }
+      }
+    )
+  }
+
+  private var separateChannelCount: Binding<Int> {
+    Binding(
+      get: { channelPresentation.channelCount ?? selectedDevice?.output?.channelCount ?? 2 },
+      set: { setChannelPresentation(.separate(channelCount: $0)) }
+    )
+  }
+
+  private func selection(for selectedID: String) -> RoutingOutputDeviceSelection? {
+    guard !selectedID.isEmpty,
+      let device = devices.first(where: { $0.id.rawValue == selectedID })
+    else { return nil }
+    return RoutingOutputDeviceSelection(id: device.id, displayName: device.name)
   }
 }
 

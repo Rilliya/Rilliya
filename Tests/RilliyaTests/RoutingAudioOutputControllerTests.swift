@@ -1,0 +1,281 @@
+import CoreGraphics
+import FlowingDayGraphCanvas
+import Foundation
+import RilliyaKit
+import Testing
+
+@testable import Rilliya
+
+struct RoutingAudioOutputControllerTests {
+  @Test @MainActor
+  func graphReplacementWaitsForOldOutputToStopAndIdenticalReconciliationIsFree() async throws {
+    let processID = try #require(AudioProcessID(rawValue: 141))
+    let sourceID = UUID()
+    let outputID = UUID()
+    let captureStarter = OutputTestCaptureStarter()
+    let captureController = RoutingCaptureController(captureStarter: captureStarter)
+    let inputController = RoutingInputCaptureController()
+    let outputStarter = OutputTestPlaybackStarter(suspendsStops: true)
+    let outputController = RoutingAudioOutputController(playbackStarter: outputStarter)
+    let workflow = try makeWorkflow(sourceID: sourceID, outputIDs: [outputID])
+
+    captureController.start(nodeID: sourceID, processID: processID)
+    #expect(await eventually { captureController.frameBuffer(for: sourceID) != nil })
+
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: captureController,
+      inputCaptureController: inputController
+    )
+    #expect(await eventually { outputController.state(for: outputID).isRunning })
+    #expect(await outputStarter.startCount == 1)
+
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: captureController,
+      inputCaptureController: inputController
+    )
+    await Task.yield()
+    #expect(await outputStarter.startCount == 1)
+    #expect(await outputStarter.stopCount == 0)
+
+    workflow.workspace.setAudioChannelGain(-6, nodeID: sourceID, channelIndex: 0)
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: captureController,
+      inputCaptureController: inputController
+    )
+    #expect(await eventually { await outputStarter.stopCount == 1 })
+    #expect(await outputStarter.startCount == 1)
+
+    await outputStarter.resumeStops()
+    #expect(
+      await eventually {
+        await outputStarter.startCount == 2
+          && outputController.state(for: outputID).isRunning
+      }
+    )
+
+    await outputStarter.setSuspendsStops(false)
+    outputController.stopAll()
+    captureController.stopAll()
+  }
+
+  @Test @MainActor
+  func oneCaptureBufferCannotFeedTwoIndependentOutputClocks() async throws {
+    let processID = try #require(AudioProcessID(rawValue: 142))
+    let sourceID = UUID()
+    let firstOutputID = UUID()
+    let secondOutputID = UUID()
+    let captureController = RoutingCaptureController(captureStarter: OutputTestCaptureStarter())
+    let inputController = RoutingInputCaptureController()
+    let outputStarter = OutputTestPlaybackStarter()
+    let outputController = RoutingAudioOutputController(playbackStarter: outputStarter)
+    let workflow = try makeWorkflow(
+      sourceID: sourceID,
+      outputIDs: [firstOutputID, secondOutputID]
+    )
+
+    captureController.start(nodeID: sourceID, processID: processID)
+    #expect(await eventually { captureController.frameBuffer(for: sourceID) != nil })
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: captureController,
+      inputCaptureController: inputController
+    )
+
+    #expect(await eventually { await outputStarter.startCount == 1 })
+    let states = [
+      outputController.state(for: firstOutputID),
+      outputController.state(for: secondOutputID),
+    ]
+    #expect(states.count(where: \.isRunning) == 1)
+    #expect(
+      states.contains {
+        guard case .failed(let message) = $0 else { return false }
+        return message.contains("another output clock")
+      }
+    )
+
+    outputController.stopAll()
+    captureController.stopAll()
+  }
+
+  @MainActor
+  private func makeWorkflow(
+    sourceID: UUID,
+    outputIDs: [UUID]
+  ) throws -> RoutingWorkflowModel {
+    let workflow = RoutingWorkflowModel(name: "Output")
+    _ = workflow.workspace.addApplicationAudioNode(centeredAt: .zero, id: sourceID)
+    for (index, outputID) in outputIDs.enumerated() {
+      _ = workflow.workspace.addOutputAudioNode(
+        centeredAt: CGPoint(x: 400, y: CGFloat(index * 180)),
+        id: outputID
+      )
+      let deviceID = try #require(AudioDeviceID(rawValue: "output-\(index)"))
+      workflow.workspace.selectOutputDevice(
+        RoutingOutputDeviceSelection(id: deviceID, displayName: "Output \(index + 1)"),
+        for: outputID
+      )
+      try connect(sourceID: sourceID, targetID: outputID, in: workflow.workspace)
+    }
+    return workflow
+  }
+
+  @MainActor
+  private func connect(
+    sourceID: UUID,
+    targetID: UUID,
+    in workspace: RoutingWorkspaceModel
+  ) throws {
+    let content = try #require(workspace.canvasContent)
+    let source = try #require(
+      content.presentation.ports.first {
+        guard case .port(let key) = $0.address.elementID else { return false }
+        return key.nodeID == sourceID && $0.value.direction == .output
+      })
+    let target = try #require(
+      content.presentation.ports.first {
+        guard case .port(let key) = $0.address.elementID else { return false }
+        return key.nodeID == targetID && $0.value.direction == .input
+      })
+    workspace.send(
+      .connectionCompleted(
+        FlowingGraphCanvasConnectionCompletionIntent(
+          operation: .create(sourcePortID: source.id, targetPortID: target.id),
+          basePresentationSnapshotID: content.presentation.snapshotID,
+          baseLayoutInputID: content.id
+        )
+      )
+    )
+  }
+
+  @MainActor
+  private func eventually(_ predicate: @MainActor () async -> Bool) async -> Bool {
+    for _ in 0..<200 where !(await predicate()) {
+      await Task.yield()
+    }
+    return await predicate()
+  }
+}
+
+private actor OutputTestCaptureStarter: RoutingProcessCaptureStarting {
+  func start(
+    processID: AudioProcessID,
+    muteBehavior: ProcessOutputCaptureMuteBehavior,
+    snapshotHandler: @escaping ProcessOutputCapture.SnapshotHandler
+  ) async throws -> any RoutingProcessCaptureSession {
+    let channelIndex = try #require(AudioChannelIndex(rawValue: 0))
+    let format = ProcessOutputCaptureFormat(
+      processID: processID,
+      sampleRate: 48_000,
+      channelIDs: [
+        AudioChannelID(ownerID: .source(.processOutput(processID)), index: channelIndex)
+      ]
+    )
+    return try OutputTestCaptureSession(
+      format: format,
+      frameBuffer: AudioRealtimeFrameBuffer(
+        format: AudioProcessingFormat(sampleRate: 48_000, channelCount: 1)
+      )
+    )
+  }
+}
+
+private final class OutputTestCaptureSession: RoutingProcessCaptureSession,
+  @unchecked Sendable
+{
+  let format: ProcessOutputCaptureFormat
+  let frameBuffer: AudioRealtimeFrameBuffer
+
+  init(format: ProcessOutputCaptureFormat, frameBuffer: AudioRealtimeFrameBuffer) {
+    self.format = format
+    self.frameBuffer = frameBuffer
+  }
+
+  func stop() async {}
+}
+
+private actor OutputTestPlaybackStarter: RoutingOutputPlaybackStarting {
+  private(set) var startCount = 0
+  private(set) var stopCount = 0
+  private var suspendsStops: Bool
+  private var stopContinuations: [CheckedContinuation<Void, Never>] = []
+
+  init(suspendsStops: Bool = false) {
+    self.suspendsStops = suspendsStops
+  }
+
+  func start(
+    deviceID: AudioDeviceID,
+    rendererFactory: @escaping DeviceOutputPlayback.RendererFactory,
+    failureHandler: @escaping DeviceOutputPlayback.FailureHandler
+  ) async throws -> any RoutingOutputPlaybackSession {
+    startCount += 1
+    let preparation = try AudioRenderPreparation(
+      format: AudioProcessingFormat(sampleRate: 48_000, channelCount: 1),
+      maximumFrameCount: 32
+    )
+    _ = try rendererFactory(preparation)
+    return OutputTestPlaybackSession(
+      format: DeviceOutputPlaybackFormat(
+        deviceID: deviceID,
+        sampleRate: 48_000,
+        channelIDs: [],
+        maximumFrameCount: 32
+      )
+    ) { [self] in
+      await stop()
+    }
+  }
+
+  func setSuspendsStops(_ value: Bool) {
+    suspendsStops = value
+  }
+
+  func resumeStops() {
+    let continuations = stopContinuations
+    stopContinuations.removeAll()
+    for continuation in continuations {
+      continuation.resume()
+    }
+  }
+
+  private func stop() async {
+    stopCount += 1
+    if suspendsStops {
+      await withCheckedContinuation { continuation in
+        stopContinuations.append(continuation)
+      }
+    }
+  }
+}
+
+private actor OutputTestPlaybackSession: RoutingOutputPlaybackSession {
+  nonisolated let format: DeviceOutputPlaybackFormat
+
+  private let stopHandler: @Sendable () async -> Void
+  private var didStop = false
+
+  init(
+    format: DeviceOutputPlaybackFormat,
+    stopHandler: @escaping @Sendable () async -> Void
+  ) {
+    self.format = format
+    self.stopHandler = stopHandler
+  }
+
+  func stop() async {
+    guard !didStop else { return }
+    didStop = true
+    await stopHandler()
+  }
+}
+
+extension RoutingAudioOutputState {
+  fileprivate var isRunning: Bool {
+    guard case .running = self else { return false }
+    return true
+  }
+}

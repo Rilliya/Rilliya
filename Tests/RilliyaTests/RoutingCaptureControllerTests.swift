@@ -208,6 +208,46 @@ struct RoutingCaptureControllerTests {
     #expect(replacementStopped)
   }
 
+  @Test @MainActor
+  func changingMuteBehaviorStopsTheOldTapBeforeStartingItsReplacement() async throws {
+    let processID = try #require(AudioProcessID(rawValue: 121))
+    let nodeID = UUID()
+    let starter = FakeRoutingProcessCaptureStarter(suspendsStops: true)
+    let controller = RoutingCaptureController(captureStarter: starter)
+
+    controller.reconcile(
+      requirements: RoutingCaptureRequirements(
+        processIDsByNode: [nodeID: processID],
+        muteBehaviorsByProcess: [processID: .unmuted]
+      )
+    )
+    #expect(await eventually { controller.state(for: nodeID).isRunning })
+
+    controller.reconcile(
+      requirements: RoutingCaptureRequirements(
+        processIDsByNode: [nodeID: processID],
+        muteBehaviorsByProcess: [processID: .mutedWhileTapped]
+      )
+    )
+    #expect(await eventually { await starter.stopCount(for: processID) == 1 })
+    #expect(controller.state(for: nodeID) == .starting)
+    #expect(await starter.startCount(for: processID) == 1)
+
+    await starter.resumeStops(for: processID)
+    #expect(
+      await eventually {
+        await starter.startCount(for: processID) == 2
+          && controller.state(for: nodeID).isRunning
+      }
+    )
+    #expect(
+      await starter.muteBehaviors(for: processID) == [.unmuted, .mutedWhileTapped]
+    )
+
+    await starter.setSuspendsStops(false)
+    controller.stopAll()
+  }
+
   private func makeSnapshot(
     processID: AudioProcessID,
     sequence: UInt64
@@ -259,6 +299,7 @@ private actor FakeRoutingProcessCaptureStarter: RoutingProcessCaptureStarting {
   private var startCounts: [AudioProcessID: Int] = [:]
   private var stopCounts: [AudioProcessID: Int] = [:]
   private var snapshotHandlers: [AudioProcessID: ProcessOutputCapture.SnapshotHandler] = [:]
+  private var startedMuteBehaviors: [AudioProcessID: [ProcessOutputCaptureMuteBehavior]] = [:]
   private var stopContinuations: [AudioProcessID: [CheckedContinuation<Void, Never>]] = [:]
   private let failingProcessIDs: Set<AudioProcessID>
   private var suspendsStops: Bool
@@ -273,9 +314,11 @@ private actor FakeRoutingProcessCaptureStarter: RoutingProcessCaptureStarting {
 
   func start(
     processID: AudioProcessID,
+    muteBehavior: ProcessOutputCaptureMuteBehavior,
     snapshotHandler: @escaping ProcessOutputCapture.SnapshotHandler
   ) async throws -> any RoutingProcessCaptureSession {
     startCounts[processID, default: 0] += 1
+    startedMuteBehaviors[processID, default: []].append(muteBehavior)
     if failingProcessIDs.contains(processID) {
       throw FakeCaptureError.requestedFailure
     }
@@ -293,7 +336,10 @@ private actor FakeRoutingProcessCaptureStarter: RoutingProcessCaptureStarting {
         )
       ]
     )
-    return FakeRoutingProcessCaptureSession(format: format) { [self] in
+    let frameBuffer = try AudioRealtimeFrameBuffer(
+      format: AudioProcessingFormat(sampleRate: format.sampleRate, channelCount: 1)
+    )
+    return FakeRoutingProcessCaptureSession(format: format, frameBuffer: frameBuffer) { [self] in
       await recordStop(for: processID)
     }
   }
@@ -304,6 +350,10 @@ private actor FakeRoutingProcessCaptureStarter: RoutingProcessCaptureStarting {
 
   func stopCount(for processID: AudioProcessID) -> Int {
     stopCounts[processID, default: 0]
+  }
+
+  func muteBehaviors(for processID: AudioProcessID) -> [ProcessOutputCaptureMuteBehavior] {
+    startedMuteBehaviors[processID, default: []]
   }
 
   func emit(_ snapshot: ProcessOutputMeterSnapshot) {
@@ -334,15 +384,18 @@ private actor FakeRoutingProcessCaptureStarter: RoutingProcessCaptureStarting {
 
 private actor FakeRoutingProcessCaptureSession: RoutingProcessCaptureSession {
   nonisolated let format: ProcessOutputCaptureFormat
+  nonisolated let frameBuffer: AudioRealtimeFrameBuffer
 
   private let stopHandler: @Sendable () async -> Void
   private var isStopped = false
 
   init(
     format: ProcessOutputCaptureFormat,
+    frameBuffer: AudioRealtimeFrameBuffer,
     stopHandler: @escaping @Sendable () async -> Void
   ) {
     self.format = format
+    self.frameBuffer = frameBuffer
     self.stopHandler = stopHandler
   }
 

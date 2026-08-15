@@ -11,6 +11,7 @@ enum RoutingCaptureState: Equatable {
 
 protocol RoutingProcessCaptureSession: AnyObject, Sendable {
   var format: ProcessOutputCaptureFormat { get }
+  var frameBuffer: AudioRealtimeFrameBuffer { get }
 
   func stop() async
 }
@@ -18,6 +19,7 @@ protocol RoutingProcessCaptureSession: AnyObject, Sendable {
 protocol RoutingProcessCaptureStarting: Sendable {
   func start(
     processID: AudioProcessID,
+    muteBehavior: ProcessOutputCaptureMuteBehavior,
     snapshotHandler: @escaping ProcessOutputCapture.SnapshotHandler
   ) async throws -> any RoutingProcessCaptureSession
 }
@@ -25,11 +27,13 @@ protocol RoutingProcessCaptureStarting: Sendable {
 struct SystemRoutingProcessCaptureStarter: RoutingProcessCaptureStarting {
   func start(
     processID: AudioProcessID,
+    muteBehavior: ProcessOutputCaptureMuteBehavior,
     snapshotHandler: @escaping ProcessOutputCapture.SnapshotHandler
   ) async throws -> any RoutingProcessCaptureSession {
     try await Task.detached(priority: .userInitiated) {
       let capture = try ProcessOutputCapture(
         processID: processID,
+        muteBehavior: muteBehavior,
         snapshotHandler: snapshotHandler
       )
       do {
@@ -47,12 +51,14 @@ private final class SystemRoutingProcessCaptureSession: RoutingProcessCaptureSes
   @unchecked Sendable
 {
   let format: ProcessOutputCaptureFormat
+  let frameBuffer: AudioRealtimeFrameBuffer
 
   private let capture: ProcessOutputCapture
 
   init(capture: ProcessOutputCapture) {
     self.capture = capture
     format = capture.format
+    frameBuffer = capture.frameBuffer
   }
 
   func stop() async {
@@ -76,6 +82,8 @@ final class RoutingCaptureController {
     var phase: SharedSourcePhase
     var generation: UInt64
     var lastSnapshot: ProcessOutputMeterSnapshot?
+    var activeMuteBehavior: ProcessOutputCaptureMuteBehavior
+    var desiredMuteBehavior: ProcessOutputCaptureMuteBehavior
   }
 
   private(set) var states: [UUID: RoutingCaptureState] = [:]
@@ -100,12 +108,24 @@ final class RoutingCaptureController {
     snapshots[nodeID]
   }
 
+  func frameBuffer(for nodeID: UUID) -> AudioRealtimeFrameBuffer? {
+    guard let processID = processIDsByNode[nodeID],
+      let source = sources[processID],
+      case .running(let capture) = source.phase
+    else { return nil }
+    return capture.frameBuffer
+  }
+
   func consumerCount(for nodeID: UUID) -> Int {
     guard let processID = processIDsByNode[nodeID] else { return 0 }
     return sources[processID]?.nodeIDs.count ?? 0
   }
 
-  func start(nodeID: UUID, processID: AudioProcessID) {
+  func start(
+    nodeID: UUID,
+    processID: AudioProcessID,
+    muteBehavior: ProcessOutputCaptureMuteBehavior = .unmuted
+  ) {
     if processIDsByNode[nodeID] == processID,
       let source = sources[processID],
       source.nodeIDs.contains(nodeID)
@@ -130,10 +150,12 @@ final class RoutingCaptureController {
       nodeIDs: [nodeID],
       phase: .starting,
       generation: generation,
-      lastSnapshot: nil
+      lastSnapshot: nil,
+      activeMuteBehavior: muteBehavior,
+      desiredMuteBehavior: muteBehavior
     )
     states[nodeID] = .starting
-    beginStart(processID: processID, generation: generation)
+    beginStart(processID: processID, generation: generation, muteBehavior: muteBehavior)
   }
 
   func reconcile(requirements: RoutingCaptureRequirements) {
@@ -141,10 +163,17 @@ final class RoutingCaptureController {
       guard requirements.processIDsByNode[nodeID] != processID else { continue }
       detach(nodeID: nodeID, publishesIdleState: true)
     }
+    for (processID, desiredMuteBehavior) in requirements.muteBehaviorsByProcess {
+      updateMuteBehavior(desiredMuteBehavior, for: processID)
+    }
     for (nodeID, processID) in requirements.processIDsByNode.sorted(by: {
       $0.key.uuidString < $1.key.uuidString
     }) {
-      start(nodeID: nodeID, processID: processID)
+      start(
+        nodeID: nodeID,
+        processID: processID,
+        muteBehavior: requirements.muteBehaviorsByProcess[processID] ?? .unmuted
+      )
     }
   }
 
@@ -192,7 +221,11 @@ final class RoutingCaptureController {
     }
   }
 
-  private func beginStart(processID: AudioProcessID, generation: UInt64) {
+  private func beginStart(
+    processID: AudioProcessID,
+    generation: UInt64,
+    muteBehavior: ProcessOutputCaptureMuteBehavior
+  ) {
     let captureStarter = captureStarter
     let snapshotHandler: ProcessOutputCapture.SnapshotHandler = { [weak self] snapshot in
       Task { @MainActor [weak self] in
@@ -204,6 +237,7 @@ final class RoutingCaptureController {
       do {
         let capture = try await captureStarter.start(
           processID: processID,
+          muteBehavior: muteBehavior,
           snapshotHandler: snapshotHandler
         )
         guard let self else {
@@ -228,6 +262,17 @@ final class RoutingCaptureController {
       Task {
         await capture.stop()
       }
+      return
+    }
+
+    if source.activeMuteBehavior != source.desiredMuteBehavior {
+      source.phase = .stopping
+      sources[processID] = source
+      for nodeID in source.nodeIDs where processIDsByNode[nodeID] == processID {
+        states[nodeID] = .starting
+        snapshots[nodeID] = nil
+      }
+      beginStop(capture, processID: processID, generation: generation)
       return
     }
 
@@ -291,12 +336,17 @@ final class RoutingCaptureController {
     source.phase = .starting
     source.generation = makeGeneration()
     source.lastSnapshot = nil
+    source.activeMuteBehavior = source.desiredMuteBehavior
     sources[processID] = source
     for nodeID in source.nodeIDs where processIDsByNode[nodeID] == processID {
       snapshots[nodeID] = nil
       states[nodeID] = .starting
     }
-    beginStart(processID: processID, generation: source.generation)
+    beginStart(
+      processID: processID,
+      generation: source.generation,
+      muteBehavior: source.activeMuteBehavior
+    )
   }
 
   private func receive(
@@ -338,5 +388,31 @@ final class RoutingCaptureController {
   private func makeGeneration() -> UInt64 {
     nextGeneration &+= 1
     return nextGeneration
+  }
+
+  private func updateMuteBehavior(
+    _ desiredMuteBehavior: ProcessOutputCaptureMuteBehavior,
+    for processID: AudioProcessID
+  ) {
+    guard var source = sources[processID], source.desiredMuteBehavior != desiredMuteBehavior else {
+      return
+    }
+    source.desiredMuteBehavior = desiredMuteBehavior
+    guard source.activeMuteBehavior != desiredMuteBehavior else {
+      sources[processID] = source
+      return
+    }
+    switch source.phase {
+    case .starting, .stopping:
+      sources[processID] = source
+    case .running(let capture):
+      source.phase = .stopping
+      sources[processID] = source
+      for nodeID in source.nodeIDs where processIDsByNode[nodeID] == processID {
+        states[nodeID] = .starting
+        snapshots[nodeID] = nil
+      }
+      beginStop(capture, processID: processID, generation: source.generation)
+    }
   }
 }

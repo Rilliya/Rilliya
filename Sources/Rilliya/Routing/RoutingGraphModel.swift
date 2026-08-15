@@ -37,6 +37,17 @@ struct RoutingInputDeviceSelection: Equatable, Hashable, Identifiable, Sendable 
   }
 }
 
+struct RoutingOutputDeviceSelection: Equatable, Hashable, Identifiable, Sendable {
+  let id: AudioDeviceID
+  let displayName: String
+
+  init(id: AudioDeviceID, displayName: String) {
+    precondition(!displayName.isEmpty)
+    self.id = id
+    self.displayName = displayName
+  }
+}
+
 extension RoutingInputDeviceSelection: Codable {
   private enum CodingKeys: String, CodingKey {
     case id
@@ -66,6 +77,35 @@ extension RoutingInputDeviceSelection: Codable {
   }
 }
 
+extension RoutingOutputDeviceSelection: Codable {
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case displayName
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let rawID = try container.decode(String.self, forKey: .id)
+    let displayName = try container.decode(String.self, forKey: .displayName)
+    guard let id = AudioDeviceID(rawValue: rawID),
+      !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .id,
+        in: container,
+        debugDescription: "Output device selections require a valid device ID and name."
+      )
+    }
+    self.init(id: id, displayName: displayName)
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id.rawValue, forKey: .id)
+    try container.encode(displayName, forKey: .displayName)
+  }
+}
+
 enum RoutingNodeValue: Codable, Equatable, Sendable {
   case applicationAudio(
     selection: RoutingApplicationSelection?,
@@ -73,6 +113,10 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
   )
   case inputAudio(
     selection: RoutingInputDeviceSelection?,
+    channelPresentation: RoutingChannelPresentation
+  )
+  case outputAudio(
+    selection: RoutingOutputDeviceSelection?,
     channelPresentation: RoutingChannelPresentation
   )
   case visualizer(configuration: RoutingVisualizerConfiguration)
@@ -83,13 +127,18 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     switch self {
     case .applicationAudio(let selection, _):
       return selection
-    case .inputAudio, .visualizer, .audioMixer, .peakLevel:
+    case .inputAudio, .outputAudio, .visualizer, .audioMixer, .peakLevel:
       return nil
     }
   }
 
   var inputDeviceSelection: RoutingInputDeviceSelection? {
     guard case .inputAudio(let selection, _) = self else { return nil }
+    return selection
+  }
+
+  var outputDeviceSelection: RoutingOutputDeviceSelection? {
+    guard case .outputAudio(let selection, _) = self else { return nil }
     return selection
   }
 
@@ -107,7 +156,7 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     switch self {
     case .applicationAudio(_, let presentation), .inputAudio(_, let presentation):
       return presentation
-    case .visualizer, .audioMixer, .peakLevel:
+    case .outputAudio, .visualizer, .audioMixer, .peakLevel:
       return nil
     }
   }
@@ -120,9 +169,21 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return .applicationAudio(selection: selection, channelPresentation: presentation)
     case .inputAudio(let selection, _):
       return .inputAudio(selection: selection, channelPresentation: presentation)
-    case .visualizer, .audioMixer, .peakLevel:
+    case .outputAudio, .visualizer, .audioMixer, .peakLevel:
       return nil
     }
+  }
+
+  var audioDestinationChannelPresentation: RoutingChannelPresentation? {
+    guard case .outputAudio(_, let presentation) = self else { return nil }
+    return presentation
+  }
+
+  func replacingAudioDestinationChannelPresentation(
+    _ presentation: RoutingChannelPresentation
+  ) -> RoutingNodeValue? {
+    guard case .outputAudio(let selection, _) = self else { return nil }
+    return .outputAudio(selection: selection, channelPresentation: presentation)
   }
 
   var title: String {
@@ -131,6 +192,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return "Application Audio"
     case .inputAudio:
       return "Input Audio"
+    case .outputAudio:
+      return "Output Audio"
     case .visualizer:
       return "Visualizer"
     case .audioMixer:
@@ -667,6 +730,17 @@ enum RoutingCanvasMetrics {
         width: baseNodeSize.width,
         height: max(minimumHeight, RoutingAudioSourceLayout.nodeHeight(channelCount: channelCount))
       )
+    case .outputAudio(let selection, .aggregate):
+      if selection != nil {
+        return CGSize(width: baseNodeSize.width, height: 80)
+      }
+      portCount = 1
+    case .outputAudio(let selection, .separate(let channelCount)):
+      let minimumHeight = selection == nil ? baseNodeSize.height : 80
+      return CGSize(
+        width: baseNodeSize.width,
+        height: max(minimumHeight, RoutingAudioSourceLayout.nodeHeight(channelCount: channelCount))
+      )
     case .visualizer(let configuration):
       return CGSize(
         width: baseNodeSize.width,
@@ -902,6 +976,8 @@ enum RoutingGraphPorts {
     case .applicationAudio(_, let channelPresentation),
       .inputAudio(_, let channelPresentation):
       identities = outputIdentities(for: channelPresentation)
+    case .outputAudio(_, let channelPresentation):
+      identities = inputIdentities(for: channelPresentation)
     case .visualizer(let configuration):
       return visualizerValues(for: configuration)
     case .audioMixer(let configuration):
@@ -949,6 +1025,17 @@ enum RoutingGraphPorts {
       return [(.output, .all)]
     case .separate(let channelCount):
       return (0..<channelCount).map { (.output, .channel($0)) }
+    }
+  }
+
+  private static func inputIdentities(
+    for presentation: RoutingChannelPresentation
+  ) -> [(RoutingPortDirection, RoutingAudioPortChannel)] {
+    switch presentation {
+    case .aggregate:
+      return [(.input, .all)]
+    case .separate(let channelCount):
+      return (0..<channelCount).map { (.input, .channel($0)) }
     }
   }
 

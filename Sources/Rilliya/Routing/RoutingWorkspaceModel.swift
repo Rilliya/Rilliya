@@ -139,6 +139,34 @@ final class RoutingWorkspaceModel {
   }
 
   @discardableResult
+  func addOutputAudioNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    let value = RoutingNodeValue.outputAudio(
+      selection: nil,
+      channelPresentation: .aggregate
+    )
+    let size = RoutingCanvasMetrics.nodeSize(for: value)
+    nodes.append(
+      RoutingWorkspaceNode(
+        id: id,
+        value: value,
+        frame: CGRect(
+          x: worldPoint.x - size.width / 2,
+          y: worldPoint.y - size.height / 2,
+          width: size.width,
+          height: size.height
+        )
+      )
+    )
+    rebuildCanvas()
+    return id
+  }
+
+  @discardableResult
   func addVisualizerNode(
     centeredAt worldPoint: CGPoint,
     id: UUID = UUID()
@@ -251,6 +279,22 @@ final class RoutingWorkspaceModel {
     rebuildCanvas()
   }
 
+  func selectOutputDevice(
+    _ selection: RoutingOutputDeviceSelection?,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }) else { return }
+    guard case .outputAudio(let currentSelection, let channelPresentation) = nodes[index].value,
+      currentSelection != selection
+    else { return }
+    nodes[index].value = .outputAudio(
+      selection: selection,
+      channelPresentation: channelPresentation
+    )
+    resizeNode(at: index)
+    rebuildCanvas()
+  }
+
   func setApplicationChannelPresentation(
     _ presentation: RoutingChannelPresentation,
     for nodeID: UUID
@@ -263,6 +307,19 @@ final class RoutingWorkspaceModel {
     for nodeID: UUID
   ) {
     setAudioSourceChannelPresentation(presentation, for: nodeID, expectedApplication: false)
+  }
+
+  func setOutputDeviceChannelPresentation(
+    _ presentation: RoutingChannelPresentation,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      let updated = nodes[index].value.replacingAudioDestinationChannelPresentation(presentation),
+      updated != nodes[index].value
+    else { return }
+    nodes[index].value = updated
+    resizeNode(at: index)
+    rebuildCanvas()
   }
 
   private func setAudioSourceChannelPresentation(
@@ -467,6 +524,28 @@ final class RoutingWorkspaceModel {
   var captureSourceNodeIDs: Set<UUID> {
     Set(edges.filter(isEdgeActive).map(\.source.nodeID))
       .union(pendingSeparateSourcesByVisualizer.values.flatMap { $0 })
+  }
+
+  var audioSourceNodeIDsFeedingOutputAudio: Set<UUID> {
+    let activeEdges = edges.filter(isEdgeActive)
+    let incomingEdges = Dictionary(grouping: activeEdges, by: { $0.target.nodeID })
+    let outputNodeIDs = nodes.compactMap { node -> UUID? in
+      guard case .outputAudio(let selection, _) = node.value, selection != nil else { return nil }
+      return node.id
+    }
+    var reachable = Set(outputNodeIDs)
+    var pending = outputNodeIDs
+    while let nodeID = pending.popLast() {
+      for edge in incomingEdges[nodeID] ?? []
+      where reachable.insert(edge.source.nodeID).inserted {
+        pending.append(edge.source.nodeID)
+      }
+    }
+    return Set(
+      nodes.compactMap { node -> UUID? in
+        guard reachable.contains(node.id), case .applicationAudio = node.value else { return nil }
+        return node.id
+      })
   }
 
   func node(id: UUID) -> RoutingWorkspaceNode? {

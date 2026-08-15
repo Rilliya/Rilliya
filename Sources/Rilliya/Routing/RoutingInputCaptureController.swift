@@ -12,6 +12,7 @@ enum RoutingInputCaptureState: Equatable {
 
 protocol RoutingInputCaptureSession: AnyObject, Sendable {
   var format: DeviceInputCaptureFormat { get }
+  var frameBuffer: AudioRealtimeFrameBuffer { get }
 
   func stop() async
 }
@@ -67,12 +68,14 @@ private final class SystemRoutingInputCaptureSession: RoutingInputCaptureSession
   @unchecked Sendable
 {
   let format: DeviceInputCaptureFormat
+  let frameBuffer: AudioRealtimeFrameBuffer
 
   private let capture: DeviceInputCapture
 
   init(capture: DeviceInputCapture) {
     self.capture = capture
     format = capture.format
+    frameBuffer = capture.frameBuffer
   }
 
   func stop() async {
@@ -118,6 +121,14 @@ final class RoutingInputCaptureController {
 
   func snapshot(for nodeID: UUID) -> DeviceInputMeterSnapshot? {
     snapshots[nodeID]
+  }
+
+  func frameBuffer(for nodeID: UUID) -> AudioRealtimeFrameBuffer? {
+    guard let deviceID = deviceIDsByNode[nodeID],
+      let source = sources[deviceID],
+      case .running(let capture) = source.phase
+    else { return nil }
+    return capture.frameBuffer
   }
 
   func consumerCount(for nodeID: UUID) -> Int {

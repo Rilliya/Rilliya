@@ -4,13 +4,16 @@ import RilliyaKit
 struct RoutingCaptureRequirements: Equatable {
   let processIDsByNode: [UUID: AudioProcessID]
   let inputDeviceIDsByNode: [UUID: AudioDeviceID]
+  let muteBehaviorsByProcess: [AudioProcessID: ProcessOutputCaptureMuteBehavior]
 
   init(
     processIDsByNode: [UUID: AudioProcessID],
-    inputDeviceIDsByNode: [UUID: AudioDeviceID] = [:]
+    inputDeviceIDsByNode: [UUID: AudioDeviceID] = [:],
+    muteBehaviorsByProcess: [AudioProcessID: ProcessOutputCaptureMuteBehavior] = [:]
   ) {
     self.processIDsByNode = processIDsByNode
     self.inputDeviceIDsByNode = inputDeviceIDsByNode
+    self.muteBehaviorsByProcess = muteBehaviorsByProcess
   }
 
   static let empty = RoutingCaptureRequirements(
@@ -33,10 +36,12 @@ enum RoutingCaptureRequirementResolver {
     )
     var requirements: [UUID: AudioProcessID] = [:]
     var inputRequirements: [UUID: AudioDeviceID] = [:]
+    var reroutedProcessIDs = Set<AudioProcessID>()
 
     for workflow in workflows {
       let workspace = workflow.workspace
       let routedSourceIDs = workspace.captureSourceNodeIDs
+      let reroutedSourceIDs = workspace.audioSourceNodeIDsFeedingOutputAudio
       for node in workspace.nodes where routedSourceIDs.contains(node.id) {
         if let inputDeviceID = node.value.inputDeviceSelection?.id {
           inputRequirements[node.id] = inputDeviceID
@@ -50,12 +55,23 @@ enum RoutingCaptureRequirementResolver {
           continue
         }
         requirements[node.id] = processID
+        if reroutedSourceIDs.contains(node.id) {
+          reroutedProcessIDs.insert(processID)
+        }
       }
     }
 
     return RoutingCaptureRequirements(
       processIDsByNode: requirements,
-      inputDeviceIDsByNode: inputRequirements
+      inputDeviceIDsByNode: inputRequirements,
+      muteBehaviorsByProcess: Dictionary(
+        uniqueKeysWithValues: Set(requirements.values).map { processID in
+          (
+            processID,
+            reroutedProcessIDs.contains(processID) ? .mutedWhileTapped : .unmuted
+          )
+        }
+      )
     )
   }
 }
