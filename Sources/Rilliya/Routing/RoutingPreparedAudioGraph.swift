@@ -515,6 +515,7 @@ private final class RoutingPreparedPointerList {
 private final class RoutingPreparedCaptureRead {
   private let source: PreparedAudioFrameBufferSource
   private let outputs: RoutingPreparedPointerList
+  private let maximumBufferedFrameCount: Int
 
   init(
     plan: RoutingCaptureReadPlan,
@@ -525,6 +526,10 @@ private final class RoutingPreparedCaptureRead {
       frameBuffer: plan.frameBuffer,
       maximumFrameCount: maximumFrameCount
     )
+    maximumBufferedFrameCount =
+      maximumFrameCount >= plan.frameBuffer.capacityFrameCount / 2
+      ? plan.frameBuffer.capacityFrameCount
+      : maximumFrameCount * 2
     outputs = RoutingPreparedPointerList(
       bufferIndices: plan.outputBufferIndices,
       storage: storage
@@ -532,7 +537,8 @@ private final class RoutingPreparedCaptureRead {
   }
 
   func render(frameCount: Int) -> AudioRenderResult {
-    source.render(outputChannels: outputs.mutableBuffer, frameCount: frameCount)
+    source.frameBuffer.discardOldestFrames(keepingLatest: maximumBufferedFrameCount)
+    return source.render(outputChannels: outputs.mutableBuffer, frameCount: frameCount)
   }
 }
 

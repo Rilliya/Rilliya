@@ -112,6 +112,27 @@ struct RoutingPreparedAudioGraphTests {
   }
 
   @Test
+  func captureBacklogIsTrimmedToTwoPreparedRenderQuanta() throws {
+    let sourceID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(channelCount: 1, capacityFrameCount: 128)
+    try write([Array(0..<64).map(Float.init)], to: buffer)
+    let renderer = try makeRenderer(
+      nodes: [sourceNode(id: sourceID, channelCount: 1), outputNode(id: outputID)],
+      edges: [edge(from: sourceID, .all, to: outputID, .all)],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer],
+      outputChannelCount: 1,
+      maximumFrameCount: 8
+    )
+
+    let rendered = render(renderer, channelCount: 1, frameCount: 8)
+
+    #expect(rendered.channels[0] == Array(48..<56).map(Float.init))
+    #expect(buffer.statistics().discardedFrameCount == 48)
+  }
+
+  @Test
   func visualizerPassThroughPreservesPCM() throws {
     let sourceID = UUID()
     let visualizerID = UUID()
@@ -219,12 +240,13 @@ struct RoutingPreparedAudioGraphTests {
     edges: [RoutingWorkspaceEdge],
     outputNodeID: UUID,
     frameBuffers: [UUID: AudioRealtimeFrameBuffer],
-    outputChannelCount: Int = 2
+    outputChannelCount: Int = 2,
+    maximumFrameCount: Int = 32
   ) throws -> RoutingPreparedAudioGraphSource {
     try RoutingPreparedAudioGraphSource(
       preparation: AudioRenderPreparation(
         format: AudioProcessingFormat(sampleRate: 48_000, channelCount: outputChannelCount),
-        maximumFrameCount: 32
+        maximumFrameCount: maximumFrameCount
       ),
       nodes: nodes,
       edges: edges,
@@ -298,11 +320,12 @@ struct RoutingPreparedAudioGraphTests {
 
   private func makeFrameBuffer(
     channelCount: Int,
-    sampleRate: Double = 48_000
+    sampleRate: Double = 48_000,
+    capacityFrameCount: Int = 64
   ) throws -> AudioRealtimeFrameBuffer {
     try AudioRealtimeFrameBuffer(
       format: AudioProcessingFormat(sampleRate: sampleRate, channelCount: channelCount),
-      capacityFrameCount: 64
+      capacityFrameCount: capacityFrameCount
     )
   }
 
