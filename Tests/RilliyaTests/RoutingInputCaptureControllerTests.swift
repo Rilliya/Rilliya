@@ -76,6 +76,38 @@ struct RoutingInputCaptureControllerTests {
     #expect(controller.snapshot(for: firstNodeID) == nil)
   }
 
+  @Test @MainActor
+  func readdingADeviceWhileItsPreviousCaptureStopsStartsAFresh() async throws {
+    let deviceID = try #require(AudioDeviceID(rawValue: "test.reselected-input"))
+    let starter = FakeRoutingInputCaptureStarter(suspendsStops: true)
+    let controller = RoutingInputCaptureController(captureStarter: starter)
+    let nodeID = UUID()
+
+    controller.reconcile(deviceIDsByNode: [nodeID: deviceID])
+    #expect(
+      await eventually {
+        if case .running = controller.state(for: nodeID) { return true }
+        return false
+      }
+    )
+
+    controller.reconcile(deviceIDsByNode: [:])
+    controller.reconcile(deviceIDsByNode: [nodeID: deviceID])
+
+    #expect(controller.state(for: nodeID) == .starting)
+    #expect(await starter.startCount(for: deviceID) == 1)
+    #expect(await eventually { await starter.hasPendingStop })
+
+    await starter.resumeStops()
+
+    #expect(
+      await eventually {
+        guard case .running = controller.state(for: nodeID) else { return false }
+        return await starter.startCount(for: deviceID) == 2
+      }
+    )
+  }
+
   private func makeSnapshot(
     deviceID: AudioDeviceID
   ) throws -> DeviceInputMeterSnapshot {
@@ -121,6 +153,16 @@ private actor FakeRoutingInputCaptureStarter: RoutingInputCaptureStarting {
   private var stopCounts: [AudioDeviceID: Int] = [:]
   private var snapshotHandlers: [AudioDeviceID: DeviceInputCapture.SnapshotHandler] = [:]
   private var failureHandlers: [AudioDeviceID: DeviceInputCapture.FailureHandler] = [:]
+  private var suspendsStops: Bool
+  private var stopWaiters: [CheckedContinuation<Void, Never>] = []
+
+  init(suspendsStops: Bool = false) {
+    self.suspendsStops = suspendsStops
+  }
+
+  var hasPendingStop: Bool {
+    !stopWaiters.isEmpty
+  }
 
   func start(
     deviceID: AudioDeviceID,
@@ -163,7 +205,21 @@ private actor FakeRoutingInputCaptureStarter: RoutingInputCaptureStarting {
     failureHandlers[deviceID]?(error)
   }
 
-  private func recordStop(for deviceID: AudioDeviceID) {
+  func resumeStops() {
+    suspendsStops = false
+    let waiters = stopWaiters
+    stopWaiters.removeAll(keepingCapacity: false)
+    for waiter in waiters {
+      waiter.resume()
+    }
+  }
+
+  private func recordStop(for deviceID: AudioDeviceID) async {
+    if suspendsStops {
+      await withCheckedContinuation { continuation in
+        stopWaiters.append(continuation)
+      }
+    }
     stopCounts[deviceID, default: 0] += 1
     snapshotHandlers[deviceID] = nil
     failureHandlers[deviceID] = nil

@@ -1707,7 +1707,6 @@ private struct SelectedApplicationInspector: View {
         guard selectedID != selectedCatalogItem?.application.bundleURL.absoluteString else {
           return
         }
-        captureController.stop(nodeID: nodeID)
         selectApplication(selection(for: selectedID))
       }
     )
@@ -1933,7 +1932,6 @@ private struct SelectedInputAudioInspector: View {
       get: { selection?.id.rawValue ?? "" },
       set: { selectedID in
         guard selectedID != selection?.id.rawValue else { return }
-        captureController.stop(nodeID: nodeID)
         selectDevice(selection(for: selectedID))
       }
     )
