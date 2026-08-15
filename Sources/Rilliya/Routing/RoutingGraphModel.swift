@@ -31,12 +31,13 @@ enum RoutingNodeValue: Equatable, Sendable {
     channelPresentation: RoutingChannelPresentation
   )
   case visualizer(configuration: RoutingVisualizerConfiguration)
+  case peakLevel
 
   var applicationSelection: RoutingApplicationSelection? {
     switch self {
     case .applicationAudio(let selection, _):
       return selection
-    case .visualizer:
+    case .visualizer, .peakLevel:
       return nil
     }
   }
@@ -47,6 +48,8 @@ enum RoutingNodeValue: Equatable, Sendable {
       return "Application Audio"
     case .visualizer:
       return "Visualizer"
+    case .peakLevel:
+      return "Peak Level"
     }
   }
 }
@@ -116,6 +119,19 @@ struct RoutingWorkspaceEdge: Equatable, Identifiable, Sendable {
   let id: UUID
   let source: RoutingWorkspacePortAddress
   let target: RoutingWorkspacePortAddress
+  var isEnabled: Bool
+
+  init(
+    id: UUID,
+    source: RoutingWorkspacePortAddress,
+    target: RoutingWorkspacePortAddress,
+    isEnabled: Bool = true
+  ) {
+    self.id = id
+    self.source = source
+    self.target = target
+    self.isEnabled = isEnabled
+  }
 }
 
 enum RoutingPortDirection: Equatable, Hashable, Sendable {
@@ -188,20 +204,24 @@ struct RoutingGraphPortValue: Equatable, Sendable {
   init(
     direction: RoutingPortDirection,
     channel: RoutingAudioPortChannel,
+    name: String? = nil,
+    connectionPolicy: RoutingPortConnectionPolicy? = nil,
     ordinal: Int,
     total: Int
   ) {
     self.direction = direction
     key = .audio(channel)
     signalType = .audio
-    connectionPolicy = direction == .input ? .mixingInput : .fanOut
-    name =
+    self.connectionPolicy =
+      connectionPolicy ?? (direction == .input ? .mixingInput : .fanOut)
+    let defaultName =
       switch channel {
       case .all:
         "All channels"
       case .channel(let index):
         "Channel \(index + 1)"
       }
+    self.name = name ?? defaultName
     self.ordinal = ordinal
     self.total = total
   }
@@ -270,6 +290,7 @@ struct RoutingGraphPortValue: Equatable, Sendable {
 
 struct RoutingGraphEdgeValue: Equatable, Sendable {
   let signalType: RoutingSignalType
+  let isEnabled: Bool
 }
 
 enum RoutingGraphSchema: FlowingGraphSchema {
@@ -307,15 +328,24 @@ enum RoutingCanvasMetrics {
   static func nodeSize(for value: RoutingNodeValue) -> CGSize {
     let portCount: Int
     switch value {
-    case .applicationAudio(_, .aggregate):
+    case .applicationAudio(let selection, .aggregate):
+      if selection != nil {
+        return CGSize(width: baseNodeSize.width, height: 80)
+      }
       portCount = 1
-    case .applicationAudio(_, .separate(let channelCount)):
-      portCount = channelCount
+    case .applicationAudio(let selection, .separate(let channelCount)):
+      let minimumHeight = selection == nil ? baseNodeSize.height : 80
+      return CGSize(
+        width: baseNodeSize.width,
+        height: max(minimumHeight, CGFloat(channelCount + 1) * 18)
+      )
     case .visualizer(let configuration):
       return CGSize(
         width: baseNodeSize.width,
         height: RoutingVisualizerLayout.nodeHeight(for: configuration)
       )
+    case .peakLevel:
+      return baseNodeSize
     }
     return CGSize(
       width: baseNodeSize.width,
@@ -330,6 +360,7 @@ enum RoutingVisualizerLayout {
   static let separateLaneHeight: CGFloat = 32
   static let laneSpacing: CGFloat = 6
   static let horizontalInset: CGFloat = 14
+  static let portLabelGutter: CGFloat = 48
   static let bottomInset: CGFloat = 14
   static let maximumNodeHeight =
     waveformTop
@@ -372,9 +403,9 @@ enum RoutingVisualizerLayout {
     let height = laneHeight(for: configuration)
     return (0..<laneCount(for: configuration)).map { index in
       CGRect(
-        x: nodeFrame.minX + horizontalInset,
+        x: nodeFrame.minX + horizontalInset + portLabelGutter,
         y: nodeFrame.minY + waveformTop + CGFloat(index) * (height + laneSpacing),
-        width: nodeFrame.width - horizontalInset * 2,
+        width: nodeFrame.width - horizontalInset * 2 - portLabelGutter,
         height: height
       )
     }
@@ -385,9 +416,9 @@ enum RoutingVisualizerLayout {
     configuration: RoutingVisualizerConfiguration
   ) -> CGRect {
     CGRect(
-      x: nodeFrame.minX + horizontalInset,
+      x: nodeFrame.minX + horizontalInset + portLabelGutter,
       y: nodeFrame.minY + waveformTop,
-      width: nodeFrame.width - horizontalInset * 2,
+      width: nodeFrame.width - horizontalInset * 2 - portLabelGutter,
       height: waveformContentHeight(for: configuration)
     )
   }
@@ -410,6 +441,26 @@ enum RoutingGraphPorts {
       case .separate:
         identities = configuration.normalizedSelectedChannels.map { (.input, .channel($0)) }
       }
+    case .peakLevel:
+      return [
+        RoutingGraphPortValue(
+          direction: .input,
+          channel: .all,
+          name: "Audio",
+          connectionPolicy: .singleInput,
+          ordinal: 0,
+          total: 1
+        ),
+        RoutingGraphPortValue(
+          direction: .output,
+          id: "peak",
+          name: "Peak Level",
+          signalType: .floatingPoint,
+          connectionPolicy: .fanOut,
+          ordinal: 0,
+          total: 1
+        ),
+      ]
     }
     return identities.enumerated().map { ordinal, identity in
       RoutingGraphPortValue(

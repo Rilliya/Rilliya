@@ -26,6 +26,27 @@ struct RoutingPortTypeTests {
   }
 
   @Test
+  func peakLevelExposesOneAudioInputAndOneFloatingPointOutput() throws {
+    let ports = RoutingGraphPorts.values(for: .peakLevel)
+    let input = ports.first { $0.direction == .input }
+    let output = ports.first { $0.direction == .output }
+
+    #expect(ports.count == 2)
+    #expect(input?.audioChannel == .all)
+    #expect(input?.signalType == .audio)
+    #expect(input?.connectionPolicy == .singleInput)
+    #expect(output?.id == RoutingGraphPortID(direction: .output, name: "peak"))
+    #expect(output?.signalType == .floatingPoint)
+    #expect(output?.connectionPolicy == .fanOut)
+    #expect(
+      RoutingPortCompatibility.incompatibilityReason(
+        source: try #require(input),
+        target: try #require(output)
+      ) != nil
+    )
+  }
+
+  @Test
   func semanticPortIdentityDoesNotDependOnPresentationOrType() {
     let first = RoutingGraphPortValue(
       direction: .output,

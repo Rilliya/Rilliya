@@ -1,5 +1,6 @@
 import CoreGraphics
 import FlowingDayGraphLayout
+import Foundation
 import Testing
 
 @testable import Rilliya
@@ -128,6 +129,52 @@ struct RoutingMetalSceneTests {
     #expect(node.applicationStatusText == "Select this node to configure")
     #expect(!node.hasApplicationSelection)
     #expect(node.applicationURL == nil)
+  }
+
+  @Test @MainActor
+  func configuredApplicationOmitsTheRedundantStatusRow() throws {
+    let model = RoutingWorkspaceModel()
+    let nodeID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    model.selectApplication(
+      RoutingApplicationSelection(
+        stableID: "com.example.player",
+        applicationURL: URL(fileURLWithPath: "/Applications/Player.app"),
+        bundleIdentifier: "com.example.player",
+        displayName: "Player"
+      ),
+      for: nodeID
+    )
+    let scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [:]
+    )
+
+    #expect(scene.nodes.first?.applicationStatusText == nil)
+    #expect(scene.nodes.first?.applicationStatusSymbolName == nil)
+    #expect(scene.nodes.first?.hasApplicationSelection == true)
+  }
+
+  @Test @MainActor
+  func peakLevelSignalIsRetainedForGpuRendering() throws {
+    let model = RoutingWorkspaceModel()
+    let nodeID = model.addPeakLevelNode(centeredAt: CGPoint(x: 100, y: 100))
+    let signal = RoutingPeakLevelSignal(linearPeak: 0.75, isClipping: false)
+    let scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [
+        nodeID: RoutingMetalNodeSupplement(
+          isRunning: false,
+          isCapturing: false,
+          captureConsumerCount: 0,
+          visualizerSignal: nil,
+          peakLevelSignal: signal
+        )
+      ]
+    )
+
+    #expect(scene.nodes.first?.supplement.peakLevelSignal == signal)
+    #expect(scene.nodes.first?.title == "Peak Level")
+    #expect(scene.nodes.first?.miniMapStyleIndex == 2)
   }
 
   @Test @MainActor

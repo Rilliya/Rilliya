@@ -16,18 +16,24 @@ struct WorkspaceView: View {
     ZStack {
       workspaceBackdrop
 
-      HStack(spacing: 0) {
-        RoutingNodePaletteView(
-          applicationCatalog: applicationCatalog,
-          insertApplicationAudio: insertApplicationAudio,
-          insertVisualizer: insertVisualizer
-        )
+      workflowCanvas
 
-        workflowCanvas
+      RoutingNodePaletteView(
+        applicationCatalog: applicationCatalog,
+        insertApplicationAudio: insertApplicationAudio,
+        insertVisualizer: insertVisualizer,
+        insertPeakLevel: insertPeakLevel
+      ) {
+        RoutingWorkflowSwitcher(
+          library: workflowLibrary,
+          captureController: captureController
+        )
       }
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     }
     .background(FlowingPalette.canvas)
     .background(NativeWindowChromeAttachment())
+    .ignoresSafeArea(.container, edges: .top)
     .frame(minWidth: 840, minHeight: 560)
     .task {
       await applicationCatalog.refresh()
@@ -100,22 +106,13 @@ struct WorkspaceView: View {
   }
 
   private var workflowCanvas: some View {
-    ZStack(alignment: .topLeading) {
-      RoutingWorkflowCanvas(
-        workflow: workflowLibrary.selectedWorkflow,
-        settings: settings,
-        applicationCatalog: applicationCatalog,
-        iconResolver: iconResolver,
-        captureController: captureController
-      )
-
-      RoutingWorkflowSwitcher(
-        library: workflowLibrary,
-        captureController: captureController
-      )
-      .padding(.top, 18)
-      .padding(.leading, 18)
-    }
+    RoutingWorkflowCanvas(
+      workflow: workflowLibrary.selectedWorkflow,
+      settings: settings,
+      applicationCatalog: applicationCatalog,
+      iconResolver: iconResolver,
+      captureController: captureController
+    )
   }
 
   private func insertApplicationAudio() {
@@ -132,6 +129,17 @@ struct WorkspaceView: View {
   private func insertVisualizer() {
     let workflow = workflowLibrary.selectedWorkflow
     let nodeID = workflow.workspace.addVisualizerNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
+      )
+    )
+    selectNode(nodeID, in: workflow)
+  }
+
+  private func insertPeakLevel() {
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addPeakLevelNode(
       centeredAt: RoutingNodeInsertion.point(
         in: workflow.canvasSession.viewport.visibleWorldRect,
         existingNodeCount: workflow.workspace.nodes.count
@@ -184,7 +192,8 @@ private struct RoutingWorkflowSwitcher: View {
       FlowingMenu(
         library.selectedWorkflow.name,
         systemImage: "point.3.connected.trianglepath.dotted",
-        minimumWidth: 144
+        minimumWidth: 154,
+        fillsAvailableWidth: true
       ) {
         ForEach(library.workflows) { workflow in
           Button {
@@ -201,30 +210,13 @@ private struct RoutingWorkflowSwitcher: View {
             }
           }
         }
-
-        Divider()
-
-        Button {
-          library.addWorkflow()
-        } label: {
-          Label("New Workflow", systemImage: "plus")
-        }
       }
 
       FlowingIconButton("New Workflow", systemImage: "plus") {
         library.addWorkflow()
       }
     }
-    .padding(5)
-    .background(
-      FlowingPalette.control.opacity(0.96),
-      in: RoundedRectangle(cornerRadius: 14, style: .continuous)
-    )
-    .overlay {
-      RoundedRectangle(cornerRadius: 14, style: .continuous)
-        .strokeBorder(FlowingPalette.hairline)
-    }
-    .shadow(color: .black.opacity(0.06), radius: 12, y: 5)
+    .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Workflows")
   }

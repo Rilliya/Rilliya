@@ -9,6 +9,7 @@ struct RoutingMetalNodeSupplement: Equatable {
   let isCapturing: Bool
   let captureConsumerCount: Int
   let visualizerSignal: RoutingVisualizerSignal?
+  let peakLevelSignal: RoutingPeakLevelSignal?
   let captureFormat: ProcessOutputCaptureFormat?
 
   init(
@@ -16,12 +17,14 @@ struct RoutingMetalNodeSupplement: Equatable {
     isCapturing: Bool,
     captureConsumerCount: Int,
     visualizerSignal: RoutingVisualizerSignal?,
+    peakLevelSignal: RoutingPeakLevelSignal? = nil,
     captureFormat: ProcessOutputCaptureFormat? = nil
   ) {
     self.isRunning = isRunning
     self.isCapturing = isCapturing
     self.captureConsumerCount = captureConsumerCount
     self.visualizerSignal = visualizerSignal
+    self.peakLevelSignal = peakLevelSignal
     self.captureFormat = captureFormat
   }
 
@@ -30,6 +33,7 @@ struct RoutingMetalNodeSupplement: Equatable {
     isCapturing: false,
     captureConsumerCount: 0,
     visualizerSignal: nil,
+    peakLevelSignal: nil,
     captureFormat: nil
   )
 }
@@ -64,6 +68,8 @@ struct RoutingMetalScene {
         return "Application Audio"
       case .visualizer:
         return "Visualizer"
+      case .peakLevel:
+        return "Peak Level"
       }
     }
 
@@ -75,6 +81,9 @@ struct RoutingMetalScene {
         if configuration.mode == .mixed { return "Mixed waveform" }
         let count = configuration.normalizedSelectedChannels.count
         return "\(count) selected channel\(count == 1 ? "" : "s")"
+      case .peakLevel:
+        guard let signal = supplement.peakLevelSignal else { return "Waiting for audio" }
+        return "\(signal.linearDescription) linear"
       }
     }
 
@@ -91,17 +100,20 @@ struct RoutingMetalScene {
         return selection == nil ? "Select to configure" : "Application is not running"
       case .visualizer:
         return supplement.visualizerSignal == nil ? "Waiting for routed audio" : "Live waveform"
+      case .peakLevel:
+        guard let signal = supplement.peakLevelSignal else { return "Waiting for routed audio" }
+        return signal.isClipping ? "Clipping" : "Live peak"
       }
     }
 
     var applicationStatusText: String? {
       guard case .applicationAudio(let selection, _) = value else { return nil }
-      return selection == nil ? "Select this node to configure" : "Application selected"
+      return selection == nil ? "Select this node to configure" : nil
     }
 
     var applicationStatusSymbolName: String? {
       guard case .applicationAudio(let selection, _) = value else { return nil }
-      return selection == nil ? "cursorarrow.click" : "checkmark"
+      return selection == nil ? "cursorarrow.click" : nil
     }
 
     var hasApplicationSelection: Bool {
@@ -124,6 +136,8 @@ struct RoutingMetalScene {
         return "macwindow"
       case .visualizer:
         return "waveform"
+      case .peakLevel:
+        return "gauge.with.dots.needle.50percent"
       }
     }
 
@@ -131,6 +145,7 @@ struct RoutingMetalScene {
       switch value {
       case .applicationAudio: 0
       case .visualizer: 1
+      case .peakLevel: 2
       }
     }
   }
@@ -145,12 +160,14 @@ struct RoutingMetalScene {
 
   struct Edge: Identifiable {
     let id: RoutingCanvasElementID
+    let workspaceID: UUID
     let route: FlowingGraphEdgeRoute
     let sourceNodeID: RoutingCanvasElementID
     let targetNodeID: RoutingCanvasElementID
     let sourcePort: Port
     let targetPort: Port
     let label: String?
+    let isEnabled: Bool
   }
 
   let contentID: FlowingLayoutInputID
@@ -214,6 +231,7 @@ struct RoutingMetalScene {
     portByID = nextPortsByID
     edges = content.presentation.edges.compactMap { presentationEdge in
       guard let route = content.route(for: presentationEdge.localID),
+        case .edge(let workspaceID) = presentationEdge.address.elementID,
         case .directed(.port(let sourcePortID), .port(let targetPortID)) =
           presentationEdge.endpoints,
         let sourcePort = nextPortsByID[sourcePortID],
@@ -225,6 +243,7 @@ struct RoutingMetalScene {
       }
       return Edge(
         id: presentationEdge.id,
+        workspaceID: workspaceID,
         route: route,
         sourceNodeID: sourcePort.nodeID,
         targetNodeID: targetPort.nodeID,
@@ -236,7 +255,8 @@ struct RoutingMetalScene {
           target: targetPort.value,
           targetNode: targetNode.value,
           format: sourceNode.supplement.captureFormat
-        )
+        ),
+        isEnabled: presentationEdge.value.isEnabled
       )
     }
     contentBounds =
@@ -270,6 +290,11 @@ struct RoutingMetalScene {
         target: target.value
       ) == nil
     else {
+      return false
+    }
+    if target.value.connectionPolicy == .singleInput,
+      edges.contains(where: { $0.isEnabled && $0.targetPort.id == target.id })
+    {
       return false
     }
     return true

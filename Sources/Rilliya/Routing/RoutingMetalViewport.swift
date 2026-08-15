@@ -8,6 +8,8 @@ struct RoutingMetalViewport: View {
   let scene: RoutingMetalScene
   let inspectorID: UUID?
   let inspector: AnyView
+  let removeEdges: (Set<UUID>) -> Void
+  let toggleEdgeEnabled: (UUID) -> Void
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @StateObject private var controller: RoutingMetalCanvasController
@@ -16,12 +18,16 @@ struct RoutingMetalViewport: View {
     context: FlowingGraphCanvasBackendContext<RoutingCanvasSchema>,
     scene: RoutingMetalScene,
     inspectorID: UUID?,
-    inspector: AnyView
+    inspector: AnyView,
+    removeEdges: @escaping (Set<UUID>) -> Void,
+    toggleEdgeEnabled: @escaping (UUID) -> Void
   ) {
     self.context = context
     self.scene = scene
     self.inspectorID = inspectorID
     self.inspector = inspector
+    self.removeEdges = removeEdges
+    self.toggleEdgeEnabled = toggleEdgeEnabled
     _controller = StateObject(
       wrappedValue: RoutingMetalCanvasController(
         initialZoom: context.configuration.canvas.initialZoom
@@ -41,6 +47,8 @@ struct RoutingMetalViewport: View {
           onSelectionChange: updateSelection,
           onMoveNode: moveNode,
           onConnect: connect,
+          onDeleteEdges: removeEdges,
+          onToggleEdgeEnabled: toggleEdgeEnabled,
           onViewportChange: updateViewport
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
@@ -120,6 +128,7 @@ struct RoutingMetalViewport: View {
         nodeStyles: [
           FlowingGraphMiniMapNodeStyle(fill: FlowingAccent.fern.fill.opacity(0.78)),
           FlowingGraphMiniMapNodeStyle(fill: FlowingAccent.seafoam.fill.opacity(0.78)),
+          FlowingGraphMiniMapNodeStyle(fill: FlowingAccent.pollen.fill.opacity(0.78)),
         ],
         cornerRadius: 12
       ),

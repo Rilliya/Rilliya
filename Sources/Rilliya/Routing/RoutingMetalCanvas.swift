@@ -46,6 +46,8 @@ struct RoutingMetalCanvas: NSViewRepresentable {
   let onSelectionChange: (Set<RoutingCanvasElementID>) -> Void
   let onMoveNode: (RoutingCanvasElementID, CGSize) -> Void
   let onConnect: (RoutingCanvasElementID, RoutingCanvasElementID) -> Void
+  let onDeleteEdges: (Set<UUID>) -> Void
+  let onToggleEdgeEnabled: (UUID) -> Void
   let onViewportChange: (FlowingCanvasViewport, FlowingCanvasViewportChangePhase) -> Void
 
   func makeNSView(context: Context) -> RoutingMetalCanvasView {
@@ -76,6 +78,8 @@ struct RoutingMetalCanvas: NSViewRepresentable {
     view.onSelectionChange = onSelectionChange
     view.onMoveNode = onMoveNode
     view.onConnect = onConnect
+    view.onDeleteEdges = onDeleteEdges
+    view.onToggleEdgeEnabled = onToggleEdgeEnabled
     view.onViewportChange = onViewportChange
   }
 }
@@ -85,6 +89,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   var onSelectionChange: ((Set<RoutingCanvasElementID>) -> Void)?
   var onMoveNode: ((RoutingCanvasElementID, CGSize) -> Void)?
   var onConnect: ((RoutingCanvasElementID, RoutingCanvasElementID) -> Void)?
+  var onDeleteEdges: ((Set<UUID>) -> Void)?
+  var onToggleEdgeEnabled: ((UUID) -> Void)?
   var onViewportChange: ((FlowingCanvasViewport, FlowingCanvasViewportChangePhase) -> Void)?
 
   private enum Constants {
@@ -118,6 +124,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   private var trackingArea: NSTrackingArea?
   private var hoveredNodeID: RoutingCanvasElementID?
   private var hoveredPortID: RoutingCanvasElementID?
+  private var hoveredEdgeID: RoutingCanvasElementID?
+  private var contextEdgeID: UUID?
   private var mouseDownViewportPoint: CGPoint?
   private var mouseDownWorldPoint: CGPoint?
   private var mouseDownCameraOffset: CGSize?
@@ -288,6 +296,11 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       return
     }
 
+    if let edge = edge(at: worldPoint) {
+      updateSelection([edge.id])
+      return
+    }
+
     updateSelection([])
     mouseDownCameraOffset = camera.offset
   }
@@ -341,8 +354,10 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     let worldPoint = camera.worldPoint(for: convert(event.locationInWindow, from: nil))
     let nextPort = port(at: worldPoint)
     let nextNode = nextPort == nil ? node(at: worldPoint) : nil
+    let nextEdge = nextPort == nil && nextNode == nil ? edge(at: worldPoint) : nil
     hoveredPortID = nextPort?.id
     hoveredNodeID = nextNode?.id
+    hoveredEdgeID = nextEdge?.id
     NSCursor.arrow.set()
     requestDisplay()
   }
@@ -350,11 +365,22 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   override func mouseExited(with event: NSEvent) {
     hoveredNodeID = nil
     hoveredPortID = nil
+    hoveredEdgeID = nil
     NSCursor.arrow.set()
     requestDisplay()
   }
 
   override func keyDown(with event: NSEvent) {
+    if event.keyCode == 51 || event.keyCode == 117 {
+      let edgeIDs = Set(
+        scene.edges.filter { selection.contains($0.id) }.map(\.workspaceID)
+      )
+      if !edgeIDs.isEmpty {
+        onDeleteEdges?(edgeIDs)
+        updateSelection([])
+        return
+      }
+    }
     if event.keyCode == 53 {
       updateSelection([])
       return
@@ -378,7 +404,49 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     if let hoveredPortID, scene.port(id: hoveredPortID) == nil {
       self.hoveredPortID = nil
     }
+    if let hoveredEdgeID, !scene.edges.contains(where: { $0.id == hoveredEdgeID }) {
+      self.hoveredEdgeID = nil
+    }
     requestDisplay()
+  }
+
+  override func menu(for event: NSEvent) -> NSMenu? {
+    let viewportPoint = convert(event.locationInWindow, from: nil)
+    let worldPoint = camera.worldPoint(for: viewportPoint)
+    guard let edge = edge(at: worldPoint) else { return nil }
+    updateSelection([edge.id])
+    contextEdgeID = edge.workspaceID
+
+    let menu = NSMenu(title: "Connection")
+    let toggleItem = NSMenuItem(
+      title: edge.isEnabled ? "Disable Connection" : "Enable Connection",
+      action: #selector(toggleContextEdge),
+      keyEquivalent: ""
+    )
+    toggleItem.target = self
+    menu.addItem(toggleItem)
+    menu.addItem(.separator())
+    let deleteItem = NSMenuItem(
+      title: "Delete Connection",
+      action: #selector(deleteContextEdge),
+      keyEquivalent: ""
+    )
+    deleteItem.target = self
+    menu.addItem(deleteItem)
+    return menu
+  }
+
+  @objc private func toggleContextEdge() {
+    guard let contextEdgeID else { return }
+    onToggleEdgeEnabled?(contextEdgeID)
+    self.contextEdgeID = nil
+  }
+
+  @objc private func deleteContextEdge() {
+    guard let contextEdgeID else { return }
+    onDeleteEdges?([contextEdgeID])
+    updateSelection([])
+    self.contextEdgeID = nil
   }
 
   func restoreCamera(_ camera: FlowingGraphCanvasMetalCamera) {
@@ -552,7 +620,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     let frame = translatedFrame(of: node)
     let isSelected = selection.contains(node.id)
     let isHovered = hoveredNodeID == node.id
-    let accent = node.miniMapStyleIndex == 0 ? palette.fern : palette.seafoam
+    let accent = accent(for: node, palette: palette)
     geometry.shapes.append(
       RoutingMetalShapeInstance(
         rect: frame,
@@ -600,8 +668,25 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       append(
         atlas: textAtlas.symbol(node.symbolName, pointSize: 16, weight: .semibold),
         centeredIn: iconFrame,
-        color: node.miniMapStyleIndex == 1 ? accent : palette.muted,
+        color: node.miniMapStyleIndex == 0 ? palette.muted : accent,
         to: &geometry
+      )
+    }
+    if node.supplement.isRunning {
+      geometry.shapes.append(
+        RoutingMetalShapeInstance(
+          rect: CGRect(
+            x: iconFrame.maxX - 8,
+            y: iconFrame.maxY - 8,
+            width: 9,
+            height: 9
+          ),
+          fill: palette.running,
+          border: palette.node,
+          cornerRadius: 4.5,
+          borderWidth: Float(2 / camera.zoom),
+          opacity: 1
+        )
       )
     }
     append(
@@ -623,6 +708,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
     case .visualizer:
       appendVisualizer(node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
+    case .peakLevel:
+      appendPeakLevel(node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
     }
 
     for port in node.ports {
@@ -717,20 +804,6 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       color: node.hasApplicationSelection ? palette.muted : accent,
       to: &geometry
     )
-    if node.supplement.isRunning {
-      geometry.shapes.append(
-        RoutingMetalShapeInstance(
-          rect: CGRect(
-            x: iconFrame(for: frame).maxX - 8, y: iconFrame(for: frame).maxY - 8, width: 9,
-            height: 9),
-          fill: palette.running,
-          border: palette.node,
-          cornerRadius: 4.5,
-          borderWidth: Float(2 / camera.zoom),
-          opacity: 1
-        )
-      )
-    }
     append(
       atlas: textAtlas.text(statusText, size: 10, weight: .medium),
       origin: CGPoint(
@@ -784,15 +857,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
           opacity: 1
         )
       )
-      let portLabelGutterWidth: CGFloat = configuration.mode == .separate ? 34 : 0
       let samples = RoutingWaveformDisplayTransform.normalizedSamples(lane.samples)
       guard samples.count > 1 else { continue }
       let middle = laneFrame.midY
       let amplitude = laneFrame.height * 0.42
       let points = samples.enumerated().map { index, sample in
         CGPoint(
-          x: laneFrame.minX + portLabelGutterWidth + 8
-            + (laneFrame.width - portLabelGutterWidth - 16) * CGFloat(index)
+          x: laneFrame.minX + 8
+            + (laneFrame.width - 16) * CGFloat(index)
               / CGFloat(samples.count - 1),
           y: middle - CGFloat(sample) * amplitude
         )
@@ -803,6 +875,77 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         color: accent.withAlpha(0.92),
         to: &geometry
       )
+    }
+  }
+
+  private func appendPeakLevel(
+    node: RoutingMetalScene.Node,
+    frame: CGRect,
+    accent: SIMD4<Float>,
+    palette: RoutingMetalPalette,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
+    let valueFrame = CGRect(
+      x: frame.minX + RoutingVisualizerLayout.horizontalInset
+        + RoutingVisualizerLayout.portLabelGutter,
+      y: frame.maxY - 54,
+      width: frame.width
+        - 2 * (RoutingVisualizerLayout.horizontalInset + RoutingVisualizerLayout.portLabelGutter),
+      height: 40
+    )
+    geometry.shapes.append(
+      RoutingMetalShapeInstance(
+        rect: valueFrame,
+        fill: palette.field,
+        border: .zero,
+        cornerRadius: 8,
+        borderWidth: 0,
+        opacity: 1
+      )
+    )
+    guard let signal = node.supplement.peakLevelSignal else {
+      append(
+        atlas: textAtlas.text("Waiting for audio input", size: 10, weight: .medium),
+        centeredIn: valueFrame,
+        color: palette.muted.withAlpha(0.72),
+        to: &geometry
+      )
+      return
+    }
+    append(
+      atlas: textAtlas.monospacedText(signal.linearDescription, size: 16, weight: .semibold),
+      origin: CGPoint(x: valueFrame.minX + 12, y: valueFrame.midY - 10),
+      color: signal.isClipping ? palette.poppy : palette.ink,
+      to: &geometry
+    )
+    if let decibels = textAtlas.monospacedText(
+      signal.decibelsDescription,
+      size: 9,
+      weight: .medium
+    ) {
+      append(
+        atlas: decibels,
+        origin: CGPoint(
+          x: valueFrame.maxX - 12 - decibels.size.width,
+          y: valueFrame.midY - decibels.size.height / 2
+        ),
+        color: palette.muted,
+        to: &geometry
+      )
+    }
+  }
+
+  private func accent(
+    for node: RoutingMetalScene.Node,
+    palette: RoutingMetalPalette
+  ) -> SIMD4<Float> {
+    switch node.miniMapStyleIndex {
+    case 0:
+      palette.fern
+    case 1:
+      palette.seafoam
+    default:
+      palette.pollen
     }
   }
 
@@ -823,8 +966,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     )
     appendStroke(
       points: points(for: route),
-      width: Constants.edgeWidth / camera.zoom,
-      color: palette.fern.withAlpha(selection.contains(edge.id) ? 0.9 : 0.58),
+      width: edgeStrokeWidth(edge) / camera.zoom,
+      color: edgeStrokeColor(edge, palette: palette),
       to: &geometry
     )
     guard camera.zoom >= Constants.edgeLabelMinimumZoom,
@@ -856,6 +999,22 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       color: palette.muted,
       to: &geometry
     )
+  }
+
+  private func edgeStrokeWidth(_ edge: RoutingMetalScene.Edge) -> CGFloat {
+    if selection.contains(edge.id) { return 2.8 }
+    if hoveredEdgeID == edge.id { return 2.2 }
+    return Constants.edgeWidth
+  }
+
+  private func edgeStrokeColor(
+    _ edge: RoutingMetalScene.Edge,
+    palette: RoutingMetalPalette
+  ) -> SIMD4<Float> {
+    if !edge.isEnabled {
+      return palette.muted.withAlpha(selection.contains(edge.id) ? 0.58 : 0.28)
+    }
+    return palette.fern.withAlpha(selection.contains(edge.id) ? 0.92 : 0.58)
   }
 
   private func midpoint(of points: [CGPoint]) -> CGPoint {
@@ -1064,6 +1223,24 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     return nil
   }
 
+  private func edge(at point: CGPoint) -> RoutingMetalScene.Edge? {
+    let hitDistance = 7 / camera.zoom
+    return scene.edges.compactMap { edge -> (RoutingMetalScene.Edge, CGFloat)? in
+      let route = RoutingMetalEdgeRouteProjection.route(
+        edge.route,
+        sourceMoves: draggedNodeID == edge.sourceNodeID,
+        targetMoves: draggedNodeID == edge.targetNodeID,
+        translation: dragTranslation
+      )
+      let routePoints = points(for: route)
+      let minimumDistance =
+        zip(routePoints, routePoints.dropFirst()).map { pair in
+          distance(from: point, toSegmentFrom: pair.0, to: pair.1)
+        }.min() ?? .infinity
+      return minimumDistance <= hitDistance ? (edge, minimumDistance) : nil
+    }.min { $0.1 < $1.1 }?.0
+  }
+
   private func nearestConnectionTarget(
     to point: CGPoint,
     source: RoutingMetalScene.Port
@@ -1136,6 +1313,25 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
 
   private func distance(from first: CGPoint, to second: CGPoint) -> CGFloat {
     hypot(first.x - second.x, first.y - second.y)
+  }
+
+  private func distance(
+    from point: CGPoint,
+    toSegmentFrom start: CGPoint,
+    to end: CGPoint
+  ) -> CGFloat {
+    let dx = end.x - start.x
+    let dy = end.y - start.y
+    let lengthSquared = dx * dx + dy * dy
+    guard lengthSquared > 0 else { return distance(from: point, to: start) }
+    let progress = min(
+      max(((point.x - start.x) * dx + (point.y - start.y) * dy) / lengthSquared, 0),
+      1
+    )
+    return distance(
+      from: point,
+      to: CGPoint(x: start.x + progress * dx, y: start.y + progress * dy)
+    )
   }
 
   private func drawInstances<T>(
@@ -1430,6 +1626,8 @@ private struct RoutingMetalPalette {
   let border: SIMD4<Float>
   let fern = SIMD4<Float>(0x58 / 255, 0xA9 / 255, 0x7B / 255, 1)
   let seafoam = SIMD4<Float>(0x4D / 255, 0xA5 / 255, 0xA0 / 255, 1)
+  let pollen = SIMD4<Float>(0xA6 / 255, 0x97 / 255, 0x4F / 255, 1)
+  let poppy = SIMD4<Float>(0xE9 / 255, 0x64 / 255, 0x52 / 255, 1)
   let running = SIMD4<Float>(0.20, 0.72, 0.36, 1)
 
   init(isDark: Bool) {

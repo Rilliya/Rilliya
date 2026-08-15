@@ -77,6 +77,31 @@ final class RoutingWorkspaceModel {
     return id
   }
 
+  @discardableResult
+  func addPeakLevelNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    let value = RoutingNodeValue.peakLevel
+    let size = RoutingCanvasMetrics.nodeSize(for: value)
+    nodes.append(
+      RoutingWorkspaceNode(
+        id: id,
+        value: value,
+        frame: CGRect(
+          x: worldPoint.x - size.width / 2,
+          y: worldPoint.y - size.height / 2,
+          width: size.width,
+          height: size.height
+        )
+      )
+    )
+    rebuildCanvas()
+    return id
+  }
+
   func selectApplication(
     _ selection: RoutingApplicationSelection?,
     for nodeID: UUID
@@ -88,6 +113,7 @@ final class RoutingWorkspaceModel {
       channelPresentation: channelPresentation
     )
     runtimeCaptureFormats[nodeID] = nil
+    resizeNode(at: index)
     rebuildCanvas()
   }
 
@@ -217,7 +243,7 @@ final class RoutingWorkspaceModel {
   }
 
   var captureSourceNodeIDs: Set<UUID> {
-    Set(edges.map(\.source.nodeID))
+    Set(edges.filter(\.isEnabled).map(\.source.nodeID))
       .union(pendingSeparateSourcesByVisualizer.values.flatMap { $0 })
   }
 
@@ -238,13 +264,40 @@ final class RoutingWorkspaceModel {
     var seen = Set<UUID>()
     return
       edges
-      .filter { $0.target.nodeID == nodeID }
+      .filter { $0.isEnabled && $0.target.nodeID == nodeID }
       .map(\.source.nodeID)
       .filter { seen.insert($0).inserted }
   }
 
   func incomingEdges(for nodeID: UUID) -> [RoutingWorkspaceEdge] {
-    edges.filter { $0.target.nodeID == nodeID }
+    edges.filter { $0.isEnabled && $0.target.nodeID == nodeID }
+  }
+
+  func removeEdges(ids: Set<UUID>) {
+    guard !ids.isEmpty else { return }
+    let previousCount = edges.count
+    edges.removeAll { ids.contains($0.id) }
+    guard edges.count != previousCount else { return }
+    rebuildCanvas()
+  }
+
+  func toggleEdgeEnabled(id: UUID) {
+    guard let index = edges.firstIndex(where: { $0.id == id }) else { return }
+    if edges[index].isEnabled {
+      edges[index].isEnabled = false
+    } else {
+      guard
+        case .valid = connectionValidation(
+          source: edges[index].source,
+          target: edges[index].target,
+          ignoringEdgeID: edges[index].id
+        )
+      else {
+        return
+      }
+      edges[index].isEnabled = true
+    }
+    rebuildCanvas()
   }
 
   func send(_ intent: FlowingGraphCanvasInteractionIntent<RoutingCanvasSchema>) {
@@ -285,7 +338,8 @@ final class RoutingWorkspaceModel {
 
   private func connectionValidation(
     source: RoutingWorkspacePortAddress,
-    target: RoutingWorkspacePortAddress
+    target: RoutingWorkspacePortAddress,
+    ignoringEdgeID: UUID? = nil
   ) -> FlowingGraphCanvasConnectionValidation {
     guard let sourceValue = portValue(at: source),
       let targetValue = portValue(at: target)
@@ -297,6 +351,13 @@ final class RoutingWorkspaceModel {
       target: targetValue
     ) {
       return .invalid(.init(message: reason))
+    }
+    if targetValue.connectionPolicy == .singleInput,
+      edges.contains(where: {
+        $0.id != ignoringEdgeID && $0.isEnabled && $0.target == target
+      })
+    {
+      return .invalid(.init(message: "Disconnect the existing input first"))
     }
     return .valid
   }
@@ -349,7 +410,12 @@ final class RoutingWorkspaceModel {
     else {
       return
     }
-    guard !edges.contains(where: { $0.source == source && $0.target == target }) else { return }
+    if let index = edges.firstIndex(where: { $0.source == source && $0.target == target }) {
+      guard !edges[index].isEnabled else { return }
+      edges[index].isEnabled = true
+      rebuildCanvas()
+      return
+    }
     edges.append(RoutingWorkspaceEdge(id: UUID(), source: source, target: target))
     rebuildCanvas()
   }

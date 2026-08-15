@@ -77,6 +77,19 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func peakLevelInsertionBuildsCenteredTypedNode() throws {
+    let model = RoutingWorkspaceModel()
+    let center = CGPoint(x: 420, y: 260)
+
+    let nodeID = model.addPeakLevelNode(centeredAt: center)
+
+    let node = try #require(model.node(id: nodeID))
+    #expect(node.value == .peakLevel)
+    #expect(CGPoint(x: node.frame.midX, y: node.frame.midY) == center)
+    #expect(RoutingGraphPorts.values(for: node).count == 2)
+  }
+
+  @Test @MainActor
   func selectingApplicationUpdatesOnlyRequestedNode() throws {
     let model = RoutingWorkspaceModel()
     let firstID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
@@ -88,6 +101,8 @@ struct RoutingWorkspaceTests {
     #expect(model.node(id: firstID)?.value.applicationSelection == selection)
     #expect(model.node(id: secondID)?.value.applicationSelection == nil)
     #expect(model.nodes.count == 2)
+    #expect(model.node(id: firstID)?.frame.height == 80)
+    #expect(model.node(id: secondID)?.frame.height == RoutingCanvasMetrics.baseNodeSize.height)
   }
 
   @Test @MainActor
@@ -193,6 +208,74 @@ struct RoutingWorkspaceTests {
 
     #expect(model.edges.count == 1)
     #expect(model.canvasContent?.presentation.edges.count == 1)
+  }
+
+  @Test @MainActor
+  func disabledConnectionStopsParticipatingWithoutLosingItsTopology() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    let visualizerID = model.addVisualizerNode(centeredAt: CGPoint(x: 400, y: 0))
+    try connectAggregate(sourceID: sourceID, targetID: visualizerID, model: model)
+    let edgeID = try #require(model.edges.first?.id)
+
+    model.toggleEdgeEnabled(id: edgeID)
+
+    #expect(model.edges.first?.isEnabled == false)
+    #expect(model.canvasContent?.presentation.edges.first?.value.isEnabled == false)
+    #expect(model.incomingEdges(for: visualizerID).isEmpty)
+    #expect(!model.captureSourceNodeIDs.contains(sourceID))
+
+    model.toggleEdgeEnabled(id: edgeID)
+
+    #expect(model.edges.first?.isEnabled == true)
+    #expect(model.incomingEdges(for: visualizerID).count == 1)
+    #expect(model.captureSourceNodeIDs.contains(sourceID))
+  }
+
+  @Test @MainActor
+  func removingAConnectionRebuildsTheProjectedGraph() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    let visualizerID = model.addVisualizerNode(centeredAt: CGPoint(x: 400, y: 0))
+    try connectAggregate(sourceID: sourceID, targetID: visualizerID, model: model)
+    let edgeID = try #require(model.edges.first?.id)
+
+    model.removeEdges(ids: [edgeID])
+
+    #expect(model.edges.isEmpty)
+    #expect(model.canvasContent?.presentation.edges.isEmpty == true)
+  }
+
+  @Test @MainActor
+  func peakLevelAcceptsOnlyOneEnabledInput() throws {
+    let model = RoutingWorkspaceModel()
+    let firstSourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    let secondSourceID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 0, y: 220))
+    let peakID = model.addPeakLevelNode(centeredAt: CGPoint(x: 400, y: 100))
+
+    try connectAggregate(sourceID: firstSourceID, targetID: peakID, model: model)
+    try connectAggregate(sourceID: secondSourceID, targetID: peakID, model: model)
+
+    #expect(model.edges.count == 1)
+    #expect(model.captureSourceNodeIDs == [firstSourceID])
+  }
+
+  @Test @MainActor
+  func disabledPeakInputCannotBeReenabledOverAnotherActiveInput() throws {
+    let model = RoutingWorkspaceModel()
+    let firstSourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    let secondSourceID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 0, y: 220))
+    let peakID = model.addPeakLevelNode(centeredAt: CGPoint(x: 400, y: 100))
+    try connectAggregate(sourceID: firstSourceID, targetID: peakID, model: model)
+    let firstEdgeID = try #require(model.edges.first?.id)
+    model.toggleEdgeEnabled(id: firstEdgeID)
+    try connectAggregate(sourceID: secondSourceID, targetID: peakID, model: model)
+
+    model.toggleEdgeEnabled(id: firstEdgeID)
+
+    #expect(model.edges.count == 2)
+    #expect(model.edges.first { $0.id == firstEdgeID }?.isEnabled == false)
+    #expect(model.incomingEdges(for: peakID).map(\.source.nodeID) == [secondSourceID])
   }
 
   @Test @MainActor

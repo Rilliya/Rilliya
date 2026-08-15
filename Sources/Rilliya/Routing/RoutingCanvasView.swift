@@ -9,6 +9,7 @@ import SwiftUI
 private enum RoutingPaletteItem: String, Codable, Transferable {
   case applicationAudio = "moe.uwucocoa.rilliya.node.application-audio"
   case visualizer = "moe.uwucocoa.rilliya.node.visualizer"
+  case peakLevel = "moe.uwucocoa.rilliya.node.peak-level"
 
   static var transferRepresentation: some TransferRepresentation {
     CodableRepresentation(contentType: .plainText)
@@ -127,10 +128,13 @@ struct RoutingCanvasView: View {
           context: context,
           scene: metalScene(for: context.content),
           inspectorID: selectedWorkspaceNodeID,
-          inspector: AnyView(selectedNodeInspector)
+          inspector: AnyView(selectedNodeInspector),
+          removeEdges: workspace.removeEdges,
+          toggleEdgeEnabled: workspace.toggleEdgeEnabled
         )
       },
       accessibilitySnapshot: workspace.accessibilitySnapshot,
+      contentInsets: EdgeInsets(top: 22, leading: 300, bottom: 22, trailing: 22),
       interactionPolicy: FlowingGraphCanvasInteractionPolicy(
         connectionPolicy: FlowingGraphCanvasConnectionPolicy(
           canBegin: workspace.canBeginConnection,
@@ -153,6 +157,12 @@ struct RoutingCanvasView: View {
           VisualizerNodeView(
             configuration: configuration,
             snapshot: visualizerSnapshot(for: node),
+            context: context
+          )
+          .zIndex(context.isSelected ? 2 : 1)
+        case .peakLevel:
+          PeakLevelNodeView(
+            signal: peakLevelSignal(for: node),
             context: context
           )
           .zIndex(context.isSelected ? 2 : 1)
@@ -210,6 +220,17 @@ struct RoutingCanvasView: View {
             snapshotForNode: captureController.snapshot
           )
         )
+      case .peakLevel:
+        supplements[node.id] = RoutingMetalNodeSupplement(
+          isRunning: false,
+          isCapturing: false,
+          captureConsumerCount: 0,
+          visualizerSignal: nil,
+          peakLevelSignal: RoutingPeakLevelSignalBuilder.build(
+            incomingEdges: workspace.incomingEdges(for: node.id),
+            snapshotForNode: captureController.snapshot
+          )
+        )
       }
     }
     return RoutingMetalScene(
@@ -255,7 +276,7 @@ struct RoutingCanvasView: View {
         nodeID: node.id,
         selection: selection,
         channelPresentation: channelPresentation,
-        isRouted: workspace.edges.contains { $0.source.nodeID == node.id },
+        isRouted: workspace.edges.contains { $0.isEnabled && $0.source.nodeID == node.id },
         applicationCatalog: applicationCatalog,
         captureController: captureController,
         selectApplication: { selection in
@@ -269,6 +290,13 @@ struct RoutingCanvasView: View {
       SelectedVisualizerInspector(configuration: configuration) { updated in
         workspace.configureVisualizer(updated, for: node.id)
       }
+    case .peakLevel:
+      SelectedPeakLevelInspector(
+        signal: RoutingPeakLevelSignalBuilder.build(
+          incomingEdges: workspace.incomingEdges(for: node.id),
+          snapshotForNode: captureController.snapshot
+        )
+      )
     }
   }
 
@@ -282,6 +310,20 @@ struct RoutingCanvasView: View {
     }
     return RoutingVisualizerSignalBuilder.build(
       configuration: configuration,
+      incomingEdges: workspace.incomingEdges(for: nodeID),
+      snapshotForNode: captureController.snapshot
+    )
+  }
+
+  private func peakLevelSignal(
+    for node: FlowingGraphPresentationNode<RoutingCanvasSchema>
+  ) -> RoutingPeakLevelSignal? {
+    guard case .node(let nodeID) = node.address.elementID,
+      case .peakLevel = node.value
+    else {
+      return nil
+    }
+    return RoutingPeakLevelSignalBuilder.build(
       incomingEdges: workspace.incomingEdges(for: nodeID),
       snapshotForNode: captureController.snapshot
     )
@@ -314,6 +356,8 @@ struct RoutingCanvasView: View {
         nodeID = workspace.addApplicationAudioNode(centeredAt: worldPoint)
       case .visualizer:
         nodeID = workspace.addVisualizerNode(centeredAt: worldPoint)
+      case .peakLevel:
+        nodeID = workspace.addPeakLevelNode(centeredAt: worldPoint)
       }
       selectNode(nodeID)
 
@@ -368,14 +412,31 @@ struct RoutingCanvasView: View {
   }
 }
 
-struct RoutingNodePaletteView: View {
-  private enum Metrics {
-    static let listHeight: CGFloat = 300
-  }
+private enum RoutingNodePaletteMetrics {
+  static let listHeight: CGFloat = 300
+}
+
+struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
 
   let applicationCatalog: InstalledApplicationCatalogController
   let insertApplicationAudio: () -> Void
   let insertVisualizer: () -> Void
+  let insertPeakLevel: () -> Void
+  let workflowNavigation: WorkflowNavigation
+
+  init(
+    applicationCatalog: InstalledApplicationCatalogController,
+    insertApplicationAudio: @escaping () -> Void,
+    insertVisualizer: @escaping () -> Void,
+    insertPeakLevel: @escaping () -> Void,
+    @ViewBuilder workflowNavigation: () -> WorkflowNavigation
+  ) {
+    self.applicationCatalog = applicationCatalog
+    self.insertApplicationAudio = insertApplicationAudio
+    self.insertVisualizer = insertVisualizer
+    self.insertPeakLevel = insertPeakLevel
+    self.workflowNavigation = workflowNavigation()
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 0) {
@@ -383,7 +444,13 @@ struct RoutingNodePaletteView: View {
 
       Divider()
         .overlay(FlowingPalette.hairline)
-        .padding(.vertical, 14)
+        .padding(.vertical, 12)
+
+      workflowNavigation
+
+      Divider()
+        .overlay(FlowingPalette.hairline)
+        .padding(.vertical, 12)
 
       ScrollView {
         VStack(spacing: 0) {
@@ -395,23 +462,26 @@ struct RoutingNodePaletteView: View {
             VStack(spacing: 10) {
               applicationAudioItem
               visualizerItem
+              peakLevelItem
             }
           }
 
-          catalogStatus
+          catalogIssue
             .padding(.top, 14)
         }
         .padding(.horizontal, 4)
       }
       .scrollContentBackground(.hidden)
       .background(Color.clear)
-      .frame(height: Metrics.listHeight)
+      .frame(height: RoutingNodePaletteMetrics.listHeight)
 
       NativeWindowDragRegion()
         .frame(maxWidth: .infinity, maxHeight: .infinity)
         .accessibilityHidden(true)
     }
-    .padding(14)
+    .padding(.horizontal, 14)
+    .padding(.bottom, 14)
+    .padding(.top, 34)
     .background {
       ZStack {
         RoundedRectangle(cornerRadius: 18, style: .continuous)
@@ -443,6 +513,18 @@ struct RoutingNodePaletteView: View {
       foreground: FlowingAccent.seafoam.foreground,
       veil: FlowingAccent.seafoam.veil,
       action: insertVisualizer
+    )
+  }
+
+  private var peakLevelItem: some View {
+    RoutingPaletteNodeItem(
+      item: .peakLevel,
+      title: "Peak Level",
+      subtitle: "Measure the strongest sample",
+      systemImage: "gauge.with.dots.needle.50percent",
+      foreground: FlowingAccent.pollen.foreground,
+      veil: FlowingAccent.pollen.veil,
+      action: insertPeakLevel
     )
   }
 
@@ -487,7 +569,7 @@ struct RoutingNodePaletteView: View {
   }
 
   @ViewBuilder
-  private var catalogStatus: some View {
+  private var catalogIssue: some View {
     if let errorMessage = applicationCatalog.state.rootErrorMessage {
       FlowingCallout(
         errorMessage,
@@ -495,16 +577,6 @@ struct RoutingNodePaletteView: View {
         systemImage: "exclamationmark.triangle",
         tone: .warning
       )
-    } else if let snapshot = applicationCatalog.state.snapshot {
-      Text("\(snapshot.items.count) installed applications available")
-        .font(.caption)
-        .foregroundStyle(FlowingPalette.faint)
-        .padding(.horizontal, 4)
-    } else {
-      Text("Discovering installed applications…")
-        .font(.caption)
-        .foregroundStyle(FlowingPalette.faint)
-        .padding(.horizontal, 4)
     }
   }
 }
@@ -570,7 +642,7 @@ private struct RoutingPaletteNodeItem: View {
       )
     }
     .onHover { isHovering = $0 }
-    .offset(x: isHovering ? 2 : 0)
+    .scaleEffect(isHovering ? 1.012 : 1)
     .animation(.easeOut(duration: 0.14), value: isHovering)
     .help("Drag \(title) onto the canvas")
     .accessibilityHint("Drag to the canvas or press to add in the visible workspace")
@@ -635,6 +707,14 @@ private struct RoutingCanvasDropPreview: View {
         "waveform",
         FlowingAccent.seafoam.foreground,
         FlowingAccent.seafoam.veil
+      )
+    case .peakLevel:
+      return (
+        "Peak Level",
+        "Waiting for audio input",
+        "gauge.with.dots.needle.50percent",
+        FlowingAccent.pollen.foreground,
+        FlowingAccent.pollen.veil
       )
     }
   }
@@ -840,8 +920,10 @@ private struct ApplicationAudioNodeView: View {
         }
         .padding(.trailing, 38)
 
-        nodeStatus
-          .padding(.trailing, 38)
+        if selection == nil {
+          nodeStatus
+            .padding(.trailing, 38)
+        }
       }
     }
     .overlay {
@@ -933,9 +1015,11 @@ private struct VisualizerNodeView: View {
 
       if let snapshot {
         RoutingWaveformDisplay(signal: snapshot, configuration: configuration)
+          .padding(.leading, RoutingVisualizerLayout.portLabelGutter)
           .frame(height: RoutingVisualizerLayout.waveformContentHeight(for: configuration))
       } else {
         RoutingWaveformPlaceholder()
+          .padding(.leading, RoutingVisualizerLayout.portLabelGutter)
           .frame(height: RoutingVisualizerLayout.waveformContentHeight(for: configuration))
       }
     }
@@ -965,6 +1049,73 @@ private struct VisualizerNodeView: View {
   }
 }
 
+private struct PeakLevelNodeView: View {
+  let signal: RoutingPeakLevelSignal?
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  private let accent = FlowingAccent.pollen
+
+  var body: some View {
+    FlowingCard(
+      spacing: 10,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      HStack(spacing: 9) {
+        Image(systemName: "gauge.with.dots.needle.50percent")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(accent.foreground)
+        VStack(alignment: .leading, spacing: 1) {
+          Text("Peak Level")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text(signal == nil ? "Waiting for audio" : "Linear full scale")
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+        Spacer(minLength: 0)
+      }
+
+      HStack(alignment: .firstTextBaseline, spacing: 8) {
+        Text(signal?.linearDescription ?? "—")
+          .font(.system(size: 22, weight: .semibold, design: .rounded))
+          .foregroundStyle(
+            signal?.isClipping == true ? FlowingAccent.poppy.foreground : FlowingPalette.ink
+          )
+          .monospacedDigit()
+        Spacer(minLength: 4)
+        Text(signal?.decibelsDescription ?? "Waiting for audio input")
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .padding(.horizontal, 12)
+      .frame(height: 38)
+      .background(
+        FlowingPalette.field,
+        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+      )
+      .padding(.horizontal, RoutingVisualizerLayout.portLabelGutter)
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width,
+      height: RoutingCanvasMetrics.baseNodeSize.height
+    )
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width * context.renderScale,
+      height: RoutingCanvasMetrics.baseNodeSize.height * context.renderScale,
+      alignment: .topLeading
+    )
+  }
+}
+
 private struct RoutingWaveformDisplay: View {
   let signal: RoutingVisualizerSignal
   let configuration: RoutingVisualizerConfiguration
@@ -975,10 +1126,6 @@ private struct RoutingWaveformDisplay: View {
     VStack(spacing: RoutingVisualizerLayout.laneSpacing) {
       ForEach(signal.lanes) { lane in
         HStack(spacing: 5) {
-          if configuration.mode == .separate {
-            Color.clear
-              .frame(width: 28)
-          }
           Canvas { graphics, size in
             let samples = RoutingWaveformDisplayTransform.normalizedSamples(lane.samples)
             guard samples.count > 1 else { return }
@@ -1370,6 +1517,60 @@ private struct SelectedApplicationInspector: View {
       applicationURL: application.bundleURL,
       bundleIdentifier: application.bundleIdentifier,
       displayName: application.displayName
+    )
+  }
+}
+
+private struct SelectedPeakLevelInspector: View {
+  let signal: RoutingPeakLevelSignal?
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Peak Level")
+          .font(.headline)
+          .foregroundStyle(FlowingPalette.ink)
+        Text("Greatest absolute sample across the connected audio bus.")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      HStack(spacing: 10) {
+        peakValue("Linear", value: signal?.linearDescription ?? "—")
+        peakValue("Level", value: signal?.decibelsDescription ?? "Waiting")
+      }
+
+      FlowingCallout(
+        signal == nil
+          ? "Connect one audio output to begin measuring."
+          : "The graph outputs the unsmoothed linear value. dBFS is shown only for reference.",
+        title: signal?.isClipping == true ? "Clipping" : "Current Block",
+        systemImage: signal?.isClipping == true ? "exclamationmark.triangle" : "waveform.path",
+        tone: signal?.isClipping == true ? .warning : .neutral
+      )
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  private func peakValue(_ label: String, value: String) -> some View {
+    VStack(alignment: .leading, spacing: 3) {
+      Text(label.uppercased())
+        .font(.caption2.weight(.semibold))
+        .foregroundStyle(FlowingPalette.faint)
+      Text(value)
+        .font(.system(.callout, design: .monospaced, weight: .semibold))
+        .foregroundStyle(FlowingPalette.ink)
+        .lineLimit(1)
+    }
+    .padding(10)
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(
+      FlowingPalette.field,
+      in: RoundedRectangle(cornerRadius: 9, style: .continuous)
     )
   }
 }

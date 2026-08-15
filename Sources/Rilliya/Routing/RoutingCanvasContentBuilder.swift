@@ -71,7 +71,10 @@ enum RoutingCanvasContentBuilder {
                 )
               )
             ),
-            value: RoutingGraphEdgeValue(signalType: sourceValue.signalType)
+            value: RoutingGraphEdgeValue(
+              signalType: sourceValue.signalType,
+              isEnabled: edge.isEnabled
+            )
           )
         )
       }
@@ -192,6 +195,9 @@ enum RoutingCanvasContentBuilder {
         ? "Mixed waveform"
         : "\(configuration.normalizedSelectedChannels.count) selected channels"
       hint = "Select to configure the routed channels shown by this visualizer."
+    case .peakLevel:
+      value = "Maximum linear full-scale sample"
+      hint = "Connect one audio output to measure its current peak level."
     }
     let identifier: String?
     if case .node(let nodeID) = node.address.elementID {
