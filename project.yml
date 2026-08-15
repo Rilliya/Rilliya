@@ -1,0 +1,96 @@
+name: Rilliya
+
+options:
+  minimumXcodeGenVersion: 2.46.0
+  xcodeVersion: "16.4"
+  projectFormat: xcode16_3
+  defaultConfig: Debug
+  deploymentTarget:
+    macOS: "14.2"
+
+packages:
+  RilliyaKit:
+    path: ../RilliyaKit
+  FlowingDayUI:
+    path: ../flowing-day-ui
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: "${DEVELOPMENT_TEAM}"
+    SWIFT_VERSION: "6.0"
+    SWIFT_STRICT_CONCURRENCY: complete
+
+targets:
+  Rilliya:
+    type: application
+    platform: macOS
+    sources:
+      - path: Sources/Rilliya
+        excludes:
+          - Resources/Info.plist
+          - Resources/Rilliya.entitlements
+    info:
+      path: Sources/Rilliya/Resources/Info.plist
+      properties:
+        CFBundleDisplayName: Rilliya
+        CFBundleShortVersionString: "$(MARKETING_VERSION)"
+        CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
+        LSApplicationCategoryType: public.app-category.music
+        LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
+        NSAudioCaptureUsageDescription: Rilliya captures selected application audio so you can monitor and route its channels.
+        NSMicrophoneUsageDescription: Rilliya accesses audio input devices so you can monitor and route their channels.
+    entitlements:
+      path: Sources/Rilliya/Resources/Rilliya.entitlements
+      properties:
+        com.apple.security.device.audio-input: true
+    settings:
+      base:
+        CODE_SIGN_IDENTITY: "${CODE_SIGN_IDENTITY}"
+        CODE_SIGN_STYLE: Manual
+        CURRENT_PROJECT_VERSION: 1
+        ENABLE_APP_SANDBOX: NO
+        ENABLE_HARDENED_RUNTIME: YES
+        GENERATE_INFOPLIST_FILE: NO
+        MARKETING_VERSION: 0.1.0
+        PRODUCT_BUNDLE_IDENTIFIER: moe.uwucocoa.rilliya
+        PRODUCT_NAME: Rilliya
+    dependencies:
+      - package: RilliyaKit
+        product: RilliyaKit
+      - package: FlowingDayUI
+        product: FlowingDayControls
+
+  RilliyaTests:
+    type: bundle.unit-test
+    platform: macOS
+    sources:
+      - path: Tests/RilliyaTests
+    settings:
+      base:
+        CODE_SIGN_IDENTITY: "${CODE_SIGN_IDENTITY}"
+        CODE_SIGN_STYLE: Manual
+        GENERATE_INFOPLIST_FILE: YES
+        PRODUCT_BUNDLE_IDENTIFIER: moe.uwucocoa.rilliyaTests
+    dependencies:
+      - target: Rilliya
+
+schemes:
+  Rilliya:
+    build:
+      targets:
+        Rilliya: all
+        RilliyaTests:
+          - test
+    run:
+      config: Debug
+    test:
+      config: Debug
+      targets:
+        - name: RilliyaTests
+          parallelizable: true
+    profile:
+      config: Release
+    analyze:
+      config: Debug
+    archive:
+      config: Release
