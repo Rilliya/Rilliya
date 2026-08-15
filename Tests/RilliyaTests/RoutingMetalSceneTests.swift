@@ -24,6 +24,26 @@ struct RoutingMetalSceneTests {
   }
 
   @Test @MainActor
+  func renderElementsCullOffscreenNodesAndKeepSelectedNodesLast() throws {
+    let model = RoutingWorkspaceModel()
+    let firstID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    let secondID = model.addVisualizerNode(centeredAt: CGPoint(x: 500, y: 100))
+    _ = model.addPeakLevelNode(centeredAt: CGPoint(x: 10_000, y: 10_000))
+    let scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [:]
+    )
+    let firstElementID = try #require(model.elementID(for: firstID))
+    let visible = scene.renderElements(
+      intersecting: CGRect(x: -100, y: -100, width: 900, height: 500),
+      selection: [firstElementID]
+    )
+
+    #expect(visible.nodes.map(\.workspaceID) == [secondID, firstID])
+    #expect(visible.edges.isEmpty)
+  }
+
+  @Test @MainActor
   func sceneUsesActualNodeBoundsInsteadOfThePanSafetyBounds() throws {
     let model = RoutingWorkspaceModel()
     _ = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))

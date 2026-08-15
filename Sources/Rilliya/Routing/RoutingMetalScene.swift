@@ -225,6 +225,7 @@ struct RoutingMetalScene {
     let label: String?
     let isEnabled: Bool
     let isActive: Bool
+    let cullingBounds: CGRect
   }
 
   let contentID: FlowingLayoutInputID
@@ -314,7 +315,8 @@ struct RoutingMetalScene {
           format: sourceNode.supplement.captureFormat
         ),
         isEnabled: presentationEdge.value.isEnabled,
-        isActive: presentationEdge.value.isActive
+        isActive: presentationEdge.value.isActive,
+        cullingBounds: Self.cullingBounds(for: route)
       )
     }
     contentBounds =
@@ -338,6 +340,28 @@ struct RoutingMetalScene {
     }.map(\.element)
   }
 
+  func renderElements(
+    intersecting rect: CGRect,
+    selection: Set<RoutingCanvasElementID>
+  ) -> (nodes: [Node], edges: [Edge]) {
+    var unselectedNodes: [Node] = []
+    var selectedNodes: [Node] = []
+    unselectedNodes.reserveCapacity(nodes.count)
+    selectedNodes.reserveCapacity(min(selection.count, nodes.count))
+    for node in nodes where node.frame.intersects(rect) {
+      if selection.contains(node.id) {
+        selectedNodes.append(node)
+      } else {
+        unselectedNodes.append(node)
+      }
+    }
+    unselectedNodes.append(contentsOf: selectedNodes)
+    return (
+      unselectedNodes,
+      edges.filter { $0.cullingBounds.intersects(rect) }
+    )
+  }
+
   func validatesConnection(
     from source: Port,
     to target: Port
@@ -358,6 +382,38 @@ struct RoutingMetalScene {
       return false
     }
     return true
+  }
+
+  private static func cullingBounds(for route: FlowingGraphEdgeRoute) -> CGRect {
+    var minimumX = route.start.x
+    var maximumX = route.start.x
+    var minimumY = route.start.y
+    var maximumY = route.start.y
+    func include(_ point: CGPoint) {
+      minimumX = min(minimumX, point.x)
+      maximumX = max(maximumX, point.x)
+      minimumY = min(minimumY, point.y)
+      maximumY = max(maximumY, point.y)
+    }
+    for segment in route.segments {
+      switch segment {
+      case .line(let end):
+        include(end)
+      case .quadratic(let control, let end):
+        include(control)
+        include(end)
+      case .cubic(let control1, let control2, let end):
+        include(control1)
+        include(control2)
+        include(end)
+      }
+    }
+    return CGRect(
+      x: minimumX,
+      y: minimumY,
+      width: maximumX - minimumX,
+      height: maximumY - minimumY
+    ).insetBy(dx: -12, dy: -12)
   }
 }
 

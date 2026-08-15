@@ -251,9 +251,18 @@ struct RoutingMetalViewport: View {
     _ viewport: FlowingCanvasViewport,
     phase: FlowingCanvasViewportChangePhase
   ) {
-    guard context.session.wrappedValue.viewport != viewport else { return }
-    context.session.wrappedValue.viewport = viewport
+    if RoutingViewportPersistencePolicy.shouldPersist(phase: phase),
+      context.session.wrappedValue.viewport != viewport
+    {
+      context.session.wrappedValue.viewport = viewport
+    }
     context.viewportDidChange(viewport, phase: phase)
+  }
+}
+
+enum RoutingViewportPersistencePolicy {
+  static func shouldPersist(phase: FlowingCanvasViewportChangePhase) -> Bool {
+    phase == .ended
   }
 }
 

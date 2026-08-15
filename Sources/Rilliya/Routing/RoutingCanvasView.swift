@@ -197,6 +197,7 @@ struct RoutingCanvasView: View {
 
   private func metalScene(for content: RoutingCanvasContent) -> RoutingMetalScene {
     var supplements: [UUID: RoutingMetalNodeSupplement] = [:]
+    let incomingEdgesByTargetNode = workspace.activeIncomingEdgesByTargetNode()
     for node in workspace.nodes {
       switch node.value {
       case .applicationAudio(let selection, _):
@@ -252,7 +253,7 @@ struct RoutingCanvasView: View {
           captureConsumerCount: 0,
           visualizerSignal: RoutingVisualizerSignalBuilder.build(
             configuration: configuration,
-            incomingEdges: workspace.incomingEdges(for: node.id),
+            incomingEdges: incomingEdgesByTargetNode[node.id] ?? [],
             snapshotForNode: audioSnapshot
           )
         )
@@ -263,7 +264,7 @@ struct RoutingCanvasView: View {
           captureConsumerCount: 0,
           visualizerSignal: nil,
           peakLevelSignal: RoutingPeakLevelSignalBuilder.build(
-            incomingEdges: workspace.incomingEdges(for: node.id),
+            incomingEdges: incomingEdgesByTargetNode[node.id] ?? [],
             snapshotForNode: audioSnapshot
           )
         )

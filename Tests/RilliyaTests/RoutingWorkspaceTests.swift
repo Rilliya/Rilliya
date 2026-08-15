@@ -253,12 +253,14 @@ struct RoutingWorkspaceTests {
     #expect(model.edges.first?.isEnabled == false)
     #expect(model.canvasContent?.presentation.edges.first?.value.isEnabled == false)
     #expect(model.incomingEdges(for: visualizerID).isEmpty)
+    #expect(model.activeIncomingEdgesByTargetNode()[visualizerID] == nil)
     #expect(!model.captureSourceNodeIDs.contains(sourceID))
 
     model.toggleEdgeEnabled(id: edgeID)
 
     #expect(model.edges.first?.isEnabled == true)
     #expect(model.incomingEdges(for: visualizerID).count == 1)
+    #expect(model.activeIncomingEdgesByTargetNode()[visualizerID]?.count == 1)
     #expect(model.captureSourceNodeIDs.contains(sourceID))
   }
 

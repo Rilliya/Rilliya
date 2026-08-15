@@ -24,6 +24,19 @@ final class RoutingWorkspaceModel {
     rebuildCanvas()
   }
 
+  #if PROFILE
+    func installProfilingGraph(
+      nodes: [RoutingWorkspaceNode],
+      edges: [RoutingWorkspaceEdge]
+    ) {
+      precondition(Set(nodes.map(\.id)).count == nodes.count)
+      precondition(Set(edges.map(\.id)).count == edges.count)
+      self.nodes = nodes
+      self.edges = edges
+      rebuildCanvas()
+    }
+  #endif
+
   @discardableResult
   func addApplicationAudioNode(
     centeredAt worldPoint: CGPoint,
@@ -367,6 +380,13 @@ final class RoutingWorkspaceModel {
 
   func incomingEdges(for nodeID: UUID) -> [RoutingWorkspaceEdge] {
     edges.filter { isEdgeActive($0) && $0.target.nodeID == nodeID }
+  }
+
+  func activeIncomingEdgesByTargetNode() -> [UUID: [RoutingWorkspaceEdge]] {
+    Dictionary(
+      grouping: edges.filter(isEdgeActive),
+      by: { $0.target.nodeID }
+    )
   }
 
   func isPortEnabled(nodeID: UUID, portID: RoutingGraphPortID) -> Bool {

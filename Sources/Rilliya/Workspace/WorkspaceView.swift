@@ -7,7 +7,7 @@ import SwiftUI
 struct WorkspaceView: View {
   let settings: RilliyaSettings
 
-  @State private var workflowLibrary = RoutingWorkflowLibrary()
+  @State private var workflowLibrary = RoutingWorkflowLibrary.launchConfigured()
   @State private var applicationCatalog = InstalledApplicationCatalogController()
   @State private var audioCatalog = AudioCatalogController()
   @State private var iconResolver = NSWorkspaceInstalledApplicationIconResolver()

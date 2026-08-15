@@ -90,4 +90,13 @@ final class RoutingWorkflowLibrary {
     }
     return "Flow \(ordinal)"
   }
+
+  static func launchConfigured() -> RoutingWorkflowLibrary {
+    #if PROFILE
+      if let scenario = RoutingProfilingScenario.fromProcessArguments() {
+        return scenario.makeWorkflowLibrary()
+      }
+    #endif
+    return RoutingWorkflowLibrary()
+  }
 }
