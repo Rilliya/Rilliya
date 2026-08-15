@@ -198,9 +198,12 @@ struct RoutingWorkspaceTests {
 
     let ports = try #require(model.canvasContent).presentation.ports
 
-    #expect(ports.count == 2)
+    #expect(ports.count == 3)
     #expect(ports.contains { $0.value.direction == .output && $0.value.audioChannel == .all })
     #expect(ports.contains { $0.value.direction == .input && $0.value.audioChannel == .all })
+    #expect(
+      ports.filter { $0.value.direction == .output && $0.value.audioChannel == .all }.count
+        == 2)
   }
 
   @Test @MainActor
@@ -237,7 +240,7 @@ struct RoutingWorkspaceTests {
       return index
     }
 
-    #expect(outputChannels.sorted() == [0, 1, 2])
+    #expect(outputChannels.sorted() == [0, 1, 1, 2, 4])
     #expect(inputChannels.sorted() == [1, 4])
   }
 

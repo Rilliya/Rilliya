@@ -36,19 +36,37 @@ enum RoutingVisualizerSignalBuilder {
   static func build(
     configuration: RoutingVisualizerConfiguration,
     incomingEdges: [RoutingWorkspaceEdge],
+    resolvedSignalsForSource: (RoutingWorkspacePortAddress) -> [RoutingResolvedAudioChannelSignal]
+  ) -> RoutingVisualizerSignal? {
+    build(configuration: configuration, incomingEdges: incomingEdges) { edge in
+      resolvedSignalsForSource(edge.source).map(\.waveform)
+    }
+  }
+
+  static func build(
+    configuration: RoutingVisualizerConfiguration,
+    incomingEdges: [RoutingWorkspaceEdge],
     snapshotForNode: (UUID) -> (any RoutingAudioMeterSnapshot)?,
     channelControl: (UUID, Int) -> RoutingAudioChannelControl = { _, _ in .unity }
   ) -> RoutingVisualizerSignal? {
+    build(configuration: configuration, incomingEdges: incomingEdges) { edge in
+      routedWaveforms(
+        for: edge,
+        snapshotForNode: snapshotForNode,
+        channelControl: channelControl
+      )
+    }
+  }
+
+  private static func build(
+    configuration: RoutingVisualizerConfiguration,
+    incomingEdges: [RoutingWorkspaceEdge],
+    routedWaveforms: (RoutingWorkspaceEdge) -> [[Float]]
+  ) -> RoutingVisualizerSignal? {
     switch configuration.mode {
     case .mixed:
-      let routedWaveforms = incomingEdges.flatMap { edge in
-        routedWaveforms(
-          for: edge,
-          snapshotForNode: snapshotForNode,
-          channelControl: channelControl
-        )
-      }
-      guard let mixed = mix(routedWaveforms) else { return nil }
+      let waveforms = incomingEdges.flatMap(routedWaveforms)
+      guard let mixed = mix(waveforms) else { return nil }
       return RoutingVisualizerSignal(
         lanes: [RoutingVisualizerLaneSignal(id: .mixed, samples: mixed)]
       )
@@ -63,11 +81,7 @@ enum RoutingVisualizerSignalBuilder {
           continue
         }
         routedByTarget[targetChannel]?.append(
-          contentsOf: routedWaveforms(
-            for: edge,
-            snapshotForNode: snapshotForNode,
-            channelControl: channelControl
-          )
+          contentsOf: routedWaveforms(edge)
         )
       }
       let lanes = selectedChannels.map { channel in

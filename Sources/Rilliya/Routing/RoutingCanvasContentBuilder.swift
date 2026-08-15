@@ -186,12 +186,25 @@ enum RoutingCanvasContentBuilder {
       guard rowFrames.indices.contains(value.ordinal) else { return nil }
       return rowFrames[value.ordinal].midY
     case .visualizer(let configuration):
+      if value.direction == .output, value.audioChannel == .all,
+        let centerY = RoutingVisualizerLayout.mixedOutputCenterY(
+          in: localFrame,
+          configuration: configuration
+        )
+      {
+        return centerY
+      }
       let laneFrames = RoutingVisualizerLayout.laneFrames(
         in: localFrame,
         configuration: configuration
       )
-      guard laneFrames.indices.contains(value.ordinal) else { return nil }
-      return laneFrames[value.ordinal].midY
+      guard case .some(.channel(let channelIndex)) = value.audioChannel,
+        let laneIndex = configuration.normalizedSelectedChannels.firstIndex(of: channelIndex),
+        laneFrames.indices.contains(laneIndex)
+      else {
+        return nil
+      }
+      return laneFrames[laneIndex].midY
     case .applicationAudio, .inputAudio, .peakLevel:
       return nil
     }

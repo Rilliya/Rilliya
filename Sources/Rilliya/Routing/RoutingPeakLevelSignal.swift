@@ -27,6 +27,21 @@ struct RoutingPeakLevelSignal: Equatable, Sendable {
 enum RoutingPeakLevelSignalBuilder {
   static func build(
     incomingEdges: [RoutingWorkspaceEdge],
+    resolvedSignalsForSource: (RoutingWorkspacePortAddress) -> [RoutingResolvedAudioChannelSignal]
+  ) -> RoutingPeakLevelSignal? {
+    let activeEdges = incomingEdges.filter(\.isEnabled)
+    guard activeEdges.count == 1, let edge = activeEdges.first else { return nil }
+    let channels = resolvedSignalsForSource(edge.source)
+    guard !channels.isEmpty else { return nil }
+    let linearPeak = channels.map(\.peak).max() ?? 0
+    return RoutingPeakLevelSignal(
+      linearPeak: linearPeak,
+      isClipping: linearPeak >= 1 || channels.contains(where: \.isClipping)
+    )
+  }
+
+  static func build(
+    incomingEdges: [RoutingWorkspaceEdge],
     snapshotForNode: (UUID) -> (any RoutingAudioMeterSnapshot)?,
     channelControl: (UUID, Int) -> RoutingAudioChannelControl = { _, _ in .unity }
   ) -> RoutingPeakLevelSignal? {

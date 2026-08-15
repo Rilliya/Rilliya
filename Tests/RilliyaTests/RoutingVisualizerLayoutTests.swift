@@ -1,10 +1,28 @@
 import CoreGraphics
+import Foundation
 import Testing
 
 @testable import Rilliya
 
 @Suite("Routing visualizer layout")
 struct RoutingVisualizerLayoutTests {
+  @Test
+  func legacyVisualizerConfigurationDefaultsToNoMixedOutput() throws {
+    let encoded = try JSONEncoder().encode(RoutingVisualizerConfiguration.initial)
+    var object = try #require(
+      JSONSerialization.jsonObject(with: encoded) as? [String: Any]
+    )
+    object["includesMixedOutput"] = nil
+    let legacyData = try JSONSerialization.data(withJSONObject: object)
+
+    let decoded = try JSONDecoder().decode(
+      RoutingVisualizerConfiguration.self,
+      from: legacyData
+    )
+
+    #expect(decoded.includesMixedOutput == false)
+  }
+
   @Test
   func presetIntentSurvivesTemporaryRuntimeChannelLoss() {
     var configuration = RoutingVisualizerConfiguration(
@@ -109,16 +127,23 @@ struct RoutingVisualizerLayoutTests {
       content: try #require(model.canvasContent),
       supplements: [:]
     )
-    let portPositions = try #require(
+    let ports = try #require(
       scene.nodes.first { $0.workspaceID == nodeID }
-    ).ports.map(\.position)
+    ).ports
     let laneCenters = RoutingVisualizerLayout.laneFrames(
       in: node.frame,
       configuration: configuration
     ).map(\.midY)
 
-    #expect(portPositions.map(\.y) == laneCenters)
-    #expect(portPositions.allSatisfy { $0.x == node.frame.minX })
+    #expect(ports.map(\.position.y) == laneCenters + laneCenters)
+    #expect(
+      ports.filter { $0.value.direction == .input }
+        .allSatisfy { $0.position.x == node.frame.minX }
+    )
+    #expect(
+      ports.filter { $0.value.direction == .output }
+        .allSatisfy { $0.position.x == node.frame.maxX }
+    )
   }
 
   @Test

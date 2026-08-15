@@ -208,6 +208,11 @@ struct RoutingCanvasView: View {
     _ = iconResolver.revision
     var supplements: [UUID: RoutingMetalNodeSupplement] = [:]
     let incomingEdgesByTargetNode = workspace.activeIncomingEdgesByTargetNode()
+    let signalResolver = RoutingAudioSignalResolver(
+      nodes: workspace.nodes,
+      activeEdges: workspace.edges.filter(workspace.isEdgeActive),
+      snapshotForNode: audioSnapshot
+    )
     for node in workspace.nodes {
       switch node.value {
       case .applicationAudio(let selection, _):
@@ -267,8 +272,7 @@ struct RoutingCanvasView: View {
           visualizerSignal: RoutingVisualizerSignalBuilder.build(
             configuration: configuration,
             incomingEdges: incomingEdgesByTargetNode[node.id] ?? [],
-            snapshotForNode: audioSnapshot,
-            channelControl: workspace.audioChannelControl
+            resolvedSignalsForSource: signalResolver.resolveOutput
           )
         )
       case .peakLevel:
@@ -279,8 +283,7 @@ struct RoutingCanvasView: View {
           visualizerSignal: nil,
           peakLevelSignal: RoutingPeakLevelSignalBuilder.build(
             incomingEdges: incomingEdgesByTargetNode[node.id] ?? [],
-            snapshotForNode: audioSnapshot,
-            channelControl: workspace.audioChannelControl
+            resolvedSignalsForSource: signalResolver.resolveOutput
           )
         )
       }
@@ -409,8 +412,7 @@ struct RoutingCanvasView: View {
       SelectedPeakLevelInspector(
         signal: RoutingPeakLevelSignalBuilder.build(
           incomingEdges: workspace.incomingEdges(for: node.id),
-          snapshotForNode: audioSnapshot,
-          channelControl: workspace.audioChannelControl
+          resolvedSignalsForSource: audioSignalResolver.resolveOutput
         )
       )
     }
@@ -427,8 +429,7 @@ struct RoutingCanvasView: View {
     return RoutingVisualizerSignalBuilder.build(
       configuration: configuration,
       incomingEdges: workspace.incomingEdges(for: nodeID),
-      snapshotForNode: audioSnapshot,
-      channelControl: workspace.audioChannelControl
+      resolvedSignalsForSource: audioSignalResolver.resolveOutput
     )
   }
 
@@ -442,8 +443,7 @@ struct RoutingCanvasView: View {
     }
     return RoutingPeakLevelSignalBuilder.build(
       incomingEdges: workspace.incomingEdges(for: nodeID),
-      snapshotForNode: audioSnapshot,
-      channelControl: workspace.audioChannelControl
+      resolvedSignalsForSource: audioSignalResolver.resolveOutput
     )
   }
 
@@ -452,6 +452,14 @@ struct RoutingCanvasView: View {
       return snapshot
     }
     return inputCaptureController.snapshot(for: nodeID)
+  }
+
+  private var audioSignalResolver: RoutingAudioSignalResolver {
+    RoutingAudioSignalResolver(
+      nodes: workspace.nodes,
+      activeEdges: workspace.edges.filter(workspace.isEdgeActive),
+      snapshotForNode: audioSnapshot
+    )
   }
 
   private func audioSourceMeters(
@@ -2273,6 +2281,22 @@ private struct SelectedVisualizerInspector: View {
         )
         .font(.caption2)
         .foregroundStyle(FlowingPalette.faint)
+
+        Divider()
+          .overlay(FlowingPalette.hairline)
+
+        HStack(spacing: 10) {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Mixed Output")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(FlowingPalette.ink)
+            Text("Add one normalized mono convenience output.")
+              .font(.caption2)
+              .foregroundStyle(FlowingPalette.muted)
+          }
+          Spacer(minLength: 8)
+          FlowingSwitch("Mixed output", isOn: includesMixedOutput)
+        }
       }
     }
     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
@@ -2311,6 +2335,17 @@ private struct SelectedVisualizerInspector: View {
       set: { count in
         var updated = configuration
         updated.channelSelection = .custom(Set(0..<count))
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var includesMixedOutput: Binding<Bool> {
+    Binding(
+      get: { configuration.includesMixedOutput },
+      set: { includesMixedOutput in
+        var updated = configuration
+        updated.includesMixedOutput = includesMixedOutput
         updateConfiguration(updated)
       }
     )
