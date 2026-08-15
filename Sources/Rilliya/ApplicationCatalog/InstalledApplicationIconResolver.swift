@@ -32,8 +32,6 @@ private actor InstalledApplicationIconLoadLimiter {
 
 @MainActor
 protocol InstalledApplicationIconResolving: AnyObject {
-  func icon(for application: InstalledApplication) -> NSImage
-
   func cachedIcon(for application: InstalledApplication) -> NSImage?
 
   func loadIcon(for application: InstalledApplication) async -> NSImage?
@@ -69,16 +67,6 @@ final class NSWorkspaceInstalledApplicationIconResolver: InstalledApplicationIco
     cachedIcons.totalCostLimit = 4 * 1_024 * 1_024
     limiter = InstalledApplicationIconLoadLimiter(limit: Constants.maximumConcurrentLoadCount)
     self.iconLoader = iconLoader
-  }
-
-  func icon(for application: InstalledApplication) -> NSImage {
-    if let cachedIcon = cachedIcon(for: application) {
-      return cachedIcon
-    }
-
-    let icon = iconLoader(application.bundleURL)
-    store(icon, for: application)
-    return icon
   }
 
   func cachedIcon(for application: InstalledApplication) -> NSImage? {

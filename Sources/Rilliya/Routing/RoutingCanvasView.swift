@@ -1276,8 +1276,12 @@ private struct ApplicationAudioNodeView: View {
   private var applicationIcon: some View {
     ZStack {
       if let application = selectedCatalogItem?.application {
-        Image(nsImage: iconResolver.icon(for: application))
-          .resizable()
+        DeferredInstalledApplicationIcon(
+          application: application,
+          iconResolver: iconResolver,
+          size: 38,
+          cornerRadius: 9
+        )
       } else {
         RoundedRectangle(cornerRadius: 9, style: .continuous)
           .fill(FlowingPalette.field)

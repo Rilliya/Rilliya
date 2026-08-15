@@ -175,28 +175,43 @@ struct InstalledApplicationSearchPicker: View {
   }
 }
 
-private struct DeferredInstalledApplicationIcon: View {
+struct DeferredInstalledApplicationIcon: View {
   let application: InstalledApplication
   let iconResolver: NSWorkspaceInstalledApplicationIconResolver
+  let size: CGFloat
+  let cornerRadius: CGFloat
 
   @State private var icon: NSImage?
 
-  var body: some View {
-    ZStack {
-      RoundedRectangle(cornerRadius: 6, style: .continuous)
-        .fill(FlowingPalette.field)
+  init(
+    application: InstalledApplication,
+    iconResolver: NSWorkspaceInstalledApplicationIconResolver,
+    size: CGFloat = 22,
+    cornerRadius: CGFloat = 6
+  ) {
+    self.application = application
+    self.iconResolver = iconResolver
+    self.size = size
+    self.cornerRadius = cornerRadius
+  }
 
+  var body: some View {
+    Group {
       if let icon {
         Image(nsImage: icon)
           .resizable()
           .scaledToFit()
       } else {
-        Image(systemName: "app.dashed")
-          .font(.system(size: 11, weight: .medium))
-          .foregroundStyle(FlowingPalette.faint)
+        ZStack {
+          RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+            .fill(FlowingPalette.field)
+          Image(systemName: "app.dashed")
+            .font(.system(size: size * 0.5, weight: .medium))
+            .foregroundStyle(FlowingPalette.faint)
+        }
       }
     }
-    .frame(width: 22, height: 22)
+    .frame(width: size, height: size)
     .task(id: application.bundleURL) {
       if let cachedIcon = iconResolver.cachedIcon(for: application) {
         icon = cachedIcon
