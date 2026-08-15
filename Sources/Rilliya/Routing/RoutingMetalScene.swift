@@ -1,3 +1,4 @@
+import AppKit
 import FlowingDayGraphCanvas
 import FlowingDayGraphComposition
 import FlowingDayGraphLayout
@@ -12,6 +13,7 @@ struct RoutingMetalNodeSupplement: Equatable {
   let peakLevelSignal: RoutingPeakLevelSignal?
   let captureFormat: RoutingAudioCaptureFormat?
   let audioSourceMeters: [RoutingAudioChannelMeterSignal]
+  let applicationIcon: NSImage?
 
   init(
     isRunning: Bool,
@@ -20,7 +22,8 @@ struct RoutingMetalNodeSupplement: Equatable {
     visualizerSignal: RoutingVisualizerSignal?,
     peakLevelSignal: RoutingPeakLevelSignal? = nil,
     captureFormat: RoutingAudioCaptureFormat? = nil,
-    audioSourceMeters: [RoutingAudioChannelMeterSignal] = []
+    audioSourceMeters: [RoutingAudioChannelMeterSignal] = [],
+    applicationIcon: NSImage? = nil
   ) {
     self.isRunning = isRunning
     self.isCapturing = isCapturing
@@ -29,6 +32,7 @@ struct RoutingMetalNodeSupplement: Equatable {
     self.peakLevelSignal = peakLevelSignal
     self.captureFormat = captureFormat
     self.audioSourceMeters = audioSourceMeters
+    self.applicationIcon = applicationIcon
   }
 
   static let empty = RoutingMetalNodeSupplement(
@@ -166,7 +170,7 @@ struct RoutingMetalScene {
     var drawsIconPlate: Bool {
       switch value {
       case .applicationAudio:
-        applicationURL == nil
+        supplement.applicationIcon == nil
       case .inputAudio, .visualizer, .peakLevel:
         true
       }
@@ -175,7 +179,7 @@ struct RoutingMetalScene {
     var symbolName: String {
       switch value {
       case .applicationAudio:
-        return "macwindow"
+        return applicationURL == nil ? "macwindow" : "app.dashed"
       case .inputAudio:
         return "waveform.badge.mic"
       case .visualizer:

@@ -776,9 +776,15 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         )
       )
     }
-    if let applicationURL = node.applicationURL {
+    if let applicationURL = node.applicationURL,
+      let applicationIcon = node.supplement.applicationIcon
+    {
       append(
-        atlas: textAtlas.applicationIcon(at: applicationURL, size: iconFrame.size),
+        atlas: textAtlas.applicationIcon(
+          applicationIcon,
+          applicationURL: applicationURL,
+          size: iconFrame.size
+        ),
         centeredIn: iconFrame,
         color: SIMD4(1, 1, 1, 1),
         to: &geometry

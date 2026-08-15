@@ -197,6 +197,7 @@ struct RoutingCanvasView: View {
   }
 
   private func metalScene(for content: RoutingCanvasContent) -> RoutingMetalScene {
+    _ = iconResolver.revision
     var supplements: [UUID: RoutingMetalNodeSupplement] = [:]
     let incomingEdgesByTargetNode = workspace.activeIncomingEdgesByTargetNode()
     for node in workspace.nodes {
@@ -222,7 +223,8 @@ struct RoutingCanvasView: View {
           captureConsumerCount: captureController.consumerCount(for: node.id),
           visualizerSignal: nil,
           captureFormat: captureFormat,
-          audioSourceMeters: audioSourceMeters(for: node)
+          audioSourceMeters: audioSourceMeters(for: node),
+          applicationIcon: applicationIcon(selection)
         )
       case .inputAudio(let selection, _):
         let state = inputCaptureController.state(for: node.id)
@@ -285,6 +287,16 @@ struct RoutingCanvasView: View {
         && canonicalApplicationURL(item.application.bundleURL)
           == canonicalApplicationURL(selection.applicationURL)
     } == true
+  }
+
+  private func applicationIcon(_ selection: RoutingApplicationSelection?) -> NSImage? {
+    guard let selection,
+      let application = applicationCatalog.state.snapshot?.items.first(where: {
+        canonicalApplicationURL($0.application.bundleURL)
+          == canonicalApplicationURL(selection.applicationURL)
+      })?.application
+    else { return nil }
+    return iconResolver.cachedIcon(for: application)
   }
 
   private func isAvailable(_ selection: RoutingInputDeviceSelection?) -> Bool {

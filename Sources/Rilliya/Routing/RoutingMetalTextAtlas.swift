@@ -131,13 +131,13 @@ final class RoutingMetalTextAtlas {
   }
 
   func applicationIcon(
-    at applicationURL: URL,
+    _ image: NSImage,
+    applicationURL: URL,
     size: CGSize
   ) -> RoutingMetalAtlasEntry? {
     let resolvedURL = applicationURL.resolvingSymlinksInPath().standardizedFileURL
     let key = Key.applicationIcon(resolvedURL, size.width, size.height)
     if let entry = entries[key] { return entry }
-    let image = NSWorkspace.shared.icon(forFile: resolvedURL.path)
     return insertColor(key: key, size: size) { rect in
       image.draw(
         in: rect,

@@ -118,6 +118,11 @@ struct WorkspaceView: View {
         )
       }
     }
+    .onChange(of: pinnedApplications, initial: true) { _, applications in
+      Task {
+        await iconResolver.updatePinnedApplications(applications)
+      }
+    }
     .onDisappear {
       applicationCatalog.cancelRefresh()
       audioCatalog.stop()
@@ -137,6 +142,24 @@ struct WorkspaceView: View {
       workflows: workflowLibrary.workflows,
       catalogSnapshot: applicationCatalog.state.snapshot
     )
+  }
+
+  private var pinnedApplications: [InstalledApplication] {
+    guard let items = applicationCatalog.state.snapshot?.items else { return [] }
+    let configuredURLs = Set(
+      workflowLibrary.workflows.flatMap { workflow in
+        workflow.workspace.nodes.compactMap { node in
+          node.value.applicationSelection.map {
+            canonicalApplicationURL($0.applicationURL)
+          }
+        }
+      }
+    )
+    return items.compactMap { item in
+      configuredURLs.contains(canonicalApplicationURL(item.application.bundleURL))
+        ? item.application
+        : nil
+    }
   }
 
   private var workflowCanvas: some View {
