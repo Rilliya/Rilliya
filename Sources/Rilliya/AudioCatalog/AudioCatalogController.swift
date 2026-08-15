@@ -4,6 +4,28 @@ import RilliyaKit
 
 protocol AudioCatalogLoading: Sendable {
   func snapshot() async throws -> AudioCatalogSnapshot
+  func updates() -> AsyncThrowingStream<AudioCatalogSnapshot, any Error>
+}
+
+extension AudioCatalogLoading {
+  func updates() -> AsyncThrowingStream<AudioCatalogSnapshot, any Error> {
+    let loader = self
+    return AsyncThrowingStream { continuation in
+      let task = Task.detached(priority: .utility) {
+        do {
+          continuation.yield(try await loader.snapshot())
+          continuation.finish()
+        } catch is CancellationError {
+          continuation.finish()
+        } catch {
+          continuation.finish(throwing: error)
+        }
+      }
+      continuation.onTermination = { @Sendable _ in
+        task.cancel()
+      }
+    }
+  }
 }
 
 struct SystemAudioCatalogLoader: AudioCatalogLoading {
@@ -24,6 +46,10 @@ struct SystemAudioCatalogLoader: AudioCatalogLoading {
     }
     try Task.checkCancellation()
     return snapshot
+  }
+
+  func updates() -> AsyncThrowingStream<AudioCatalogSnapshot, any Error> {
+    discovery.updates()
   }
 }
 
@@ -63,16 +89,11 @@ final class AudioCatalogController {
   private(set) var state = AudioCatalogViewState()
 
   @ObservationIgnored private let loader: any AudioCatalogLoading
-  @ObservationIgnored private let pollingInterval: Duration
   @ObservationIgnored private var observationTask: Task<Void, Never>?
   @ObservationIgnored private var generation: UInt = 0
 
-  init(
-    loader: any AudioCatalogLoading = SystemAudioCatalogLoader(),
-    pollingInterval: Duration = .seconds(1)
-  ) {
+  init(loader: any AudioCatalogLoading = SystemAudioCatalogLoader()) {
     self.loader = loader
-    self.pollingInterval = pollingInterval
   }
 
   func start() {
@@ -81,32 +102,24 @@ final class AudioCatalogController {
     generation &+= 1
     let currentGeneration = generation
     let loader = loader
-    let pollingInterval = pollingInterval
     state.beginLoading()
 
     observationTask = Task { [weak self] in
-      while !Task.isCancelled {
-        do {
-          let snapshot = try await loader.snapshot()
+      do {
+        for try await snapshot in loader.updates() {
           guard let self, generation == currentGeneration else { return }
           state.receive(snapshot)
-        } catch is CancellationError {
-          guard let self, generation == currentGeneration else { return }
-          state.cancelLoading()
-          observationTask = nil
-          return
-        } catch {
-          guard let self, generation == currentGeneration else { return }
-          state.fail(with: error)
-          observationTask = nil
-          return
         }
-
-        do {
-          try await Task.sleep(for: pollingInterval)
-        } catch {
-          return
-        }
+        guard let self, generation == currentGeneration else { return }
+        observationTask = nil
+      } catch is CancellationError {
+        guard let self, generation == currentGeneration else { return }
+        state.cancelLoading()
+        observationTask = nil
+      } catch {
+        guard let self, generation == currentGeneration else { return }
+        state.fail(with: error)
+        observationTask = nil
       }
     }
   }

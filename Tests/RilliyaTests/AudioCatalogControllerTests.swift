@@ -49,6 +49,26 @@ struct AudioCatalogControllerTests {
     #expect(!controller.state.isLoading)
   }
 
+  @Test @MainActor
+  func startConsumesCatalogUpdateStream() async throws {
+    let snapshot = AudioCatalogSnapshot(
+      processes: [try makeProcess()],
+      devices: [],
+      issues: []
+    )
+    let controller = AudioCatalogController(
+      loader: StubAudioCatalogLoader(result: .success(snapshot)))
+
+    controller.start()
+    for _ in 0..<100 where controller.state.snapshot == nil {
+      await Task.yield()
+    }
+
+    #expect(controller.state.snapshot == snapshot)
+    #expect(controller.state.rootErrorMessage == nil)
+    #expect(!controller.state.isLoading)
+  }
+
   @Test
   func processPresentationUsesFallbacksWithoutInventingChannels() throws {
     let process = try makeProcess(bundleIdentifier: "com.example.Player")
