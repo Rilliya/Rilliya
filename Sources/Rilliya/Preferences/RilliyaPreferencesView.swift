@@ -60,6 +60,27 @@ private struct RilliyaCanvasPreferencesPane: View {
           ]
         )
       }
+
+      PreferencesSection(
+        "Channel Splitting",
+        footer:
+          "Native follows the selected output device stream. A preset exposes that many leading channels without claiming they were the application's original source layout."
+      ) {
+        PreferencesPopupRow(
+          symbol: "slider.horizontal.2.square",
+          title: "Default separated layout",
+          caption: "Choose the channel count used when a connected route is split automatically.",
+          minimumControlWidth: 150,
+          selection: $settings.defaultSeparateChannelLayout,
+          options: [
+            FlowingSelectOption(.native, label: "Native"),
+            FlowingSelectOption(.stereo, label: "Stereo · 2 ch"),
+            FlowingSelectOption(.quadraphonic, label: "Quad · 4 ch"),
+            FlowingSelectOption(.surround51, label: "5.1 · 6 ch"),
+            FlowingSelectOption(.surround71, label: "7.1 · 8 ch"),
+          ]
+        )
+      }
     }
   }
 }

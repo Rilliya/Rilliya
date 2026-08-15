@@ -17,6 +17,7 @@ final class RoutingWorkspaceModel {
   private(set) var runtimeCaptureFormats: [UUID: ProcessOutputCaptureFormat] = [:]
 
   private var pendingSeparateSourcesByVisualizer: [UUID: Set<UUID>] = [:]
+  private var preferredSeparateChannelCount: Int?
 
   init(id: UUID = UUID()) {
     self.id = id
@@ -110,7 +111,7 @@ final class RoutingWorkspaceModel {
           1,
           min(
             RoutingVisualizerConfiguration.maximumAvailableChannelCount,
-            runtimeChannelCount ?? channelCount
+            min(channelCount, runtimeChannelCount ?? channelCount)
           )
         )
       )
@@ -175,8 +176,12 @@ final class RoutingWorkspaceModel {
   }
 
   func synchronizeCaptureFormats(
-    _ formats: [UUID: ProcessOutputCaptureFormat]
+    _ formats: [UUID: ProcessOutputCaptureFormat],
+    preferredSeparateChannelCount: Int? = nil
   ) {
+    self.preferredSeparateChannelCount = preferredSeparateChannelCount.map(
+      normalizedRuntimeChannelCount
+    )
     var needsRebuild = false
     for (nodeID, format) in formats where !format.channelIDs.isEmpty {
       guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
@@ -187,12 +192,12 @@ final class RoutingWorkspaceModel {
       if runtimeCaptureFormats[nodeID] != format {
         runtimeCaptureFormats[nodeID] = format
       }
+      let channelCount = effectiveSeparateChannelCount(format.channelIDs.count)
       guard case .separate(let currentCount) = presentation,
-        currentCount != normalizedRuntimeChannelCount(format.channelIDs.count)
+        currentCount != channelCount
       else {
         continue
       }
-      let channelCount = normalizedRuntimeChannelCount(format.channelIDs.count)
       nodes[index].value = .applicationAudio(
         selection: selection,
         channelPresentation: .separate(channelCount: channelCount)
@@ -484,7 +489,8 @@ final class RoutingWorkspaceModel {
       runtimeCaptureFormats[nodeID].map { (nodeID, $0) }
     }
     guard formats.count == sourceIDs.count else { return false }
-    let maximumChannelCount = formats.map { $0.1.channelIDs.count }.max() ?? 0
+    let maximumChannelCount =
+      formats.map { effectiveSeparateChannelCount($0.1.channelIDs.count) }.max() ?? 0
     guard maximumChannelCount > 0,
       maximumChannelCount <= RoutingVisualizerConfiguration.maximumSeparateLaneCount
     else {
@@ -504,7 +510,7 @@ final class RoutingWorkspaceModel {
       else {
         continue
       }
-      let channelCount = format.channelIDs.count
+      let channelCount = effectiveSeparateChannelCount(format.channelIDs.count)
       nodes[sourceIndex].value = .applicationAudio(
         selection: selection,
         channelPresentation: .separate(channelCount: channelCount)
@@ -545,6 +551,12 @@ final class RoutingWorkspaceModel {
         channelCount
       )
     )
+  }
+
+  private func effectiveSeparateChannelCount(_ nativeChannelCount: Int) -> Int {
+    let normalizedNativeCount = normalizedRuntimeChannelCount(nativeChannelCount)
+    guard let preferredSeparateChannelCount else { return normalizedNativeCount }
+    return min(normalizedNativeCount, preferredSeparateChannelCount)
   }
 
   private func pruneEdgesWithMissingPorts() {

@@ -7,6 +7,29 @@ enum RoutingConnectionInformationLevel: String, CaseIterable, Hashable, Sendable
   case format
 }
 
+enum RoutingSeparateChannelLayout: String, CaseIterable, Hashable, Sendable {
+  case native
+  case stereo
+  case quadraphonic
+  case surround51
+  case surround71
+
+  var channelCount: Int? {
+    switch self {
+    case .native:
+      nil
+    case .stereo:
+      2
+    case .quadraphonic:
+      4
+    case .surround51:
+      6
+    case .surround71:
+      8
+    }
+  }
+}
+
 @MainActor
 @Observable
 final class RilliyaSettings {
@@ -21,6 +44,15 @@ final class RilliyaSettings {
     }
   }
 
+  var defaultSeparateChannelLayout: RoutingSeparateChannelLayout {
+    didSet {
+      defaults.set(
+        defaultSeparateChannelLayout.rawValue,
+        forKey: Keys.defaultSeparateChannelLayout
+      )
+    }
+  }
+
   @ObservationIgnored private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
@@ -29,10 +61,16 @@ final class RilliyaSettings {
       defaults.string(forKey: Keys.connectionInformationLevel)
       .flatMap(RoutingConnectionInformationLevel.init(rawValue:))
       ?? .format
+    defaultSeparateChannelLayout =
+      defaults.string(forKey: Keys.defaultSeparateChannelLayout)
+      .flatMap(RoutingSeparateChannelLayout.init(rawValue:))
+      ?? .stereo
   }
 
   private enum Keys {
     static let connectionInformationLevel =
       "moe.uwucocoa.rilliya.connection-information-level"
+    static let defaultSeparateChannelLayout =
+      "moe.uwucocoa.rilliya.default-separate-channel-layout"
   }
 }

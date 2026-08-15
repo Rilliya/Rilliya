@@ -61,7 +61,23 @@ struct WorkspaceView: View {
         return format
       }
       for workflow in workflowLibrary.workflows {
-        workflow.workspace.synchronizeCaptureFormats(formats)
+        workflow.workspace.synchronizeCaptureFormats(
+          formats,
+          preferredSeparateChannelCount: settings.defaultSeparateChannelLayout.channelCount
+        )
+      }
+    }
+    .onChange(of: settings.defaultSeparateChannelLayout, initial: true) { _, layout in
+      let formats = captureController.states.compactMapValues {
+        state -> ProcessOutputCaptureFormat? in
+        guard case .running(let format) = state else { return nil }
+        return format
+      }
+      for workflow in workflowLibrary.workflows {
+        workflow.workspace.synchronizeCaptureFormats(
+          formats,
+          preferredSeparateChannelCount: layout.channelCount
+        )
       }
     }
     .onDisappear {

@@ -366,6 +366,39 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func preferredStereoLayoutDoesNotExposeSilentNativeSurroundLanes() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    let visualizerID = model.addVisualizerNode(centeredAt: CGPoint(x: 400, y: 0))
+    try connectAggregate(sourceID: sourceID, targetID: visualizerID, model: model)
+    model.synchronizeCaptureFormats(
+      [sourceID: try captureFormat(channelCount: 8)],
+      preferredSeparateChannelCount: 2
+    )
+    var configuration = RoutingVisualizerConfiguration.initial
+    configuration.mode = .separate
+
+    model.configureVisualizer(configuration, for: visualizerID)
+
+    #expect(model.node(id: sourceID)?.value.channelPresentation == .separate(channelCount: 2))
+    #expect(model.edges.count == 2)
+    #expect(
+      Set(model.edges.compactMap { $0.source.portID.audioChannel })
+        == [.channel(0), .channel(1)]
+    )
+    #expect(
+      model.node(id: visualizerID)?.value
+        == .visualizer(
+          configuration: RoutingVisualizerConfiguration(
+            mode: .separate,
+            availableChannelCount: 2,
+            selectedChannels: [0, 1]
+          )
+        )
+    )
+  }
+
+  @Test @MainActor
   func pendingSeparateRouteKeepsCaptureAliveUntilFormatArrives() throws {
     let model = RoutingWorkspaceModel()
     let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
