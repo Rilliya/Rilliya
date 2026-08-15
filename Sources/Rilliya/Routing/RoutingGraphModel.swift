@@ -5,7 +5,7 @@ import FlowingDayGraphCore
 import Foundation
 import RilliyaKit
 
-struct RoutingApplicationSelection: Equatable, Hashable, Identifiable, Sendable {
+struct RoutingApplicationSelection: Codable, Equatable, Hashable, Identifiable, Sendable {
   let id: String
   let applicationURL: URL
   let bundleIdentifier: String?
@@ -37,7 +37,36 @@ struct RoutingInputDeviceSelection: Equatable, Hashable, Identifiable, Sendable 
   }
 }
 
-enum RoutingNodeValue: Equatable, Sendable {
+extension RoutingInputDeviceSelection: Codable {
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case displayName
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let rawID = try container.decode(String.self, forKey: .id)
+    let displayName = try container.decode(String.self, forKey: .displayName)
+    guard let id = AudioDeviceID(rawValue: rawID),
+      !displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .id,
+        in: container,
+        debugDescription: "Input device selections require a valid device ID and name."
+      )
+    }
+    self.init(id: id, displayName: displayName)
+  }
+
+  func encode(to encoder: Encoder) throws {
+    var container = encoder.container(keyedBy: CodingKeys.self)
+    try container.encode(id.rawValue, forKey: .id)
+    try container.encode(displayName, forKey: .displayName)
+  }
+}
+
+enum RoutingNodeValue: Codable, Equatable, Sendable {
   case applicationAudio(
     selection: RoutingApplicationSelection?,
     channelPresentation: RoutingChannelPresentation
@@ -104,7 +133,7 @@ enum RoutingNodeValue: Equatable, Sendable {
   }
 }
 
-enum RoutingChannelPresentation: Equatable, Hashable, Sendable {
+enum RoutingChannelPresentation: Codable, Equatable, Hashable, Sendable {
   case aggregate
   case separate(channelCount: Int)
 
@@ -120,12 +149,12 @@ extension RoutingNodeValue {
   }
 }
 
-enum RoutingVisualizerMode: String, CaseIterable, Equatable, Hashable, Sendable {
+enum RoutingVisualizerMode: String, CaseIterable, Codable, Equatable, Hashable, Sendable {
   case mixed
   case separate
 }
 
-enum RoutingVisualizerChannelPreset: Int, CaseIterable, Equatable, Hashable, Sendable {
+enum RoutingVisualizerChannelPreset: Int, CaseIterable, Codable, Equatable, Hashable, Sendable {
   case mono = 1
   case stereo = 2
   case quadraphonic = 4
@@ -137,7 +166,7 @@ enum RoutingVisualizerChannelPreset: Int, CaseIterable, Equatable, Hashable, Sen
   }
 }
 
-enum RoutingVisualizerChannelSelection: Equatable, Hashable, Sendable {
+enum RoutingVisualizerChannelSelection: Codable, Equatable, Hashable, Sendable {
   case preset(RoutingVisualizerChannelPreset)
   case custom(Set<Int>)
 
@@ -151,7 +180,7 @@ enum RoutingVisualizerChannelSelection: Equatable, Hashable, Sendable {
   }
 }
 
-struct RoutingVisualizerConfiguration: Equatable, Sendable {
+struct RoutingVisualizerConfiguration: Codable, Equatable, Sendable {
   static let maximumAvailableChannelCount = 256
   static let maximumSeparateLaneCount = 8
 
@@ -206,7 +235,7 @@ struct RoutingVisualizerConfiguration: Equatable, Sendable {
   }
 }
 
-struct RoutingWorkspaceNode: Equatable, Identifiable, Sendable {
+struct RoutingWorkspaceNode: Codable, Equatable, Identifiable, Sendable {
   let id: UUID
   var value: RoutingNodeValue
   var frame: CGRect
@@ -229,12 +258,12 @@ struct RoutingWorkspaceNode: Equatable, Identifiable, Sendable {
   }
 }
 
-struct RoutingWorkspacePortAddress: Equatable, Hashable, Sendable {
+struct RoutingWorkspacePortAddress: Codable, Equatable, Hashable, Sendable {
   let nodeID: UUID
   let portID: RoutingGraphPortID
 }
 
-struct RoutingWorkspaceEdge: Equatable, Identifiable, Sendable {
+struct RoutingWorkspaceEdge: Codable, Equatable, Identifiable, Sendable {
   let id: UUID
   let source: RoutingWorkspacePortAddress
   let target: RoutingWorkspacePortAddress
@@ -253,17 +282,17 @@ struct RoutingWorkspaceEdge: Equatable, Identifiable, Sendable {
   }
 }
 
-enum RoutingPortDirection: Equatable, Hashable, Sendable {
+enum RoutingPortDirection: Codable, Equatable, Hashable, Sendable {
   case input
   case output
 }
 
-enum RoutingAudioPortChannel: Equatable, Hashable, Sendable {
+enum RoutingAudioPortChannel: Codable, Equatable, Hashable, Sendable {
   case all
   case channel(Int)
 }
 
-struct RoutingGraphPortID: Equatable, Hashable, Sendable {
+struct RoutingGraphPortID: Codable, Equatable, Hashable, Sendable {
   let direction: RoutingPortDirection
   let key: RoutingPortKey
 
@@ -289,7 +318,7 @@ struct RoutingGraphPortID: Equatable, Hashable, Sendable {
   }
 }
 
-enum RoutingPortKey: Equatable, Hashable, Sendable {
+enum RoutingPortKey: Codable, Equatable, Hashable, Sendable {
   case audio(RoutingAudioPortChannel)
   case named(String)
 }

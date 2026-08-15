@@ -1,4 +1,5 @@
 import AppKit
+import FlowingDayCanvas
 import FlowingDayControls
 import FlowingDayGraphCanvas
 import RilliyaKit
@@ -7,12 +8,17 @@ import SwiftUI
 struct WorkspaceView: View {
   let settings: RilliyaSettings
 
+  @Environment(\.scenePhase) private var scenePhase
   @State private var workflowLibrary = RoutingWorkflowLibrary.launchConfigured()
   @State private var applicationCatalog = InstalledApplicationCatalogController()
   @State private var audioCatalog = AudioCatalogController()
   @State private var iconResolver = NSWorkspaceInstalledApplicationIconResolver()
   @State private var captureController = RoutingCaptureController()
   @State private var inputCaptureController = RoutingInputCaptureController()
+  @State private var workflowPersistenceStore = RoutingWorkflowPersistenceStore()
+  @State private var didRestoreWorkflows = false
+  @State private var workflowSaveTask: Task<Void, Never>?
+  @State private var workflowPersistenceIssue: String?
 
   var body: some View {
     ZStack {
@@ -35,6 +41,21 @@ struct WorkspaceView: View {
         )
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
+
+      if let workflowPersistenceIssue {
+        FlowingCanvasViewportOverlay(
+          alignment: .bottomTrailing,
+          insets: EdgeInsets(top: 0, leading: 0, bottom: 22, trailing: 22)
+        ) {
+          FlowingCallout(
+            workflowPersistenceIssue,
+            title: "Workflows could not be saved",
+            systemImage: "externaldrive.badge.exclamationmark",
+            tone: .critical
+          )
+          .frame(maxWidth: 360)
+        }
+      }
     }
     .background(FlowingPalette.canvas)
     .background(NativeWindowChromeAttachment())
@@ -45,6 +66,9 @@ struct WorkspaceView: View {
     }
     .task {
       audioCatalog.start()
+    }
+    .task {
+      await restoreWorkflows()
     }
     .task {
       for await _ in NSWorkspace.shared.notificationCenter.notifications(
@@ -123,12 +147,84 @@ struct WorkspaceView: View {
         await iconResolver.updatePinnedApplications(applications)
       }
     }
+    .onChange(of: workflowPersistenceToken) {
+      scheduleWorkflowSave()
+    }
+    .onChange(of: scenePhase) { _, phase in
+      handleScenePhaseChange(phase)
+    }
     .onDisappear {
+      saveWorkflowsImmediately()
       applicationCatalog.cancelRefresh()
       audioCatalog.stop()
       captureController.stopAll()
       inputCaptureController.stopAll()
     }
+  }
+
+  private var workflowPersistenceToken: RoutingWorkflowPersistenceToken {
+    RoutingWorkflowPersistenceToken(library: workflowLibrary)
+  }
+
+  private var usesWorkflowPersistence: Bool {
+    #if PROFILE
+      RoutingProfilingScenario.fromProcessArguments() == nil
+    #else
+      true
+    #endif
+  }
+
+  private func restoreWorkflows() async {
+    guard !didRestoreWorkflows else { return }
+    guard usesWorkflowPersistence else {
+      didRestoreWorkflows = true
+      return
+    }
+    do {
+      if let snapshot = try await workflowPersistenceStore.load() {
+        workflowLibrary = try snapshot.makeLibrary()
+      }
+    } catch {
+      workflowPersistenceIssue = "Your previous workflows remain on disk. \(error)"
+    }
+    didRestoreWorkflows = true
+  }
+
+  private func scheduleWorkflowSave() {
+    guard didRestoreWorkflows, usesWorkflowPersistence else { return }
+    let snapshot = RoutingWorkflowLibrarySnapshot(library: workflowLibrary)
+    workflowSaveTask?.cancel()
+    workflowSaveTask = Task {
+      do {
+        try await Task.sleep(for: .milliseconds(400))
+        try Task.checkCancellation()
+        try await workflowPersistenceStore.save(snapshot)
+        workflowPersistenceIssue = nil
+      } catch is CancellationError {
+        return
+      } catch {
+        workflowPersistenceIssue = String(describing: error)
+      }
+    }
+  }
+
+  private func saveWorkflowsImmediately() {
+    guard didRestoreWorkflows, usesWorkflowPersistence else { return }
+    let snapshot = RoutingWorkflowLibrarySnapshot(library: workflowLibrary)
+    workflowSaveTask?.cancel()
+    workflowSaveTask = Task {
+      do {
+        try await workflowPersistenceStore.save(snapshot)
+        workflowPersistenceIssue = nil
+      } catch {
+        workflowPersistenceIssue = String(describing: error)
+      }
+    }
+  }
+
+  private func handleScenePhaseChange(_ phase: ScenePhase) {
+    guard phase != ScenePhase.active else { return }
+    saveWorkflowsImmediately()
   }
 
   private var workspaceBackdrop: some View {

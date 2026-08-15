@@ -4,6 +4,12 @@ import Foundation
 import Observation
 import RilliyaKit
 
+enum RoutingWorkspaceRestorationError: Error, Equatable {
+  case duplicateNodeID
+  case duplicateEdgeID
+  case invalidNodeFrame
+}
+
 @MainActor
 @Observable
 final class RoutingWorkspaceModel {
@@ -15,12 +21,51 @@ final class RoutingWorkspaceModel {
   private(set) var accessibilitySnapshot: RoutingCanvasAccessibilitySnapshot?
   private(set) var buildFailureDescription: String?
   private(set) var runtimeCaptureFormats: [UUID: RoutingAudioCaptureFormat] = [:]
+  private(set) var persistenceRevision: UInt64 = 0
 
   private var pendingSeparateSourcesByVisualizer: [UUID: Set<UUID>] = [:]
   private var preferredSeparateChannelCount: Int?
 
   init(id: UUID = UUID()) {
     self.id = id
+    rebuildCanvas()
+  }
+
+  init(
+    restoringID id: UUID,
+    nodes: [RoutingWorkspaceNode],
+    edges: [RoutingWorkspaceEdge]
+  ) throws {
+    guard Set(nodes.map(\.id)).count == nodes.count else {
+      throw RoutingWorkspaceRestorationError.duplicateNodeID
+    }
+    guard Set(edges.map(\.id)).count == edges.count else {
+      throw RoutingWorkspaceRestorationError.duplicateEdgeID
+    }
+    guard nodes.allSatisfy({ Self.isValidPersistedFrame($0.frame) }) else {
+      throw RoutingWorkspaceRestorationError.invalidNodeFrame
+    }
+
+    self.id = id
+    self.nodes = nodes.map { node in
+      var restored = node
+      let size = RoutingCanvasMetrics.nodeSize(for: restored.value)
+      restored.frame = CGRect(
+        x: node.frame.midX - size.width / 2,
+        y: node.frame.midY - size.height / 2,
+        width: size.width,
+        height: size.height
+      )
+      let availablePortIDs = Set(RoutingGraphPorts.values(for: restored.value).map(\.id))
+      restored.disabledPortIDs.formIntersection(availablePortIDs)
+      return restored
+    }
+    let nodeIDs = Set(nodes.map(\.id))
+    self.edges = edges.filter {
+      $0.source.nodeID != $0.target.nodeID
+        && nodeIDs.contains($0.source.nodeID)
+        && nodeIDs.contains($0.target.nodeID)
+    }
     rebuildCanvas()
   }
 
@@ -652,6 +697,7 @@ final class RoutingWorkspaceModel {
   }
 
   private func rebuildCanvas() {
+    defer { persistenceRevision &+= 1 }
     do {
       pruneEdgesWithMissingPorts()
       let build = try RoutingCanvasContentBuilder.build(
@@ -879,5 +925,14 @@ final class RoutingWorkspaceModel {
       width: size.width,
       height: size.height
     )
+  }
+
+  nonisolated private static func isValidPersistedFrame(_ frame: CGRect) -> Bool {
+    frame.origin.x.isFinite
+      && frame.origin.y.isFinite
+      && frame.width.isFinite
+      && frame.height.isFinite
+      && frame.width > 0
+      && frame.height > 0
   }
 }

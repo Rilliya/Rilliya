@@ -55,14 +55,21 @@ final class RoutingWorkflowLibrary {
   private(set) var workflows: [RoutingWorkflowModel]
   private(set) var selectedWorkflowID: UUID
 
-  init(workflows: [RoutingWorkflowModel] = []) {
+  init(
+    workflows: [RoutingWorkflowModel] = [],
+    selectedWorkflowID: UUID? = nil
+  ) {
     let initialWorkflows =
       workflows.isEmpty
       ? [RoutingWorkflowModel(name: "Flow 1")]
       : workflows
     precondition(Set(initialWorkflows.map(\.id)).count == initialWorkflows.count)
     self.workflows = initialWorkflows
-    selectedWorkflowID = initialWorkflows[0].id
+    self.selectedWorkflowID =
+      selectedWorkflowID.flatMap { requestedID in
+        initialWorkflows.contains(where: { $0.id == requestedID }) ? requestedID : nil
+      }
+      ?? initialWorkflows[0].id
   }
 
   var selectedWorkflow: RoutingWorkflowModel {
