@@ -179,6 +179,43 @@ struct RoutingPreparedAudioGraphTests {
   }
 
   @Test
+  func delayRunsInTopologicalOrderBetweenMixers() throws {
+    let sourceID = UUID()
+    let firstMixerID = UUID()
+    let delayID = UUID()
+    let secondMixerID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(channelCount: 1)
+    try write([[1] + Array(repeating: 0, count: 63)], to: buffer)
+    let renderer = try makeRenderer(
+      nodes: [
+        sourceNode(id: sourceID, channelCount: 1),
+        mixerNode(id: firstMixerID, controls: [:]),
+        delayNode(id: delayID),
+        mixerNode(id: secondMixerID, controls: [:]),
+        outputNode(id: outputID),
+      ],
+      edges: [
+        edge(from: sourceID, .all, to: firstMixerID, .channel(0)),
+        edge(from: firstMixerID, .channel(0), to: delayID, .all),
+        edge(from: delayID, .all, to: secondMixerID, .channel(0)),
+        edge(from: secondMixerID, .channel(0), to: outputID, .all),
+      ],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer],
+      outputChannelCount: 1,
+      maximumFrameCount: 64
+    )
+
+    let rendered = render(renderer, channelCount: 1, frameCount: 64)
+
+    #expect(rendered.result == .rendered)
+    #expect(rendered.channels[0][0..<48].allSatisfy { $0 == 0 })
+    #expect(rendered.channels[0][48] == 1)
+    #expect(rendered.channels[0][49...].allSatisfy { $0 == 0 })
+  }
+
+  @Test
   func mixerSumsInputsAndAppliesOutputControl() throws {
     let firstSourceID = UUID()
     let secondSourceID = UUID()
@@ -214,7 +251,7 @@ struct RoutingPreparedAudioGraphTests {
   }
 
   @Test
-  func compilerRejectsFeedbackWithoutExplicitDelay() throws {
+  func compilerRejectsGraphFeedbackCycles() throws {
     let firstVisualizerID = UUID()
     let secondVisualizerID = UUID()
     let outputID = UUID()
@@ -323,6 +360,20 @@ struct RoutingPreparedAudioGraphTests {
     RoutingWorkspaceNode(
       id: id,
       value: .signalGenerator(configuration: .initial),
+      frame: .zero
+    )
+  }
+
+  private func delayNode(id: UUID) -> RoutingWorkspaceNode {
+    RoutingWorkspaceNode(
+      id: id,
+      value: .delay(
+        configuration: RoutingDelayConfiguration(
+          delaySeconds: 0.001,
+          feedback: 0,
+          dryWetMix: 1
+        )
+      ),
       frame: .zero
     )
   }

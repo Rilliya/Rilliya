@@ -895,6 +895,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         palette: palette,
         to: &geometry
       )
+    case .delay:
+      appendDelay(
+        node: node,
+        frame: frame,
+        accent: accent,
+        palette: palette,
+        to: &geometry
+      )
     }
 
     for port in node.ports {
@@ -1356,6 +1364,41 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     )
   }
 
+  private func appendDelay(
+    node: RoutingMetalScene.Node,
+    frame: CGRect,
+    accent: SIMD4<Float>,
+    palette: RoutingMetalPalette,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
+    guard case .delay(let configuration) = node.value else { return }
+    let valueFrame = CGRect(
+      x: frame.minX + RoutingVisualizerLayout.horizontalInset
+        + RoutingVisualizerLayout.portLabelGutter,
+      y: frame.maxY - 48,
+      width: frame.width - 2 * RoutingVisualizerLayout.horizontalInset
+        - 2 * RoutingVisualizerLayout.portLabelGutter,
+      height: 34
+    )
+    geometry.shapes.append(
+      RoutingMetalShapeInstance(
+        rect: valueFrame,
+        fill: accent.withAlpha(0.09),
+        border: .zero,
+        cornerRadius: 8,
+        borderWidth: 0,
+        opacity: 1
+      )
+    )
+    let wet = Int((configuration.dryWetMix * 100).rounded())
+    append(
+      atlas: textAtlas.text("\(wet)% wet", size: 10, weight: .medium),
+      origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
+      color: palette.muted,
+      to: &geometry
+    )
+  }
+
   private func accent(
     for node: RoutingMetalScene.Node,
     palette: RoutingMetalPalette
@@ -1371,6 +1414,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       palette.seafoam
     case 4:
       palette.pollen
+    case 7:
+      palette.wisteria
     default:
       palette.poppy
     }
@@ -1955,6 +2000,7 @@ private struct RoutingMetalPalette {
   let seafoam = SIMD4<Float>(0x4D / 255, 0xA5 / 255, 0xA0 / 255, 1)
   let pollen = SIMD4<Float>(0xA6 / 255, 0x97 / 255, 0x4F / 255, 1)
   let poppy = SIMD4<Float>(0xE9 / 255, 0x64 / 255, 0x52 / 255, 1)
+  let wisteria = SIMD4<Float>(0x96 / 255, 0x8A / 255, 0xC7 / 255, 1)
   let running = SIMD4<Float>(0.20, 0.72, 0.36, 1)
 
   init(isDark: Bool) {

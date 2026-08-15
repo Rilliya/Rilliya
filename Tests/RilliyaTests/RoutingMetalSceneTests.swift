@@ -226,6 +226,30 @@ struct RoutingMetalSceneTests {
   }
 
   @Test @MainActor
+  func delayCarriesItsConfigurationIntoTheGpuScene() throws {
+    let model = RoutingWorkspaceModel()
+    let nodeID = model.addDelayNode(centeredAt: CGPoint(x: 100, y: 100))
+    let configuration = RoutingDelayConfiguration(
+      delaySeconds: 0.75,
+      feedback: 0.4,
+      dryWetMix: 0.6
+    )
+    model.configureDelay(configuration, for: nodeID)
+    let scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [:]
+    )
+    let node = try #require(scene.nodes.first)
+
+    #expect(node.title == "Delay")
+    #expect(node.subtitle == "750 ms")
+    #expect(node.status == "Ready to route")
+    #expect(node.symbolName == "clock.arrow.trianglehead.counterclockwise.rotate.90")
+    #expect(node.miniMapStyleIndex == 7)
+    #expect(node.ports.count == 2)
+  }
+
+  @Test @MainActor
   func sharedApplicationCaptureIsVisibleInTheGpuNodeStatus() throws {
     let model = RoutingWorkspaceModel()
     let nodeID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))

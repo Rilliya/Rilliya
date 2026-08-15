@@ -14,6 +14,7 @@ private enum RoutingPaletteItem: String, Codable, Transferable {
   case audioMixer = "moe.uwucocoa.rilliya.node.audio-mixer"
   case peakLevel = "moe.uwucocoa.rilliya.node.peak-level"
   case signalGenerator = "moe.uwucocoa.rilliya.node.signal-generator"
+  case delay = "moe.uwucocoa.rilliya.node.delay"
 
   static var transferRepresentation: some TransferRepresentation {
     CodableRepresentation(contentType: .plainText)
@@ -203,6 +204,9 @@ struct RoutingCanvasView: View {
         case .signalGenerator(let configuration):
           SignalGeneratorNodeView(configuration: configuration, context: context)
             .zIndex(context.isSelected ? 2 : 1)
+        case .delay(let configuration):
+          DelayNodeView(configuration: configuration, context: context)
+            .zIndex(context.isSelected ? 2 : 1)
         }
       },
       edge: { _, context in
@@ -337,6 +341,8 @@ struct RoutingCanvasView: View {
           )
         )
       case .signalGenerator:
+        supplements[node.id] = .empty
+      case .delay:
         supplements[node.id] = .empty
       }
     }
@@ -513,6 +519,10 @@ struct RoutingCanvasView: View {
       SelectedSignalGeneratorInspector(configuration: configuration) { updated in
         workspace.configureSignalGenerator(updated, for: node.id)
       }
+    case .delay(let configuration):
+      SelectedDelayInspector(configuration: configuration) { updated in
+        workspace.configureDelay(updated, for: node.id)
+      }
     }
   }
 
@@ -610,6 +620,8 @@ struct RoutingCanvasView: View {
         nodeID = workspace.addPeakLevelNode(centeredAt: worldPoint)
       case .signalGenerator:
         nodeID = workspace.addSignalGeneratorNode(centeredAt: worldPoint)
+      case .delay:
+        nodeID = workspace.addDelayNode(centeredAt: worldPoint)
       }
       selectNode(nodeID)
 
@@ -675,6 +687,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   let insertAudioMixer: () -> Void
   let insertPeakLevel: () -> Void
   let insertSignalGenerator: () -> Void
+  let insertDelay: () -> Void
   let workflowNavigation: WorkflowNavigation
 
   init(
@@ -687,6 +700,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     insertAudioMixer: @escaping () -> Void,
     insertPeakLevel: @escaping () -> Void,
     insertSignalGenerator: @escaping () -> Void,
+    insertDelay: @escaping () -> Void,
     @ViewBuilder workflowNavigation: () -> WorkflowNavigation
   ) {
     self.applicationCatalog = applicationCatalog
@@ -698,6 +712,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     self.insertAudioMixer = insertAudioMixer
     self.insertPeakLevel = insertPeakLevel
     self.insertSignalGenerator = insertSignalGenerator
+    self.insertDelay = insertDelay
     self.workflowNavigation = workflowNavigation()
   }
 
@@ -730,6 +745,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
               audioMixerItem
               peakLevelItem
               signalGeneratorItem
+              delayItem
             }
           }
 
@@ -844,6 +860,19 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       veil: FlowingAccent.poppy.veil,
       allowsClickInsertion: allowsClickInsertion,
       action: insertSignalGenerator
+    )
+  }
+
+  private var delayItem: some View {
+    RoutingPaletteNodeItem(
+      item: .delay,
+      title: "Delay",
+      subtitle: "Add time and feedback",
+      systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90",
+      foreground: FlowingAccent.wisteria.foreground,
+      veil: FlowingAccent.wisteria.veil,
+      allowsClickInsertion: allowsClickInsertion,
+      action: insertDelay
     )
   }
 
@@ -1088,6 +1117,14 @@ private struct RoutingCanvasDropPreview: View {
         "waveform.path",
         FlowingAccent.poppy.foreground,
         FlowingAccent.poppy.veil
+      )
+    case .delay:
+      return (
+        "Delay",
+        "250 ms · 50% wet",
+        "clock.arrow.trianglehead.counterclockwise.rotate.90",
+        FlowingAccent.wisteria.foreground,
+        FlowingAccent.wisteria.veil
       )
     }
   }
@@ -1788,6 +1825,73 @@ private struct SignalGeneratorNodeView: View {
 
   private var frequencyDescription: String {
     configuration.frequency.formatted(.number.precision(.fractionLength(0)))
+  }
+}
+
+private struct DelayNodeView: View {
+  let configuration: RoutingDelayConfiguration
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  private let accent = FlowingAccent.wisteria
+
+  var body: some View {
+    FlowingCard(
+      spacing: 10,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      HStack(spacing: 9) {
+        Image(systemName: "clock.arrow.trianglehead.counterclockwise.rotate.90")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(accent.foreground)
+        VStack(alignment: .leading, spacing: 1) {
+          Text("Delay")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text(delayDescription)
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(FlowingPalette.muted)
+        }
+        Spacer(minLength: 0)
+      }
+
+      Text("\(Int((configuration.dryWetMix * 100).rounded()))% wet")
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(FlowingPalette.muted)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+        .background(
+          accent.wash,
+          in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .padding(.horizontal, RoutingVisualizerLayout.portLabelGutter)
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width,
+      height: RoutingCanvasMetrics.baseNodeSize.height
+    )
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width * context.renderScale,
+      height: RoutingCanvasMetrics.baseNodeSize.height * context.renderScale,
+      alignment: .topLeading
+    )
+  }
+
+  private var delayDescription: String {
+    if configuration.delaySeconds < 1 {
+      return "\(Int((configuration.delaySeconds * 1_000).rounded())) ms"
+    }
+    return configuration.delaySeconds.formatted(
+      .number.precision(.fractionLength(2))
+    ) + " s"
   }
 }
 
@@ -3014,6 +3118,141 @@ private struct SelectedSignalGeneratorInspector: View {
 
   private var frequencyDescription: String {
     configuration.frequency.formatted(.number.precision(.fractionLength(0)))
+  }
+}
+
+private struct SelectedDelayInspector: View {
+  let configuration: RoutingDelayConfiguration
+  let updateConfiguration: (RoutingDelayConfiguration) -> Void
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Delay")
+          .font(.headline)
+          .foregroundStyle(FlowingPalette.ink)
+        Text("Delay an audio bus with bounded realtime feedback.")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      parameterSlider(
+        title: "Time",
+        value: delayPosition,
+        range: 0...1,
+        formattedValue: delayDescription,
+        accessibilityFormat: { _ in delayDescription }
+      )
+
+      parameterSlider(
+        title: "Feedback",
+        value: feedback,
+        range: feedbackRange,
+        formattedValue: "\(Int((configuration.feedback * 100).rounded()))%",
+        accessibilityFormat: { value in "\(Int((value * 100).rounded())) percent" }
+      )
+
+      parameterSlider(
+        title: "Dry / Wet",
+        value: dryWetMix,
+        range: 0...1,
+        formattedValue: "\(Int((configuration.dryWetMix * 100).rounded()))% wet",
+        accessibilityFormat: { value in "\(Int((value * 100).rounded())) percent wet" }
+      )
+
+      FlowingCallout(
+        "Feedback remains below self-oscillation, and the delay line has a fixed memory budget prepared before playback begins.",
+        title: "Realtime Effect",
+        systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90",
+        tone: .neutral
+      )
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  private func parameterSlider(
+    title: String,
+    value: Binding<Double>,
+    range: ClosedRange<Double>,
+    formattedValue: String,
+    accessibilityFormat: @escaping (Double) -> String
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      HStack {
+        Text(title)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+        Spacer(minLength: 8)
+        Text(formattedValue)
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(FlowingPalette.ink)
+      }
+      FlowingSlider(
+        title,
+        value: value,
+        in: range,
+        formatValue: accessibilityFormat
+      )
+    }
+  }
+
+  private var delayPosition: Binding<Double> {
+    let minimum = RoutingDelayConfiguration.minimumDelaySeconds
+    let maximum = RoutingDelayConfiguration.maximumDelaySeconds
+    let span = log(maximum / minimum)
+    return Binding(
+      get: { log(configuration.delaySeconds / minimum) / span },
+      set: { position in
+        var updated = configuration
+        updated.delaySeconds = minimum * exp(min(max(position, 0), 1) * span)
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var feedback: Binding<Double> {
+    Binding(
+      get: { Double(configuration.feedback) },
+      set: { feedback in
+        var updated = configuration
+        updated.feedback = Float(
+          min(
+            max(feedback, -Double(RoutingDelayConfiguration.maximumFeedback)),
+            Double(RoutingDelayConfiguration.maximumFeedback)
+          )
+        )
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var feedbackRange: ClosedRange<Double> {
+    let limit = Double(RoutingDelayConfiguration.maximumFeedback)
+    return -limit...limit
+  }
+
+  private var dryWetMix: Binding<Double> {
+    Binding(
+      get: { Double(configuration.dryWetMix) },
+      set: { mix in
+        var updated = configuration
+        updated.dryWetMix = Float(min(max(mix, 0), 1))
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var delayDescription: String {
+    if configuration.delaySeconds < 1 {
+      return "\(Int((configuration.delaySeconds * 1_000).rounded())) milliseconds"
+    }
+    return configuration.delaySeconds.formatted(
+      .number.precision(.fractionLength(2))
+    ) + " seconds"
   }
 }
 

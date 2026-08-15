@@ -213,7 +213,7 @@ enum RoutingCanvasContentBuilder {
       )
       guard rowFrames.indices.contains(value.ordinal) else { return nil }
       return rowFrames[value.ordinal].midY
-    case .applicationAudio, .inputAudio, .outputAudio, .peakLevel, .signalGenerator:
+    case .applicationAudio, .inputAudio, .outputAudio, .peakLevel, .signalGenerator, .delay:
       return nil
     }
   }
@@ -248,6 +248,9 @@ enum RoutingCanvasContentBuilder {
     case .signalGenerator(let configuration):
       value = "\(configuration.waveform.displayName), \(Int(configuration.frequency)) hertz"
       hint = "Connect this generated mono signal to an audio destination."
+    case .delay(let configuration):
+      value = "\(Int((configuration.delaySeconds * 1_000).rounded())) milliseconds"
+      hint = "Connect audio through this node to add a realtime delay."
     }
     let identifier: String?
     if case .node(let nodeID) = node.address.elementID {

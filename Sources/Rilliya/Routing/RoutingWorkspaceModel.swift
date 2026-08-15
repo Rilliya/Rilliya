@@ -266,6 +266,31 @@ final class RoutingWorkspaceModel {
     return id
   }
 
+  @discardableResult
+  func addDelayNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    let value = RoutingNodeValue.delay(configuration: .initial)
+    let size = RoutingCanvasMetrics.nodeSize(for: value)
+    nodes.append(
+      RoutingWorkspaceNode(
+        id: id,
+        value: value,
+        frame: CGRect(
+          x: worldPoint.x - size.width / 2,
+          y: worldPoint.y - size.height / 2,
+          width: size.width,
+          height: size.height
+        )
+      )
+    )
+    rebuildCanvas()
+    return id
+  }
+
   func selectApplication(
     _ selection: RoutingApplicationSelection?,
     for nodeID: UUID
@@ -482,6 +507,20 @@ final class RoutingWorkspaceModel {
       return
     }
     nodes[index].value = .signalGenerator(configuration: configuration)
+    rebuildCanvas()
+  }
+
+  func configureDelay(
+    _ configuration: RoutingDelayConfiguration,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      case .delay(let previous) = nodes[index].value,
+      previous != configuration
+    else {
+      return
+    }
+    nodes[index].value = .delay(configuration: configuration)
     rebuildCanvas()
   }
 

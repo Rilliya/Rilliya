@@ -196,6 +196,17 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
           )
         && configuration.amplitude.isFinite
         && (0...1).contains(configuration.amplitude)
+    case .delay(let configuration):
+      return configuration.delaySeconds.isFinite
+        && (RoutingDelayConfiguration
+          .minimumDelaySeconds...RoutingDelayConfiguration.maximumDelaySeconds).contains(
+            configuration.delaySeconds
+          )
+        && configuration.feedback.isFinite
+        && (-RoutingDelayConfiguration.maximumFeedback...RoutingDelayConfiguration.maximumFeedback)
+          .contains(configuration.feedback)
+        && configuration.dryWetMix.isFinite
+        && (0...1).contains(configuration.dryWetMix)
     }
   }
 

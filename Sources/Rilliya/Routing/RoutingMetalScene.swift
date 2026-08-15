@@ -93,6 +93,8 @@ struct RoutingMetalScene {
         return "Peak Level"
       case .signalGenerator:
         return "Signal Generator"
+      case .delay:
+        return "Delay"
       }
     }
 
@@ -118,6 +120,13 @@ struct RoutingMetalScene {
             "\(configuration.waveform.displayName) · \(configuration.frequency.formatted(.number.precision(.fractionLength(0)))) Hz"
         }
         return configuration.waveform.displayName
+      case .delay(let configuration):
+        if configuration.delaySeconds < 1 {
+          return "\(Int((configuration.delaySeconds * 1_000).rounded())) ms"
+        }
+        return configuration.delaySeconds.formatted(
+          .number.precision(.fractionLength(2))
+        ) + " s"
       }
     }
 
@@ -166,6 +175,8 @@ struct RoutingMetalScene {
         return signal.isClipping ? "Clipping" : "Live peak"
       case .signalGenerator:
         return "Ready to route"
+      case .delay:
+        return "Ready to route"
       }
     }
 
@@ -212,7 +223,7 @@ struct RoutingMetalScene {
         return selection != nil
       case .outputAudio(let selection, _):
         return selection != nil
-      case .visualizer, .audioMixer, .peakLevel, .signalGenerator:
+      case .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay:
         return false
       }
     }
@@ -227,7 +238,7 @@ struct RoutingMetalScene {
       case .applicationAudio:
         supplement.applicationIcon == nil
       case .inputAudio, .outputAudio, .visualizer, .audioMixer, .peakLevel,
-        .signalGenerator:
+        .signalGenerator, .delay:
         true
       }
     }
@@ -248,6 +259,8 @@ struct RoutingMetalScene {
         return "gauge.with.dots.needle.50percent"
       case .signalGenerator:
         return "waveform.path"
+      case .delay:
+        return "clock.arrow.trianglehead.counterclockwise.rotate.90"
       }
     }
 
@@ -260,6 +273,7 @@ struct RoutingMetalScene {
       case .audioMixer: 4
       case .peakLevel: 5
       case .signalGenerator: 6
+      case .delay: 7
       }
     }
 
@@ -274,7 +288,7 @@ struct RoutingMetalScene {
       case .audioMixer:
         return true
       case .applicationAudio, .inputAudio, .outputAudio, .visualizer, .peakLevel,
-        .signalGenerator:
+        .signalGenerator, .delay:
         return false
       }
     }

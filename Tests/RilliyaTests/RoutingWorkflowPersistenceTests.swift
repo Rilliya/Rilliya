@@ -55,6 +55,19 @@ struct RoutingWorkflowPersistenceTests {
         == .audioMixer(configuration: RoutingAudioMixerConfiguration(channelCount: 4))
     )
     #expect(restoredMixer.audioChannelControl(at: 2).isMuted)
+    let restoredDelay = try #require(
+      restoredLibrary.selectedWorkflow.workspace.node(id: fixture.delayID)
+    )
+    #expect(
+      restoredDelay.value
+        == .delay(
+          configuration: RoutingDelayConfiguration(
+            delaySeconds: 0.375,
+            feedback: 0.4,
+            dryWetMix: 0.65
+          )
+        )
+    )
     #expect(!restoredLibrary.selectedWorkflow.runsAutomaticallyOnLaunch)
     #expect(!restoredLibrary.selectedWorkflow.isRunning)
   }
@@ -175,6 +188,15 @@ struct RoutingWorkflowPersistenceTests {
       for: mixerID
     )
     secondWorkspace.setAudioChannelMuted(true, nodeID: mixerID, channelIndex: 2)
+    let delayID = secondWorkspace.addDelayNode(centeredAt: CGPoint(x: 720, y: 0))
+    secondWorkspace.configureDelay(
+      RoutingDelayConfiguration(
+        delaySeconds: 0.375,
+        feedback: 0.4,
+        dryWetMix: 0.65
+      ),
+      for: delayID
+    )
     let secondWorkflow = RoutingWorkflowModel(
       id: secondWorkflowID,
       name: "Input Lab",
@@ -192,6 +214,7 @@ struct RoutingWorkflowPersistenceTests {
       firstWorkflowID: firstWorkflowID,
       sourceID: sourceID,
       mixerID: mixerID,
+      delayID: delayID,
       selectedWorkflowID: secondWorkflowID
     )
   }
@@ -204,5 +227,6 @@ private struct Fixture {
   let firstWorkflowID: UUID
   let sourceID: UUID
   let mixerID: UUID
+  let delayID: UUID
   let selectedWorkflowID: UUID
 }

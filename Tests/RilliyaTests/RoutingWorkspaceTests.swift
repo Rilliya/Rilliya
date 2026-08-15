@@ -112,6 +112,32 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func delayInsertionBuildsOneTypedInputAndOutput() throws {
+    let model = RoutingWorkspaceModel()
+    let center = CGPoint(x: 420, y: 260)
+    let nodeID = model.addDelayNode(centeredAt: center)
+    let configuration = RoutingDelayConfiguration(
+      delaySeconds: 0.5,
+      feedback: 0.4,
+      dryWetMix: 0.75
+    )
+
+    model.configureDelay(configuration, for: nodeID)
+
+    let node = try #require(model.node(id: nodeID))
+    #expect(node.value == .delay(configuration: configuration))
+    #expect(CGPoint(x: node.frame.midX, y: node.frame.midY) == center)
+    let ports = RoutingGraphPorts.values(for: node)
+    #expect(ports.count == 2)
+    #expect(ports[0].direction == .input)
+    #expect(ports[0].audioChannel == .all)
+    #expect(ports[0].connectionPolicy == .singleInput)
+    #expect(ports[1].direction == .output)
+    #expect(ports[1].audioChannel == .all)
+    #expect(ports[1].connectionPolicy == .fanOut)
+  }
+
+  @Test @MainActor
   func inputAudioUsesPersistentDeviceIdentityAndRuntimeChannels() throws {
     let model = RoutingWorkspaceModel()
     let center = CGPoint(x: 420, y: 260)

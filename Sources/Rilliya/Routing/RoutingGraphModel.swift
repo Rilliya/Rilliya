@@ -123,12 +123,14 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
   case audioMixer(configuration: RoutingAudioMixerConfiguration)
   case peakLevel
   case signalGenerator(configuration: RoutingSignalGeneratorConfiguration)
+  case delay(configuration: RoutingDelayConfiguration)
 
   var applicationSelection: RoutingApplicationSelection? {
     switch self {
     case .applicationAudio(let selection, _):
       return selection
-    case .inputAudio, .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator:
+    case .inputAudio, .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator,
+      .delay:
       return nil
     }
   }
@@ -157,7 +159,7 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     switch self {
     case .applicationAudio(_, let presentation), .inputAudio(_, let presentation):
       return presentation
-    case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator:
+    case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay:
       return nil
     }
   }
@@ -170,7 +172,7 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return .applicationAudio(selection: selection, channelPresentation: presentation)
     case .inputAudio(let selection, _):
       return .inputAudio(selection: selection, channelPresentation: presentation)
-    case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator:
+    case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay:
       return nil
     }
   }
@@ -203,6 +205,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return "Peak Level"
     case .signalGenerator:
       return "Signal Generator"
+    case .delay:
+      return "Delay"
     }
   }
 }
@@ -347,6 +351,57 @@ struct RoutingSignalGeneratorConfiguration: Codable, Equatable, Hashable, Sendab
       )
     }
     self.init(waveform: waveform, frequency: frequency, amplitude: amplitude)
+  }
+}
+
+struct RoutingDelayConfiguration: Codable, Equatable, Hashable, Sendable {
+  static let minimumDelaySeconds = 0.001
+  static let maximumDelaySeconds = AudioDelayConfiguration.maximumDelaySeconds
+  static let maximumFeedback: Float = 0.95
+  static let initial = RoutingDelayConfiguration(
+    delaySeconds: 0.25,
+    feedback: 0.25,
+    dryWetMix: 0.5
+  )
+
+  var delaySeconds: Double
+  var feedback: Float
+  var dryWetMix: Float
+
+  init(delaySeconds: Double, feedback: Float, dryWetMix: Float) {
+    precondition(delaySeconds.isFinite)
+    precondition((Self.minimumDelaySeconds...Self.maximumDelaySeconds).contains(delaySeconds))
+    precondition(
+      feedback.isFinite && (-Self.maximumFeedback...Self.maximumFeedback).contains(feedback))
+    precondition(dryWetMix.isFinite && (0...1).contains(dryWetMix))
+    self.delaySeconds = delaySeconds
+    self.feedback = feedback
+    self.dryWetMix = dryWetMix
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let delaySeconds = try container.decode(Double.self, forKey: .delaySeconds)
+    let feedback = try container.decode(Float.self, forKey: .feedback)
+    let dryWetMix = try container.decode(Float.self, forKey: .dryWetMix)
+    guard delaySeconds.isFinite,
+      (Self.minimumDelaySeconds...Self.maximumDelaySeconds).contains(delaySeconds),
+      feedback.isFinite,
+      (-Self.maximumFeedback...Self.maximumFeedback).contains(feedback),
+      dryWetMix.isFinite,
+      (0...1).contains(dryWetMix)
+    else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .delaySeconds,
+        in: container,
+        debugDescription: "Delay parameters are outside the supported range."
+      )
+    }
+    self.init(
+      delaySeconds: delaySeconds,
+      feedback: feedback,
+      dryWetMix: dryWetMix
+    )
   }
 }
 
@@ -824,7 +879,7 @@ enum RoutingCanvasMetrics {
           RoutingAudioMixerLayout.nodeHeight(channelCount: configuration.channelCount)
         )
       )
-    case .peakLevel, .signalGenerator:
+    case .peakLevel, .signalGenerator, .delay:
       return baseNodeSize
     }
     return CGSize(
@@ -1082,6 +1137,25 @@ enum RoutingGraphPorts {
           ordinal: 0,
           total: 1
         )
+      ]
+    case .delay:
+      return [
+        RoutingGraphPortValue(
+          direction: .input,
+          channel: .all,
+          name: "Audio",
+          connectionPolicy: .singleInput,
+          ordinal: 0,
+          total: 1
+        ),
+        RoutingGraphPortValue(
+          direction: .output,
+          channel: .all,
+          name: "Delayed Audio",
+          connectionPolicy: .fanOut,
+          ordinal: 0,
+          total: 1
+        ),
       ]
     }
     return identities.enumerated().map { ordinal, identity in
