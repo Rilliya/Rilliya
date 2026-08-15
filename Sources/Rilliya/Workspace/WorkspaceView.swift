@@ -3,11 +3,14 @@ import SwiftUI
 
 struct WorkspaceView: View {
   @State private var state = WorkspaceState()
+  @State private var audioCatalog = AudioCatalogController()
 
   var body: some View {
     NavigationSplitView {
-      sidebar
-        .navigationSplitViewColumnWidth(min: 220, ideal: 250, max: 320)
+      AudioCatalogSidebar(state: audioCatalog.state) {
+        audioCatalog.refresh()
+      }
+      .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 400)
     } detail: {
       workspace
     }
@@ -15,35 +18,11 @@ struct WorkspaceView: View {
     .frame(minWidth: 760, minHeight: 500)
     .task {
       state.completeLaunch()
+      audioCatalog.start()
     }
-  }
-
-  private var sidebar: some View {
-    VStack(alignment: .leading, spacing: 24) {
-      VStack(alignment: .leading, spacing: 8) {
-        Text("Rilliya")
-          .font(.system(size: 24, weight: .semibold, design: .rounded))
-        FlowingBadge(
-          state.presentation.status,
-          systemImage: "sparkles",
-          tone: .accent
-        )
-      }
-
-      FlowingSection(
-        "Sources",
-        footer: "Applications and audio devices will remain distinct sources."
-      ) {
-        Label("No sources loaded", systemImage: "waveform.badge.plus")
-          .font(.callout)
-          .foregroundStyle(.secondary)
-          .padding(14)
-          .frame(maxWidth: .infinity, alignment: .leading)
-      }
-
-      Spacer(minLength: 0)
+    .onDisappear {
+      audioCatalog.stop()
     }
-    .padding(20)
   }
 
   private var workspace: some View {
