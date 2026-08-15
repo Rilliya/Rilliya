@@ -244,6 +244,83 @@ struct RoutingPreparedAudioGraphTests {
   }
 
   @Test
+  func noiseGateAttenuatesQuietFramesInsideThePreparedRenderGraph() throws {
+    let sourceID = UUID()
+    let gateID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(channelCount: 2)
+    try write([[0.01, 0.2, 0.01], [0.005, 0.02, 0.005]], to: buffer)
+    let renderer = try makeRenderer(
+      nodes: [
+        sourceNode(id: sourceID, channelCount: 2),
+        noiseGateNode(id: gateID),
+        outputNode(id: outputID),
+      ],
+      edges: [
+        edge(from: sourceID, .all, to: gateID, .all),
+        edge(from: gateID, .all, to: outputID, .all),
+      ],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer]
+    )
+
+    let rendered = render(renderer, channelCount: 2, frameCount: 3)
+
+    #expect(rendered.result == .rendered)
+    #expect(abs(rendered.channels[0][0] - 0.0001) < 0.000_001)
+    #expect(rendered.channels[0][1] == 0.2)
+    #expect(abs(rendered.channels[1][0] - 0.00005) < 0.000_001)
+    #expect(rendered.channels[1][1] == 0.02)
+  }
+
+  @Test
+  func noiseGateControlUpdatesApplyWithoutRebuildingThePreparedGraph() throws {
+    let sourceID = UUID()
+    let gateID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(channelCount: 1)
+    try write([[0.01, 0.01]], to: buffer)
+    let renderer = try makeRenderer(
+      nodes: [
+        sourceNode(id: sourceID, channelCount: 1),
+        noiseGateNode(id: gateID),
+        outputNode(id: outputID),
+      ],
+      edges: [
+        edge(from: sourceID, .all, to: gateID, .all),
+        edge(from: gateID, .all, to: outputID, .all),
+      ],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer],
+      outputChannelCount: 1
+    )
+    let updatedGate = noiseGateNode(
+      id: gateID,
+      configuration: RoutingNoiseGateConfiguration(
+        thresholdDecibels: -20,
+        hysteresisDecibels: 6,
+        attackSeconds: 0,
+        holdSeconds: 0,
+        releaseSeconds: 0,
+        reductionDecibels: 20
+      )
+    )
+
+    let initial = render(renderer, channelCount: 1, frameCount: 1)
+    try renderer.updateControls(
+      nodes: [
+        sourceNode(id: sourceID, channelCount: 1),
+        updatedGate,
+        outputNode(id: outputID),
+      ]
+    )
+    let updated = render(renderer, channelCount: 1, frameCount: 1)
+
+    #expect(abs(initial.channels[0][0] - 0.0001) < 0.000_001)
+    #expect(abs(updated.channels[0][0] - 0.001) < 0.000_001)
+  }
+
+  @Test
   func mixerSumsInputsAndAppliesOutputControl() throws {
     let firstSourceID = UUID()
     let secondSourceID = UUID()
@@ -427,6 +504,24 @@ struct RoutingPreparedAudioGraphTests {
           dryWetMix: 1
         )
       ),
+      frame: .zero
+    )
+  }
+
+  private func noiseGateNode(
+    id: UUID,
+    configuration: RoutingNoiseGateConfiguration = RoutingNoiseGateConfiguration(
+      thresholdDecibels: -20,
+      hysteresisDecibels: 6,
+      attackSeconds: 0,
+      holdSeconds: 0,
+      releaseSeconds: 0,
+      reductionDecibels: 40
+    )
+  ) -> RoutingWorkspaceNode {
+    RoutingWorkspaceNode(
+      id: id,
+      value: .noiseGate(configuration: configuration),
       frame: .zero
     )
   }

@@ -84,6 +84,17 @@ private struct RoutingAudioOutputNodeConfiguration: Equatable, Sendable {
   let value: RoutingNodeValue
 }
 
+extension RoutingNodeValue {
+  fileprivate var audioOutputTopologySignatureValue: RoutingNodeValue {
+    switch self {
+    case .noiseGate:
+      .noiseGate(configuration: .initial)
+    default:
+      self
+    }
+  }
+}
+
 private struct RoutingAudioOutputBufferIdentity: Equatable, Sendable {
   let nodeID: UUID
   let identity: ObjectIdentifier
@@ -353,7 +364,8 @@ final class RoutingAudioOutputController {
             buffer = captureController.frameBuffer(for: node.id)
           case .inputAudio:
             buffer = inputCaptureController.frameBuffer(for: node.id)
-          case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay:
+          case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay,
+            .noiseGate:
             continue
           }
           guard let buffer else {
@@ -387,7 +399,7 @@ final class RoutingAudioOutputController {
           nodes: sortedNodes.map {
             RoutingAudioOutputNodeConfiguration(
               id: $0.id,
-              value: $0.value
+              value: $0.value.audioOutputTopologySignatureValue
             )
           },
           edges: sortedEdges,

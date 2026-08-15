@@ -38,7 +38,8 @@ struct WorkspaceView: View {
         insertAudioMixer: insertAudioMixer,
         insertPeakLevel: insertPeakLevel,
         insertSignalGenerator: insertSignalGenerator,
-        insertDelay: insertDelay
+        insertDelay: insertDelay,
+        insertNoiseGate: insertNoiseGate
       ) {
         RoutingWorkflowSwitcher(
           library: workflowLibrary,
@@ -373,6 +374,17 @@ struct WorkspaceView: View {
   private func insertDelay() {
     let workflow = workflowLibrary.selectedWorkflow
     let nodeID = workflow.workspace.addDelayNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
+      )
+    )
+    selectNode(nodeID, in: workflow)
+  }
+
+  private func insertNoiseGate() {
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addNoiseGateNode(
       centeredAt: RoutingNodeInsertion.point(
         in: workflow.canvasSession.viewport.visibleWorldRect,
         existingNodeCount: workflow.workspace.nodes.count

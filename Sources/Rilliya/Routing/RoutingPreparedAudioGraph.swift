@@ -96,6 +96,14 @@ final class RoutingPreparedAudioGraphSource: PreparedAudioSource, @unchecked Sen
             storage: storage
           )
         )
+      case .noiseGate(let noiseGate):
+        return .noiseGate(
+          try RoutingPreparedNoiseGateOperation(
+            plan: noiseGate,
+            preparation: preparation,
+            storage: storage
+          )
+        )
       }
     }
     finalMix = try RoutingPreparedMixOperation(
@@ -157,6 +165,13 @@ private struct RoutingDelayPlan {
   let outputBufferIndices: [Int]
 }
 
+private struct RoutingNoiseGatePlan {
+  let nodeID: UUID
+  let configuration: RoutingNoiseGateConfiguration
+  let inputBufferIndices: [Int]
+  let outputBufferIndices: [Int]
+}
+
 private struct RoutingPreparedControlAddress {
   let nodeID: UUID
   let channelIndex: Int
@@ -183,6 +198,7 @@ private enum RoutingPreparedAudioOperationPlan {
   case gain(RoutingGainPlan)
   case mix(RoutingMixPlan)
   case delay(RoutingDelayPlan)
+  case noiseGate(RoutingNoiseGatePlan)
 }
 
 private struct RoutingPreparedAudioGraphPlan {
@@ -295,6 +311,13 @@ private struct RoutingPreparedAudioGraphCompiler {
       signal = try mixerSignal(node: node, address: address, visited: visited)
     case .delay(let configuration):
       signal = try delaySignal(
+        nodeID: node.id,
+        address: address,
+        configuration: configuration,
+        visited: visited
+      )
+    case .noiseGate(let configuration):
+      signal = try noiseGateSignal(
         nodeID: node.id,
         address: address,
         configuration: configuration,
@@ -497,6 +520,40 @@ private struct RoutingPreparedAudioGraphCompiler {
     }
   }
 
+  private mutating func noiseGateSignal(
+    nodeID: UUID,
+    address: RoutingWorkspacePortAddress,
+    configuration: RoutingNoiseGateConfiguration,
+    visited: Set<RoutingWorkspacePortAddress>
+  ) throws -> [RoutingCompiledAudioChannel] {
+    guard address.portID.audioChannel == .all else {
+      throw RoutingPreparedAudioGraphError.invalidRoute
+    }
+    guard
+      let edge = sortedIncomingEdges(for: nodeID).first(where: {
+        $0.target.portID.audioChannel == .all
+      })
+    else {
+      return []
+    }
+    let input = try resolveOutput(edge.source, visited: visited)
+    guard !input.isEmpty else { return [] }
+    let outputIndices = allocateBuffers(count: input.count)
+    operationPlans.append(
+      .noiseGate(
+        RoutingNoiseGatePlan(
+          nodeID: nodeID,
+          configuration: configuration,
+          inputBufferIndices: input.map(\.bufferIndex),
+          outputBufferIndices: outputIndices
+        )
+      )
+    )
+    return zip(input, outputIndices).map {
+      RoutingCompiledAudioChannel(channelIndex: $0.0.channelIndex, bufferIndex: $0.1)
+    }
+  }
+
   private mutating func makeMixSignal(
     _ inputs: [RoutingCompiledAudioChannel],
     destinationChannel: Int,
@@ -650,6 +707,7 @@ private enum RoutingPreparedAudioOperation {
   case gain(RoutingPreparedGainOperation)
   case mix(RoutingPreparedMixOperation)
   case delay(RoutingPreparedDelayOperation)
+  case noiseGate(RoutingPreparedNoiseGateOperation)
 
   func render(frameCount: Int) -> AudioRenderResult {
     switch self {
@@ -663,6 +721,8 @@ private enum RoutingPreparedAudioOperation {
       operation.render(frameCount: frameCount)
     case .delay(let operation):
       operation.render(frameCount: frameCount)
+    case .noiseGate(let operation):
+      operation.render(frameCount: frameCount)
     }
   }
 
@@ -671,6 +731,8 @@ private enum RoutingPreparedAudioOperation {
     case .gain(let operation):
       try operation.updateControls(nodesByID: nodesByID)
     case .mix(let operation):
+      try operation.updateControls(nodesByID: nodesByID)
+    case .noiseGate(let operation):
       try operation.updateControls(nodesByID: nodesByID)
     case .generator, .captureRead, .delay:
       break
@@ -809,6 +871,70 @@ private final class RoutingPreparedDelayOperation {
       inputChannels: inputs.immutableBuffer,
       outputChannels: outputs.mutableBuffer,
       frameCount: frameCount
+    )
+  }
+}
+
+private final class RoutingPreparedNoiseGateOperation {
+  private let nodeID: UUID
+  private let processor: PreparedAudioNoiseGateProcessor
+  private let inputs: RoutingPreparedPointerList
+  private let outputs: RoutingPreparedPointerList
+
+  init(
+    plan: RoutingNoiseGatePlan,
+    preparation: AudioRenderPreparation,
+    storage: RoutingPreparedAudioStorage
+  ) throws {
+    precondition(!plan.inputBufferIndices.isEmpty)
+    precondition(plan.inputBufferIndices.count == plan.outputBufferIndices.count)
+    nodeID = plan.nodeID
+    processor = try PreparedAudioNoiseGateProcessor(
+      preparation: AudioRenderPreparation(
+        format: AudioProcessingFormat(
+          sampleRate: preparation.format.sampleRate,
+          channelCount: plan.inputBufferIndices.count
+        ),
+        maximumFrameCount: preparation.maximumFrameCount
+      ),
+      configuration: AudioNoiseGateConfiguration(
+        thresholdDecibels: plan.configuration.thresholdDecibels,
+        hysteresisDecibels: plan.configuration.hysteresisDecibels,
+        attackSeconds: plan.configuration.attackSeconds,
+        holdSeconds: plan.configuration.holdSeconds,
+        releaseSeconds: plan.configuration.releaseSeconds,
+        reductionDecibels: plan.configuration.reductionDecibels
+      )
+    )
+    inputs = RoutingPreparedPointerList(
+      bufferIndices: plan.inputBufferIndices,
+      storage: storage
+    )
+    outputs = RoutingPreparedPointerList(
+      bufferIndices: plan.outputBufferIndices,
+      storage: storage
+    )
+  }
+
+  func render(frameCount: Int) -> AudioRenderResult {
+    processor.process(
+      inputChannels: inputs.immutableBuffer,
+      outputChannels: outputs.mutableBuffer,
+      frameCount: frameCount
+    )
+  }
+
+  func updateControls(nodesByID: [UUID: RoutingWorkspaceNode]) throws {
+    guard case .noiseGate(let configuration) = nodesByID[nodeID]?.value else { return }
+    try processor.setConfiguration(
+      AudioNoiseGateConfiguration(
+        thresholdDecibels: configuration.thresholdDecibels,
+        hysteresisDecibels: configuration.hysteresisDecibels,
+        attackSeconds: configuration.attackSeconds,
+        holdSeconds: configuration.holdSeconds,
+        releaseSeconds: configuration.releaseSeconds,
+        reductionDecibels: configuration.reductionDecibels
+      )
     )
   }
 }

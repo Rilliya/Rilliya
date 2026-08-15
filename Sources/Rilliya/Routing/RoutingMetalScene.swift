@@ -96,6 +96,8 @@ struct RoutingMetalScene {
         return "Signal Generator"
       case .delay:
         return "Delay"
+      case .noiseGate:
+        return "Noise Gate"
       }
     }
 
@@ -128,6 +130,8 @@ struct RoutingMetalScene {
         return configuration.delaySeconds.formatted(
           .number.precision(.fractionLength(2))
         ) + " s"
+      case .noiseGate(let configuration):
+        return "\(Int(configuration.thresholdDecibels.rounded())) dBFS threshold"
       }
     }
 
@@ -178,6 +182,8 @@ struct RoutingMetalScene {
         return "Ready to route"
       case .delay:
         return "Ready to route"
+      case .noiseGate:
+        return "Ready to route"
       }
     }
 
@@ -224,7 +230,7 @@ struct RoutingMetalScene {
         return selection != nil
       case .outputAudio(let selection, _):
         return selection != nil
-      case .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay:
+      case .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay, .noiseGate:
         return false
       }
     }
@@ -239,7 +245,7 @@ struct RoutingMetalScene {
       case .applicationAudio:
         supplement.applicationIcon == nil
       case .inputAudio, .outputAudio, .visualizer, .audioMixer, .peakLevel,
-        .signalGenerator, .delay:
+        .signalGenerator, .delay, .noiseGate:
         true
       }
     }
@@ -262,6 +268,8 @@ struct RoutingMetalScene {
         return "waveform.path"
       case .delay:
         return "clock.arrow.trianglehead.counterclockwise.rotate.90"
+      case .noiseGate:
+        return "waveform.badge.minus"
       }
     }
 
@@ -285,7 +293,7 @@ struct RoutingMetalScene {
       case .audioMixer:
         return true
       case .applicationAudio, .inputAudio, .outputAudio, .visualizer, .peakLevel,
-        .signalGenerator, .delay:
+        .signalGenerator, .delay, .noiseGate:
         return false
       }
     }

@@ -124,13 +124,14 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
   case peakLevel
   case signalGenerator(configuration: RoutingSignalGeneratorConfiguration)
   case delay(configuration: RoutingDelayConfiguration)
+  case noiseGate(configuration: RoutingNoiseGateConfiguration)
 
   var applicationSelection: RoutingApplicationSelection? {
     switch self {
     case .applicationAudio(let selection, _):
       return selection
     case .inputAudio, .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator,
-      .delay:
+      .delay, .noiseGate:
       return nil
     }
   }
@@ -159,7 +160,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     switch self {
     case .applicationAudio(_, let presentation), .inputAudio(_, let presentation):
       return presentation
-    case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay:
+    case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay,
+      .noiseGate:
       return nil
     }
   }
@@ -172,7 +174,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return .applicationAudio(selection: selection, channelPresentation: presentation)
     case .inputAudio(let selection, _):
       return .inputAudio(selection: selection, channelPresentation: presentation)
-    case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay:
+    case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator, .delay,
+      .noiseGate:
       return nil
     }
   }
@@ -207,6 +210,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return "Signal Generator"
     case .delay:
       return "Delay"
+    case .noiseGate:
+      return "Noise Gate"
     }
   }
 }
@@ -402,6 +407,117 @@ struct RoutingDelayConfiguration: Codable, Equatable, Hashable, Sendable {
       feedback: feedback,
       dryWetMix: dryWetMix
     )
+  }
+}
+
+struct RoutingNoiseGateConfiguration: Codable, Equatable, Hashable, Sendable {
+  static let minimumThresholdDecibels: Float = -96
+  static let maximumThresholdDecibels: Float = 0
+  static let maximumHysteresisDecibels: Float = 24
+  static let maximumAttackSeconds = 1.0
+  static let maximumHoldSeconds = 5.0
+  static let maximumReleaseSeconds = 10.0
+  static let maximumReductionDecibels: Float = 96
+  static let initial = RoutingNoiseGateConfiguration(
+    thresholdDecibels: -40,
+    hysteresisDecibels: 6,
+    attackSeconds: 0.005,
+    holdSeconds: 0.05,
+    releaseSeconds: 0.15,
+    reductionDecibels: 60
+  )
+
+  var thresholdDecibels: Float
+  var hysteresisDecibels: Float
+  var attackSeconds: Double
+  var holdSeconds: Double
+  var releaseSeconds: Double
+  var reductionDecibels: Float
+
+  init(
+    thresholdDecibels: Float,
+    hysteresisDecibels: Float,
+    attackSeconds: Double,
+    holdSeconds: Double,
+    releaseSeconds: Double,
+    reductionDecibels: Float
+  ) {
+    precondition(Self.isValidThreshold(thresholdDecibels))
+    precondition(Self.isValidHysteresis(hysteresisDecibels))
+    precondition(Self.isValidAttack(attackSeconds))
+    precondition(Self.isValidHold(holdSeconds))
+    precondition(Self.isValidRelease(releaseSeconds))
+    precondition(Self.isValidReduction(reductionDecibels))
+    self.thresholdDecibels = thresholdDecibels
+    self.hysteresisDecibels = hysteresisDecibels
+    self.attackSeconds = attackSeconds
+    self.holdSeconds = holdSeconds
+    self.releaseSeconds = releaseSeconds
+    self.reductionDecibels = reductionDecibels
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let threshold = try container.decode(Float.self, forKey: .thresholdDecibels)
+    let hysteresis = try container.decode(Float.self, forKey: .hysteresisDecibels)
+    let attack = try container.decode(Double.self, forKey: .attackSeconds)
+    let hold = try container.decode(Double.self, forKey: .holdSeconds)
+    let release = try container.decode(Double.self, forKey: .releaseSeconds)
+    let reduction = try container.decode(Float.self, forKey: .reductionDecibels)
+    guard Self.isValidThreshold(threshold),
+      Self.isValidHysteresis(hysteresis),
+      Self.isValidAttack(attack),
+      Self.isValidHold(hold),
+      Self.isValidRelease(release),
+      Self.isValidReduction(reduction)
+    else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .thresholdDecibels,
+        in: container,
+        debugDescription: "Noise-gate parameters are outside the supported range."
+      )
+    }
+    self.init(
+      thresholdDecibels: threshold,
+      hysteresisDecibels: hysteresis,
+      attackSeconds: attack,
+      holdSeconds: hold,
+      releaseSeconds: release,
+      reductionDecibels: reduction
+    )
+  }
+
+  private static func isValidThreshold(_ value: Float) -> Bool {
+    value.isFinite && (minimumThresholdDecibels...maximumThresholdDecibels).contains(value)
+  }
+
+  private static func isValidHysteresis(_ value: Float) -> Bool {
+    value.isFinite && (0...maximumHysteresisDecibels).contains(value)
+  }
+
+  private static func isValidAttack(_ value: Double) -> Bool {
+    value.isFinite && (0...maximumAttackSeconds).contains(value)
+  }
+
+  private static func isValidHold(_ value: Double) -> Bool {
+    value.isFinite && (0...maximumHoldSeconds).contains(value)
+  }
+
+  private static func isValidRelease(_ value: Double) -> Bool {
+    value.isFinite && (0...maximumReleaseSeconds).contains(value)
+  }
+
+  private static func isValidReduction(_ value: Float) -> Bool {
+    value.isFinite && (0...maximumReductionDecibels).contains(value)
+  }
+
+  var isValid: Bool {
+    Self.isValidThreshold(thresholdDecibels)
+      && Self.isValidHysteresis(hysteresisDecibels)
+      && Self.isValidAttack(attackSeconds)
+      && Self.isValidHold(holdSeconds)
+      && Self.isValidRelease(releaseSeconds)
+      && Self.isValidReduction(reductionDecibels)
   }
 }
 
@@ -887,7 +1003,7 @@ enum RoutingCanvasMetrics {
           RoutingAudioMixerLayout.nodeHeight(channelCount: configuration.channelCount)
         )
       )
-    case .peakLevel, .signalGenerator, .delay:
+    case .peakLevel, .signalGenerator, .delay, .noiseGate:
       return baseNodeSize
     }
     return CGSize(
@@ -1147,24 +1263,9 @@ enum RoutingGraphPorts {
         )
       ]
     case .delay:
-      return [
-        RoutingGraphPortValue(
-          direction: .input,
-          channel: .all,
-          name: "Audio",
-          connectionPolicy: .singleInput,
-          ordinal: 0,
-          total: 1
-        ),
-        RoutingGraphPortValue(
-          direction: .output,
-          channel: .all,
-          name: "Delayed Audio",
-          connectionPolicy: .fanOut,
-          ordinal: 0,
-          total: 1
-        ),
-      ]
+      return effectValues(outputName: "Delayed Audio")
+    case .noiseGate:
+      return effectValues(outputName: "Gated Audio")
     }
     return identities.enumerated().map { ordinal, identity in
       RoutingGraphPortValue(
@@ -1178,6 +1279,27 @@ enum RoutingGraphPorts {
 
   static func portID(for value: RoutingGraphPortValue) -> RoutingGraphPortID {
     value.id
+  }
+
+  private static func effectValues(outputName: String) -> [RoutingGraphPortValue] {
+    [
+      RoutingGraphPortValue(
+        direction: .input,
+        channel: .all,
+        name: "Audio",
+        connectionPolicy: .singleInput,
+        ordinal: 0,
+        total: 1
+      ),
+      RoutingGraphPortValue(
+        direction: .output,
+        channel: .all,
+        name: outputName,
+        connectionPolicy: .fanOut,
+        ordinal: 0,
+        total: 1
+      ),
+    ]
   }
 
   private static func outputIdentities(

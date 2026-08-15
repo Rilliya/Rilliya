@@ -146,6 +146,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
   case peakLevel
   case signalGenerator
   case delay
+  case noiseGate
 
   var title: String {
     switch self {
@@ -157,6 +158,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .peakLevel: "Peak Level"
     case .signalGenerator: "Signal Generator"
     case .delay: "Delay"
+    case .noiseGate: "Noise Gate"
     }
   }
 
@@ -170,6 +172,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .peakLevel: "gauge.with.dots.needle.50percent"
     case .signalGenerator: "waveform.path"
     case .delay: "clock.arrow.trianglehead.counterclockwise.rotate.90"
+    case .noiseGate: "waveform.badge.minus"
     }
   }
 
@@ -181,6 +184,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .audioMixer, .peakLevel: .pollen
     case .signalGenerator: .poppy
     case .delay: .wisteria
+    case .noiseGate: .lagoon
     }
   }
 }
@@ -196,6 +200,7 @@ extension RoutingNodeValue {
     case .peakLevel: .peakLevel
     case .signalGenerator: .signalGenerator
     case .delay: .delay
+    case .noiseGate: .noiseGate
     }
   }
 }

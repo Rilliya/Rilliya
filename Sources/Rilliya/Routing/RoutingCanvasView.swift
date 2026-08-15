@@ -16,6 +16,7 @@ private enum RoutingPaletteItem: String, Codable, Transferable {
   case peakLevel = "moe.uwucocoa.rilliya.node.peak-level"
   case signalGenerator = "moe.uwucocoa.rilliya.node.signal-generator"
   case delay = "moe.uwucocoa.rilliya.node.delay"
+  case noiseGate = "moe.uwucocoa.rilliya.node.noise-gate"
 
   var kind: RoutingNodeKind {
     switch self {
@@ -27,6 +28,7 @@ private enum RoutingPaletteItem: String, Codable, Transferable {
     case .peakLevel: .peakLevel
     case .signalGenerator: .signalGenerator
     case .delay: .delay
+    case .noiseGate: .noiseGate
     }
   }
 
@@ -290,6 +292,9 @@ struct RoutingCanvasView: View {
           case .delay(let configuration):
             DelayNodeView(configuration: configuration, context: context)
               .zIndex(context.isSelected ? 2 : 1)
+          case .noiseGate(let configuration):
+            NoiseGateNodeView(configuration: configuration, context: context)
+              .zIndex(context.isSelected ? 2 : 1)
           }
         }
         .flowingAccent(resolvedAccentID(for: node).accent)
@@ -428,6 +433,8 @@ struct RoutingCanvasView: View {
       case .signalGenerator:
         supplements[node.id] = .empty
       case .delay:
+        supplements[node.id] = .empty
+      case .noiseGate:
         supplements[node.id] = .empty
       }
     }
@@ -640,6 +647,10 @@ struct RoutingCanvasView: View {
       SelectedDelayInspector(configuration: configuration) { updated in
         workspace.configureDelay(updated, for: node.id)
       }
+    case .noiseGate(let configuration):
+      SelectedNoiseGateInspector(configuration: configuration) { updated in
+        workspace.configureNoiseGate(updated, for: node.id)
+      }
     }
   }
 
@@ -810,6 +821,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   let insertPeakLevel: () -> Void
   let insertSignalGenerator: () -> Void
   let insertDelay: () -> Void
+  let insertNoiseGate: () -> Void
   let workflowNavigation: WorkflowNavigation
 
   init(
@@ -824,6 +836,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     insertPeakLevel: @escaping () -> Void,
     insertSignalGenerator: @escaping () -> Void,
     insertDelay: @escaping () -> Void,
+    insertNoiseGate: @escaping () -> Void,
     @ViewBuilder workflowNavigation: () -> WorkflowNavigation
   ) {
     self.applicationCatalog = applicationCatalog
@@ -837,6 +850,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     self.insertPeakLevel = insertPeakLevel
     self.insertSignalGenerator = insertSignalGenerator
     self.insertDelay = insertDelay
+    self.insertNoiseGate = insertNoiseGate
     self.workflowNavigation = workflowNavigation()
   }
 
@@ -870,6 +884,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
               peakLevelItem
               signalGeneratorItem
               delayItem
+              noiseGateItem
             }
           }
 
@@ -997,6 +1012,19 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       veil: accent(for: .delay).veil,
       allowsClickInsertion: allowsClickInsertion,
       action: insertDelay
+    )
+  }
+
+  private var noiseGateItem: some View {
+    RoutingPaletteNodeItem(
+      item: .noiseGate,
+      title: "Noise Gate",
+      subtitle: "Attenuate quiet passages",
+      systemImage: "waveform.badge.minus",
+      foreground: accent(for: .noiseGate).foreground,
+      veil: accent(for: .noiseGate).veil,
+      allowsClickInsertion: allowsClickInsertion,
+      action: insertNoiseGate
     )
   }
 
@@ -1238,6 +1266,12 @@ private struct RoutingCanvasDropPreview: View {
         "Delay",
         "250 ms · 50% wet",
         "clock.arrow.trianglehead.counterclockwise.rotate.90"
+      )
+    case .noiseGate:
+      return (
+        "Noise Gate",
+        "−40 dBFS threshold",
+        "waveform.badge.minus"
       )
     }
   }
@@ -2005,6 +2039,64 @@ private struct DelayNodeView: View {
     return configuration.delaySeconds.formatted(
       .number.precision(.fractionLength(2))
     ) + " s"
+  }
+}
+
+private struct NoiseGateNodeView: View {
+  let configuration: RoutingNoiseGateConfiguration
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  @Environment(\.flowingAccent) private var accent
+
+  var body: some View {
+    FlowingCard(
+      spacing: 10,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      HStack(spacing: 9) {
+        Image(systemName: "waveform.badge.minus")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(accent.foreground)
+        VStack(alignment: .leading, spacing: 1) {
+          Text("Noise Gate")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text("\(Int(configuration.thresholdDecibels.rounded())) dBFS threshold")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(FlowingPalette.muted)
+        }
+        Spacer(minLength: 0)
+      }
+
+      Text("\(Int(configuration.reductionDecibels.rounded())) dB reduction")
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(FlowingPalette.muted)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+        .background(
+          accent.wash,
+          in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .padding(.horizontal, RoutingVisualizerLayout.portLabelGutter)
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width,
+      height: RoutingCanvasMetrics.baseNodeSize.height
+    )
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width * context.renderScale,
+      height: RoutingCanvasMetrics.baseNodeSize.height * context.renderScale,
+      alignment: .topLeading
+    )
   }
 }
 
@@ -3445,6 +3537,192 @@ private struct SelectedDelayInspector: View {
     return configuration.delaySeconds.formatted(
       .number.precision(.fractionLength(2))
     ) + " seconds"
+  }
+}
+
+private struct SelectedNoiseGateInspector: View {
+  let configuration: RoutingNoiseGateConfiguration
+  let updateConfiguration: (RoutingNoiseGateConfiguration) -> Void
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Noise Gate")
+          .font(.headline)
+          .foregroundStyle(FlowingPalette.ink)
+        Text("Attenuate quiet passages without changing channel balance.")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      parameterSlider(
+        title: "Threshold",
+        value: threshold,
+        range: thresholdRange,
+        formattedValue: "\(Int(configuration.thresholdDecibels.rounded())) dBFS",
+        accessibilityFormat: { "\(Int($0.rounded())) decibels full scale" }
+      )
+      parameterSlider(
+        title: "Hysteresis",
+        value: hysteresis,
+        range: 0...Double(RoutingNoiseGateConfiguration.maximumHysteresisDecibels),
+        formattedValue: "\(Int(configuration.hysteresisDecibels.rounded())) dB",
+        accessibilityFormat: { "\(Int($0.rounded())) decibels" }
+      )
+      parameterSlider(
+        title: "Attack",
+        value: attack,
+        range: 0...RoutingNoiseGateConfiguration.maximumAttackSeconds,
+        formattedValue: durationDescription(configuration.attackSeconds),
+        accessibilityFormat: durationDescription
+      )
+      parameterSlider(
+        title: "Hold",
+        value: hold,
+        range: 0...RoutingNoiseGateConfiguration.maximumHoldSeconds,
+        formattedValue: durationDescription(configuration.holdSeconds),
+        accessibilityFormat: durationDescription
+      )
+      parameterSlider(
+        title: "Release",
+        value: release,
+        range: 0...RoutingNoiseGateConfiguration.maximumReleaseSeconds,
+        formattedValue: durationDescription(configuration.releaseSeconds),
+        accessibilityFormat: durationDescription
+      )
+      parameterSlider(
+        title: "Reduction",
+        value: reduction,
+        range: 0...Double(RoutingNoiseGateConfiguration.maximumReductionDecibels),
+        formattedValue: "\(Int(configuration.reductionDecibels.rounded())) dB",
+        accessibilityFormat: { "\(Int($0.rounded())) decibels" }
+      )
+
+      FlowingCallout(
+        "A gate quiets low-level passages; it does not remove noise while wanted audio is present. Detection is linked across every routed channel to preserve the sound image.",
+        title: "Realtime Gate",
+        systemImage: "waveform.badge.minus",
+        tone: .neutral
+      )
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  private func parameterSlider(
+    title: String,
+    value: Binding<Double>,
+    range: ClosedRange<Double>,
+    formattedValue: String,
+    accessibilityFormat: @escaping (Double) -> String
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      HStack {
+        Text(title)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+        Spacer(minLength: 8)
+        Text(formattedValue)
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(FlowingPalette.ink)
+      }
+      FlowingSlider(title, value: value, in: range, formatValue: accessibilityFormat)
+    }
+  }
+
+  private var threshold: Binding<Double> {
+    Binding(
+      get: { Double(configuration.thresholdDecibels) },
+      set: { value in
+        var updated = configuration
+        updated.thresholdDecibels = Float(
+          min(
+            max(value, Double(RoutingNoiseGateConfiguration.minimumThresholdDecibels)),
+            Double(RoutingNoiseGateConfiguration.maximumThresholdDecibels)
+          )
+        )
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var thresholdRange: ClosedRange<Double> {
+    let minimum = Double(RoutingNoiseGateConfiguration.minimumThresholdDecibels)
+    let maximum = Double(RoutingNoiseGateConfiguration.maximumThresholdDecibels)
+    return minimum...maximum
+  }
+
+  private var hysteresis: Binding<Double> {
+    boundedFloatBinding(
+      keyPath: \.hysteresisDecibels,
+      range: 0...Double(RoutingNoiseGateConfiguration.maximumHysteresisDecibels)
+    )
+  }
+
+  private var reduction: Binding<Double> {
+    boundedFloatBinding(
+      keyPath: \.reductionDecibels,
+      range: 0...Double(RoutingNoiseGateConfiguration.maximumReductionDecibels)
+    )
+  }
+
+  private var attack: Binding<Double> {
+    boundedDoubleBinding(
+      keyPath: \.attackSeconds,
+      range: 0...RoutingNoiseGateConfiguration.maximumAttackSeconds
+    )
+  }
+
+  private var hold: Binding<Double> {
+    boundedDoubleBinding(
+      keyPath: \.holdSeconds,
+      range: 0...RoutingNoiseGateConfiguration.maximumHoldSeconds
+    )
+  }
+
+  private var release: Binding<Double> {
+    boundedDoubleBinding(
+      keyPath: \.releaseSeconds,
+      range: 0...RoutingNoiseGateConfiguration.maximumReleaseSeconds
+    )
+  }
+
+  private func boundedFloatBinding(
+    keyPath: WritableKeyPath<RoutingNoiseGateConfiguration, Float>,
+    range: ClosedRange<Double>
+  ) -> Binding<Double> {
+    Binding(
+      get: { Double(configuration[keyPath: keyPath]) },
+      set: { value in
+        var updated = configuration
+        updated[keyPath: keyPath] = Float(min(max(value, range.lowerBound), range.upperBound))
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private func boundedDoubleBinding(
+    keyPath: WritableKeyPath<RoutingNoiseGateConfiguration, Double>,
+    range: ClosedRange<Double>
+  ) -> Binding<Double> {
+    Binding(
+      get: { configuration[keyPath: keyPath] },
+      set: { value in
+        var updated = configuration
+        updated[keyPath: keyPath] = min(max(value, range.lowerBound), range.upperBound)
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private func durationDescription(_ seconds: Double) -> String {
+    if seconds < 1 {
+      return "\(Int((seconds * 1_000).rounded())) ms"
+    }
+    return seconds.formatted(.number.precision(.fractionLength(2))) + " s"
   }
 }
 

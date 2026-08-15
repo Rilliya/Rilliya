@@ -250,6 +250,28 @@ struct RoutingMetalSceneTests {
   }
 
   @Test @MainActor
+  func noiseGateCarriesItsConfigurationIntoTheGpuScene() throws {
+    let model = RoutingWorkspaceModel()
+    let nodeID = model.addNoiseGateNode(centeredAt: CGPoint(x: 100, y: 100))
+    var configuration = RoutingNoiseGateConfiguration.initial
+    configuration.thresholdDecibels = -36
+    configuration.reductionDecibels = 48
+    model.configureNoiseGate(configuration, for: nodeID)
+    let scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [:]
+    )
+    let node = try #require(scene.nodes.first)
+
+    #expect(node.title == "Noise Gate")
+    #expect(node.subtitle == "-36 dBFS threshold")
+    #expect(node.status == "Ready to route")
+    #expect(node.symbolName == "waveform.badge.minus")
+    #expect(node.miniMapStyleIndex == RoutingAccentID.lagoon.paletteIndex)
+    #expect(node.ports.count == 2)
+  }
+
+  @Test @MainActor
   func sceneUsesTheResolvedPerNodeAccent() throws {
     let model = RoutingWorkspaceModel()
     let nodeID = model.addVisualizerNode(centeredAt: CGPoint(x: 100, y: 100))

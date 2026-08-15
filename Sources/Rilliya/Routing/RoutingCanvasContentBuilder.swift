@@ -344,7 +344,8 @@ enum RoutingCanvasContentBuilder {
       )
       guard rowFrames.indices.contains(value.ordinal) else { return nil }
       return rowFrames[value.ordinal].midY
-    case .applicationAudio, .inputAudio, .outputAudio, .peakLevel, .signalGenerator, .delay:
+    case .applicationAudio, .inputAudio, .outputAudio, .peakLevel, .signalGenerator, .delay,
+      .noiseGate:
       return nil
     }
   }
@@ -382,6 +383,9 @@ enum RoutingCanvasContentBuilder {
     case .delay(let configuration):
       value = "\(Int((configuration.delaySeconds * 1_000).rounded())) milliseconds"
       hint = "Connect audio through this node to add a realtime delay."
+    case .noiseGate(let configuration):
+      value = "\(Int(configuration.thresholdDecibels.rounded())) decibels full scale threshold"
+      hint = "Connect audio through this node to attenuate quiet passages."
     }
     let identifier: String?
     if case .node(let nodeID) = node.address.elementID {

@@ -207,6 +207,8 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
           .contains(configuration.feedback)
         && configuration.dryWetMix.isFinite
         && (0...1).contains(configuration.dryWetMix)
+    case .noiseGate(let configuration):
+      return configuration.isValid
     }
   }
 

@@ -106,6 +106,8 @@ final class RoutingWorkspaceModel {
         .signalGenerator(configuration: .initial)
       case .delay:
         .delay(configuration: .initial)
+      case .noiseGate:
+        .noiseGate(configuration: .initial)
       }
     let nodeID = UUID()
     appendNode(id: nodeID, value: value, centeredAt: worldPoint)
@@ -305,6 +307,31 @@ final class RoutingWorkspaceModel {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
     let value = RoutingNodeValue.delay(configuration: .initial)
+    let size = RoutingCanvasMetrics.nodeSize(for: value)
+    nodes.append(
+      RoutingWorkspaceNode(
+        id: id,
+        value: value,
+        frame: CGRect(
+          x: worldPoint.x - size.width / 2,
+          y: worldPoint.y - size.height / 2,
+          width: size.width,
+          height: size.height
+        )
+      )
+    )
+    rebuildCanvas()
+    return id
+  }
+
+  @discardableResult
+  func addNoiseGateNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    let value = RoutingNodeValue.noiseGate(configuration: .initial)
     let size = RoutingCanvasMetrics.nodeSize(for: value)
     nodes.append(
       RoutingWorkspaceNode(
@@ -552,6 +579,20 @@ final class RoutingWorkspaceModel {
       return
     }
     nodes[index].value = .delay(configuration: configuration)
+    rebuildCanvas()
+  }
+
+  func configureNoiseGate(
+    _ configuration: RoutingNoiseGateConfiguration,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      case .noiseGate(let previous) = nodes[index].value,
+      previous != configuration
+    else {
+      return
+    }
+    nodes[index].value = .noiseGate(configuration: configuration)
     rebuildCanvas()
   }
 

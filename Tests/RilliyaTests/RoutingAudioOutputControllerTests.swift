@@ -76,6 +76,67 @@ struct RoutingAudioOutputControllerTests {
   }
 
   @Test @MainActor
+  func noiseGateControlUpdatesDoNotRestartOutputPlayback() async throws {
+    let generatorID = UUID()
+    let gateID = UUID()
+    let outputID = UUID()
+    let outputStarter = OutputTestPlaybackStarter()
+    let outputController = RoutingAudioOutputController(playbackStarter: outputStarter)
+    let captureController = RoutingCaptureController(captureStarter: OutputTestCaptureStarter())
+    let inputController = RoutingInputCaptureController()
+    let workflow = RoutingWorkflowModel(name: "Live Gate")
+    _ = workflow.workspace.addSignalGeneratorNode(centeredAt: .zero, id: generatorID)
+    _ = workflow.workspace.addNoiseGateNode(
+      centeredAt: CGPoint(x: 300, y: 0),
+      id: gateID
+    )
+    _ = workflow.workspace.addOutputAudioNode(
+      centeredAt: CGPoint(x: 600, y: 0),
+      id: outputID
+    )
+    let deviceID = try #require(AudioDeviceID(rawValue: "test.output"))
+    workflow.workspace.selectOutputDevice(
+      RoutingOutputDeviceSelection(id: deviceID, displayName: "Test Output"),
+      for: outputID
+    )
+    try connect(sourceID: generatorID, targetID: gateID, in: workflow.workspace)
+    try connect(sourceID: gateID, targetID: outputID, in: workflow.workspace)
+    workflow.run()
+
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: captureController,
+      inputCaptureController: inputController
+    )
+    #expect(await eventually { outputController.state(for: outputID).isRunning })
+    #expect(await outputStarter.startCount == 1)
+
+    workflow.workspace.configureNoiseGate(
+      RoutingNoiseGateConfiguration(
+        thresholdDecibels: -32,
+        hysteresisDecibels: 8,
+        attackSeconds: 0.01,
+        holdSeconds: 0.08,
+        releaseSeconds: 0.2,
+        reductionDecibels: 48
+      ),
+      for: gateID
+    )
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: captureController,
+      inputCaptureController: inputController
+    )
+    await Task.yield()
+
+    #expect(await outputStarter.startCount == 1)
+    #expect(await outputStarter.stopCount == 0)
+    #expect(outputController.state(for: outputID).isRunning)
+
+    outputController.stopAll()
+  }
+
+  @Test @MainActor
   func oneCaptureBufferCannotFeedTwoIndependentOutputClocks() async throws {
     let processID = try #require(AudioProcessID(rawValue: 142))
     let sourceID = UUID()

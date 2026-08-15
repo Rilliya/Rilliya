@@ -10,6 +10,24 @@ import Testing
 @MainActor
 struct RoutingWorkflowPersistenceTests {
   @Test
+  func noiseGateConfigurationRoundTripsThroughTheWorkflowValueCodec() throws {
+    let configuration = RoutingNoiseGateConfiguration(
+      thresholdDecibels: -34,
+      hysteresisDecibels: 8,
+      attackSeconds: 0.01,
+      holdSeconds: 0.08,
+      releaseSeconds: 0.2,
+      reductionDecibels: 54
+    )
+    let value = RoutingNodeValue.noiseGate(configuration: configuration)
+
+    let encoded = try JSONEncoder().encode(value)
+    let decoded = try JSONDecoder().decode(RoutingNodeValue.self, from: encoded)
+
+    #expect(decoded == value)
+  }
+
+  @Test
   func storeRoundTripRestoresGraphsSelectionViewportAndWorkflowOverrides() async throws {
     let fixture = try makeFixture()
     let store = RoutingWorkflowPersistenceStore(fileURL: fixture.fileURL)
