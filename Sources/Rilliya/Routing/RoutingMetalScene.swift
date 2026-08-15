@@ -13,6 +13,7 @@ struct RoutingMetalNodeSupplement: Equatable {
   let peakLevelSignal: RoutingPeakLevelSignal?
   let captureFormat: RoutingAudioCaptureFormat?
   let audioSourceMeters: [RoutingAudioChannelMeterSignal]
+  let audioChannelControls: [Int: RoutingAudioChannelControl]
   let applicationIcon: NSImage?
 
   init(
@@ -23,6 +24,7 @@ struct RoutingMetalNodeSupplement: Equatable {
     peakLevelSignal: RoutingPeakLevelSignal? = nil,
     captureFormat: RoutingAudioCaptureFormat? = nil,
     audioSourceMeters: [RoutingAudioChannelMeterSignal] = [],
+    audioChannelControls: [Int: RoutingAudioChannelControl] = [:],
     applicationIcon: NSImage? = nil
   ) {
     self.isRunning = isRunning
@@ -32,6 +34,7 @@ struct RoutingMetalNodeSupplement: Equatable {
     self.peakLevelSignal = peakLevelSignal
     self.captureFormat = captureFormat
     self.audioSourceMeters = audioSourceMeters
+    self.audioChannelControls = audioChannelControls
     self.applicationIcon = applicationIcon
   }
 
@@ -42,7 +45,8 @@ struct RoutingMetalNodeSupplement: Equatable {
     visualizerSignal: nil,
     peakLevelSignal: nil,
     captureFormat: nil,
-    audioSourceMeters: []
+    audioSourceMeters: [],
+    audioChannelControls: [:]
   )
 }
 

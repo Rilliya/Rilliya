@@ -202,6 +202,7 @@ final class RoutingWorkspaceModel {
       selection: selection,
       channelPresentation: channelPresentation
     )
+    nodes[index].audioChannelControls.removeAll(keepingCapacity: true)
     runtimeCaptureFormats[nodeID] = nil
     resizeNode(at: index)
     rebuildCanvas()
@@ -219,6 +220,7 @@ final class RoutingWorkspaceModel {
       selection: selection,
       channelPresentation: channelPresentation
     )
+    nodes[index].audioChannelControls.removeAll(keepingCapacity: true)
     runtimeCaptureFormats[nodeID] = nil
     resizeNode(at: index)
     rebuildCanvas()
@@ -485,6 +487,69 @@ final class RoutingWorkspaceModel {
       nodeID: nodeID,
       portID: portID
     )
+  }
+
+  func audioChannelControl(
+    nodeID: UUID,
+    channelIndex: Int
+  ) -> RoutingAudioChannelControl {
+    node(id: nodeID)?.audioChannelControl(at: channelIndex) ?? .unity
+  }
+
+  func setAudioChannelGain(
+    _ gainDecibels: Double,
+    nodeID: UUID,
+    channelIndex: Int
+  ) {
+    guard gainDecibels.isFinite else { return }
+    let clampedGain = min(
+      max(gainDecibels, RoutingAudioChannelControl.minimumGainDecibels),
+      RoutingAudioChannelControl.maximumGainDecibels
+    )
+    updateAudioChannelControl(nodeID: nodeID, channelIndex: channelIndex) { control in
+      control.gainDecibels = clampedGain
+    }
+  }
+
+  func setAudioChannelMuted(
+    _ isMuted: Bool,
+    nodeID: UUID,
+    channelIndex: Int
+  ) {
+    updateAudioChannelControl(nodeID: nodeID, channelIndex: channelIndex) { control in
+      control.isMuted = isMuted
+    }
+  }
+
+  func toggleAudioChannelMuted(nodeID: UUID, channelIndex: Int) {
+    let next = !audioChannelControl(nodeID: nodeID, channelIndex: channelIndex).isMuted
+    setAudioChannelMuted(next, nodeID: nodeID, channelIndex: channelIndex)
+  }
+
+  private func updateAudioChannelControl(
+    nodeID: UUID,
+    channelIndex: Int,
+    update: (inout RoutingAudioChannelControl) -> Void
+  ) {
+    guard
+      (0..<RoutingVisualizerConfiguration.maximumAvailableChannelCount).contains(
+        channelIndex
+      ),
+      let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      nodes[index].value.audioSourceChannelPresentation != nil
+    else {
+      return
+    }
+    var control = nodes[index].audioChannelControl(at: channelIndex)
+    let previous = control
+    update(&control)
+    guard control != previous else { return }
+    if control == .unity {
+      nodes[index].audioChannelControls[channelIndex] = nil
+    } else {
+      nodes[index].audioChannelControls[channelIndex] = control
+    }
+    persistenceRevision &+= 1
   }
 
   func isEdgeActive(_ edge: RoutingWorkspaceEdge) -> Bool {

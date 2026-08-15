@@ -36,12 +36,17 @@ enum RoutingVisualizerSignalBuilder {
   static func build(
     configuration: RoutingVisualizerConfiguration,
     incomingEdges: [RoutingWorkspaceEdge],
-    snapshotForNode: (UUID) -> (any RoutingAudioMeterSnapshot)?
+    snapshotForNode: (UUID) -> (any RoutingAudioMeterSnapshot)?,
+    channelControl: (UUID, Int) -> RoutingAudioChannelControl = { _, _ in .unity }
   ) -> RoutingVisualizerSignal? {
     switch configuration.mode {
     case .mixed:
       let routedWaveforms = incomingEdges.flatMap { edge in
-        routedWaveforms(for: edge, snapshotForNode: snapshotForNode)
+        routedWaveforms(
+          for: edge,
+          snapshotForNode: snapshotForNode,
+          channelControl: channelControl
+        )
       }
       guard let mixed = mix(routedWaveforms) else { return nil }
       return RoutingVisualizerSignal(
@@ -58,7 +63,11 @@ enum RoutingVisualizerSignalBuilder {
           continue
         }
         routedByTarget[targetChannel]?.append(
-          contentsOf: routedWaveforms(for: edge, snapshotForNode: snapshotForNode)
+          contentsOf: routedWaveforms(
+            for: edge,
+            snapshotForNode: snapshotForNode,
+            channelControl: channelControl
+          )
         )
       }
       let lanes = selectedChannels.map { channel in
@@ -74,18 +83,37 @@ enum RoutingVisualizerSignalBuilder {
 
   private static func routedWaveforms(
     for edge: RoutingWorkspaceEdge,
-    snapshotForNode: (UUID) -> (any RoutingAudioMeterSnapshot)?
+    snapshotForNode: (UUID) -> (any RoutingAudioMeterSnapshot)?,
+    channelControl: (UUID, Int) -> RoutingAudioChannelControl
   ) -> [[Float]] {
     guard let snapshot = snapshotForNode(edge.source.nodeID) else { return [] }
     switch edge.source.portID.audioChannel {
     case .some(.all):
-      return snapshot.channels.map(\.waveform)
+      return snapshot.channels.map { channel in
+        scaled(
+          channel.waveform,
+          by: channelControl(edge.source.nodeID, channel.channelID.index.rawValue).linearGain
+        )
+      }
     case .some(.channel(let channelIndex)):
       return snapshot.channels
         .filter { $0.channelID.index.rawValue == channelIndex }
-        .map(\.waveform)
+        .map {
+          scaled(
+            $0.waveform,
+            by: channelControl(edge.source.nodeID, channelIndex).linearGain
+          )
+        }
     case .none:
       return []
+    }
+  }
+
+  private static func scaled(_ samples: [Float], by gain: Float) -> [Float] {
+    guard gain != 1 else { return samples }
+    return samples.map { sample in
+      guard sample.isFinite else { return 0 }
+      return sample * gain
     }
   }
 

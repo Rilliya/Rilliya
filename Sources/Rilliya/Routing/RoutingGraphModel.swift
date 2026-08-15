@@ -143,6 +143,61 @@ enum RoutingChannelPresentation: Codable, Equatable, Hashable, Sendable {
   }
 }
 
+struct RoutingAudioChannelControl: Codable, Equatable, Hashable, Sendable {
+  static let minimumGainDecibels = -60.0
+  static let maximumGainDecibels = 12.0
+  static let unity = RoutingAudioChannelControl(gainDecibels: 0, isMuted: false)
+
+  var gainDecibels: Double
+  var isMuted: Bool
+
+  init(gainDecibels: Double, isMuted: Bool) {
+    precondition(gainDecibels.isFinite)
+    precondition(
+      (Self.minimumGainDecibels...Self.maximumGainDecibels).contains(gainDecibels)
+    )
+    self.gainDecibels = gainDecibels
+    self.isMuted = isMuted
+  }
+
+  var linearGain: Float {
+    guard !isMuted else { return 0 }
+    return Float(pow(10, gainDecibels / 20))
+  }
+
+  var gainDescription: String {
+    if gainDecibels == 0 { return "0 dB" }
+    return String(
+      format: "%+.0f dB",
+      locale: Locale(identifier: "en_US_POSIX"),
+      gainDecibels
+    )
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case gainDecibels
+    case isMuted
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let gainDecibels = try container.decode(Double.self, forKey: .gainDecibels)
+    guard gainDecibels.isFinite,
+      (Self.minimumGainDecibels...Self.maximumGainDecibels).contains(gainDecibels)
+    else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .gainDecibels,
+        in: container,
+        debugDescription: "Audio channel gain is outside the supported range."
+      )
+    }
+    self.init(
+      gainDecibels: gainDecibels,
+      isMuted: try container.decode(Bool.self, forKey: .isMuted)
+    )
+  }
+}
+
 extension RoutingNodeValue {
   var channelPresentation: RoutingChannelPresentation? {
     audioSourceChannelPresentation
@@ -240,21 +295,53 @@ struct RoutingWorkspaceNode: Codable, Equatable, Identifiable, Sendable {
   var value: RoutingNodeValue
   var frame: CGRect
   var disabledPortIDs: Set<RoutingGraphPortID>
+  var audioChannelControls: [Int: RoutingAudioChannelControl]
 
   init(
     id: UUID,
     value: RoutingNodeValue,
     frame: CGRect,
-    disabledPortIDs: Set<RoutingGraphPortID> = []
+    disabledPortIDs: Set<RoutingGraphPortID> = [],
+    audioChannelControls: [Int: RoutingAudioChannelControl] = [:]
   ) {
     self.id = id
     self.value = value
     self.frame = frame
     self.disabledPortIDs = disabledPortIDs
+    self.audioChannelControls = audioChannelControls
   }
 
   func isPortEnabled(_ portID: RoutingGraphPortID) -> Bool {
     !disabledPortIDs.contains(portID)
+  }
+
+  func audioChannelControl(at channelIndex: Int) -> RoutingAudioChannelControl {
+    audioChannelControls[channelIndex] ?? .unity
+  }
+
+  private enum CodingKeys: String, CodingKey {
+    case id
+    case value
+    case frame
+    case disabledPortIDs
+    case audioChannelControls
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    self.init(
+      id: try container.decode(UUID.self, forKey: .id),
+      value: try container.decode(RoutingNodeValue.self, forKey: .value),
+      frame: try container.decode(CGRect.self, forKey: .frame),
+      disabledPortIDs: try container.decodeIfPresent(
+        Set<RoutingGraphPortID>.self,
+        forKey: .disabledPortIDs
+      ) ?? [],
+      audioChannelControls: try container.decodeIfPresent(
+        [Int: RoutingAudioChannelControl].self,
+        forKey: .audioChannelControls
+      ) ?? [:]
+    )
   }
 }
 
@@ -522,7 +609,10 @@ enum RoutingAudioSourceLayout {
   static let rowHeight: CGFloat = 24
   static let rowSpacing: CGFloat = 4
   static let horizontalInset: CGFloat = 14
-  static let channelLabelWidth: CGFloat = 36
+  static let channelLabelWidth: CGFloat = 28
+  static let gainValueWidth: CGFloat = 38
+  static let muteButtonWidth: CGFloat = 20
+  static let controlSpacing: CGFloat = 5
   static let portLabelGutter: CGFloat = 42
   static let bottomInset: CGFloat = 12
 
@@ -541,6 +631,60 @@ enum RoutingAudioSourceLayout {
         height: rowHeight
       )
     }
+  }
+
+  static func gainTrackFrame(in rowFrame: CGRect) -> CGRect {
+    CGRect(
+      x: rowFrame.minX + channelLabelWidth,
+      y: rowFrame.midY - 4,
+      width: max(
+        1,
+        rowFrame.width - channelLabelWidth - gainValueWidth - muteButtonWidth
+          - controlSpacing * 2
+      ),
+      height: 8
+    )
+  }
+
+  static func gainValueFrame(in rowFrame: CGRect) -> CGRect {
+    let track = gainTrackFrame(in: rowFrame)
+    return CGRect(
+      x: track.maxX + controlSpacing,
+      y: rowFrame.minY,
+      width: gainValueWidth,
+      height: rowFrame.height
+    )
+  }
+
+  static func muteButtonFrame(in rowFrame: CGRect) -> CGRect {
+    CGRect(
+      x: rowFrame.maxX - muteButtonWidth,
+      y: rowFrame.midY - muteButtonWidth / 2,
+      width: muteButtonWidth,
+      height: muteButtonWidth
+    )
+  }
+
+  static func gainFraction(for gainDecibels: Double) -> CGFloat {
+    let range =
+      RoutingAudioChannelControl.maximumGainDecibels
+      - RoutingAudioChannelControl.minimumGainDecibels
+    return CGFloat(
+      (min(
+        max(gainDecibels, RoutingAudioChannelControl.minimumGainDecibels),
+        RoutingAudioChannelControl.maximumGainDecibels
+      ) - RoutingAudioChannelControl.minimumGainDecibels) / range
+    )
+  }
+
+  static func gainDecibels(at x: CGFloat, in trackFrame: CGRect) -> Double {
+    guard trackFrame.width > 0 else { return 0 }
+    let fraction = min(max((x - trackFrame.minX) / trackFrame.width, 0), 1)
+    let range =
+      RoutingAudioChannelControl.maximumGainDecibels
+      - RoutingAudioChannelControl.minimumGainDecibels
+    return (RoutingAudioChannelControl.minimumGainDecibels + Double(fraction) * range)
+      .rounded()
   }
 }
 

@@ -43,7 +43,8 @@ struct RoutingAudioChannelMeterSignal: Equatable, Identifiable, Sendable {
 enum RoutingAudioSourceMeterSignalBuilder {
   static func build(
     channelCount: Int,
-    snapshot: (any RoutingAudioMeterSnapshot)?
+    snapshot: (any RoutingAudioMeterSnapshot)?,
+    controls: [Int: RoutingAudioChannelControl] = [:]
   ) -> [RoutingAudioChannelMeterSignal] {
     let snapshotsByIndex = Dictionary(
       uniqueKeysWithValues: (snapshot?.channels ?? []).map {
@@ -52,11 +53,14 @@ enum RoutingAudioSourceMeterSignalBuilder {
     )
     return (0..<max(channelCount, 1)).map { channelIndex in
       let channel = snapshotsByIndex[channelIndex]
+      let gain = (controls[channelIndex] ?? .unity).linearGain
+      let rootMeanSquare = finiteNonnegative(channel?.rootMeanSquare) * gain
+      let peak = finiteNonnegative(channel?.peak) * gain
       return RoutingAudioChannelMeterSignal(
         channelIndex: channelIndex,
-        rootMeanSquare: finiteNonnegative(channel?.rootMeanSquare),
-        peak: finiteNonnegative(channel?.peak),
-        isClipping: channel?.isClipping == true
+        rootMeanSquare: rootMeanSquare,
+        peak: peak,
+        isClipping: channel?.isClipping == true || peak >= 1
       )
     }
   }

@@ -120,6 +120,31 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func audioChannelControlsAreNodeLocalAndResetWhenTheSourceChanges() throws {
+    let model = RoutingWorkspaceModel()
+    let firstID = model.addApplicationAudioNode(centeredAt: .zero)
+    let secondID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 300, y: 0))
+    let firstSelection = makeSelection(name: "Music", identifier: "com.apple.Music")
+
+    model.selectApplication(firstSelection, for: firstID)
+    let graphSnapshotID = model.canvasContent?.presentation.snapshotID
+    model.setAudioChannelGain(-12, nodeID: firstID, channelIndex: 0)
+    model.setAudioChannelMuted(true, nodeID: firstID, channelIndex: 1)
+
+    #expect(model.audioChannelControl(nodeID: firstID, channelIndex: 0).gainDecibels == -12)
+    #expect(model.audioChannelControl(nodeID: firstID, channelIndex: 1).isMuted)
+    #expect(model.node(id: secondID)?.audioChannelControls.isEmpty == true)
+    #expect(model.canvasContent?.presentation.snapshotID == graphSnapshotID)
+
+    model.selectApplication(
+      makeSelection(name: "Podcasts", identifier: "com.apple.podcasts"),
+      for: firstID
+    )
+
+    #expect(model.node(id: firstID)?.audioChannelControls.isEmpty == true)
+  }
+
+  @Test @MainActor
   func selectingApplicationUpdatesOnlyRequestedNode() throws {
     let model = RoutingWorkspaceModel()
     let firstID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))

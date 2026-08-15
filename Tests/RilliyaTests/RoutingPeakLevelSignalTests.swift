@@ -97,6 +97,22 @@ struct RoutingPeakLevelSignalTests {
     #expect(signal == nil)
   }
 
+  @Test
+  func peakLevelUsesPerSourceChannelGainAndMute() throws {
+    let sourceID = UUID()
+    let signal = RoutingPeakLevelSignalBuilder.build(
+      incomingEdges: [edge(sourceID: sourceID, sourceChannel: .all)],
+      snapshotForNode: { _ in try? self.snapshot(peaks: [0.25, 0.9]) },
+      channelControl: { _, channelIndex in
+        channelIndex == 0
+          ? RoutingAudioChannelControl(gainDecibels: 6, isMuted: false)
+          : RoutingAudioChannelControl(gainDecibels: 0, isMuted: true)
+      }
+    )
+
+    #expect(signal?.linearPeak.isApproximatelyEqual(to: 0.498_816) == true)
+  }
+
   private func edge(
     sourceID: UUID,
     sourceChannel: RoutingAudioPortChannel,
@@ -149,6 +165,12 @@ struct RoutingPeakLevelSignalTests {
         )
       }
     )
+  }
+}
+
+extension Float {
+  fileprivate func isApproximatelyEqual(to other: Float, tolerance: Float = 0.001) -> Bool {
+    abs(self - other) <= tolerance
   }
 }
 

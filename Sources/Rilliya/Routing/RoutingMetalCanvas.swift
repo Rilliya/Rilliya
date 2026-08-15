@@ -50,6 +50,8 @@ struct RoutingMetalCanvas: NSViewRepresentable {
   let onDeleteEdges: (Set<UUID>) -> Void
   let onToggleEdgeEnabled: (UUID) -> Void
   let onTogglePortEnabled: (UUID, RoutingGraphPortID) -> Void
+  let onSetAudioChannelGain: (UUID, Int, Double) -> Void
+  let onToggleAudioChannelMuted: (UUID, Int) -> Void
   let showsDisabledPortCrosses: Bool
   let onViewportChange: (FlowingCanvasViewport, FlowingCanvasViewportChangePhase) -> Void
 
@@ -87,6 +89,8 @@ struct RoutingMetalCanvas: NSViewRepresentable {
     view.onDeleteEdges = onDeleteEdges
     view.onToggleEdgeEnabled = onToggleEdgeEnabled
     view.onTogglePortEnabled = onTogglePortEnabled
+    view.onSetAudioChannelGain = onSetAudioChannelGain
+    view.onToggleAudioChannelMuted = onToggleAudioChannelMuted
     view.onViewportChange = onViewportChange
   }
 }
@@ -100,6 +104,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   var onDeleteEdges: ((Set<UUID>) -> Void)?
   var onToggleEdgeEnabled: ((UUID) -> Void)?
   var onTogglePortEnabled: ((UUID, RoutingGraphPortID) -> Void)?
+  var onSetAudioChannelGain: ((UUID, Int, Double) -> Void)?
+  var onToggleAudioChannelMuted: ((UUID, Int) -> Void)?
   var onViewportChange: ((FlowingCanvasViewport, FlowingCanvasViewportChangePhase) -> Void)?
 
   private enum Constants {
@@ -145,7 +151,19 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   private var connectionSourceID: RoutingCanvasElementID?
   private var connectionLocation: CGPoint?
   private var connectionTargetID: RoutingCanvasElementID?
+  private var audioGainDrag: AudioGainDrag?
   private var showsDisabledPortCrosses: Bool
+
+  private struct AudioGainDrag {
+    let nodeID: UUID
+    let channelIndex: Int
+    let trackFrame: CGRect
+  }
+
+  private enum AudioChannelControlHit {
+    case gain(AudioGainDrag)
+    case mute(nodeID: UUID, channelIndex: Int)
+  }
   #if PROFILE
     private let profilesAutomaticPan =
       ProcessInfo.processInfo.arguments.contains("--routing-auto-pan")
@@ -292,6 +310,29 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     mouseDownViewportPoint = viewportPoint
     mouseDownWorldPoint = worldPoint
 
+    if let hit = audioChannelControl(at: worldPoint) {
+      switch hit {
+      case .gain(let drag):
+        audioGainDrag = drag
+        onSetAudioChannelGain?(
+          drag.nodeID,
+          drag.channelIndex,
+          RoutingAudioSourceLayout.gainDecibels(at: worldPoint.x, in: drag.trackFrame)
+        )
+      case .mute(let nodeID, let channelIndex):
+        onToggleAudioChannelMuted?(nodeID, channelIndex)
+      }
+      if let node = scene.nodes.first(where: {
+        switch hit {
+        case .gain(let drag): $0.workspaceID == drag.nodeID
+        case .mute(let nodeID, _): $0.workspaceID == nodeID
+        }
+      }) {
+        updateSelection([node.id])
+      }
+      return
+    }
+
     if let port = port(at: worldPoint),
       port.value.direction == .output,
       port.value.isEnabled
@@ -336,6 +377,15 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     guard let startViewportPoint = mouseDownViewportPoint else { return }
     let viewportPoint = convert(event.locationInWindow, from: nil)
     let worldPoint = camera.worldPoint(for: viewportPoint)
+
+    if let audioGainDrag {
+      onSetAudioChannelGain?(
+        audioGainDrag.nodeID,
+        audioGainDrag.channelIndex,
+        RoutingAudioSourceLayout.gainDecibels(at: worldPoint.x, in: audioGainDrag.trackFrame)
+      )
+      return
+    }
 
     if let sourceID = connectionSourceID, let source = scene.port(id: sourceID) {
       connectionLocation = worldPoint
@@ -1008,18 +1058,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         to: &geometry
       )
       let meter = metersByChannel[channelIndex]
-      let meterFrame = CGRect(
-        x: row.minX + RoutingAudioSourceLayout.channelLabelWidth,
-        y: row.midY - 3,
-        width: row.width - RoutingAudioSourceLayout.channelLabelWidth - 32,
-        height: 6
-      )
+      let control = node.supplement.audioChannelControls[channelIndex] ?? .unity
+      let meterFrame = RoutingAudioSourceLayout.gainTrackFrame(in: row)
       geometry.shapes.append(
         RoutingMetalShapeInstance(
           rect: meterFrame,
           fill: palette.field,
           border: .zero,
-          cornerRadius: 3,
+          cornerRadius: 4,
           borderWidth: 0,
           opacity: 1
         )
@@ -1034,25 +1080,68 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
               width: meterFrame.width * normalizedLevel,
               height: meterFrame.height
             ),
-            fill: meter?.isClipping == true ? palette.poppy : accent.withAlpha(0.88),
+            fill: meter?.isClipping == true
+              ? palette.poppy.withAlpha(control.isMuted ? 0.28 : 1)
+              : accent.withAlpha(control.isMuted ? 0.22 : 0.88),
             border: .zero,
-            cornerRadius: 3,
+            cornerRadius: 4,
             borderWidth: 0,
             opacity: 1
           )
         )
       }
-      let decibels = meter?.decibelsDescription ?? "−∞"
-      let decibelSize = dynamicMonospacedTextSize(decibels, size: 7.5, weight: .medium)
+      let knobDiameter: CGFloat = 8
+      let knobCenterX =
+        meterFrame.minX
+        + meterFrame.width * RoutingAudioSourceLayout.gainFraction(for: control.gainDecibels)
+      geometry.shapes.append(
+        RoutingMetalShapeInstance(
+          rect: CGRect(
+            x: knobCenterX - knobDiameter / 2,
+            y: meterFrame.midY - knobDiameter / 2,
+            width: knobDiameter,
+            height: knobDiameter
+          ),
+          fill: control.isMuted ? palette.muted.withAlpha(0.55) : accent,
+          border: palette.canvas.withAlpha(0.9),
+          cornerRadius: Float(knobDiameter / 2),
+          borderWidth: 1,
+          opacity: 1
+        )
+      )
+      let gainDescription = control.gainDescription
+      let gainSize = dynamicMonospacedTextSize(gainDescription, size: 7, weight: .medium)
+      let gainFrame = RoutingAudioSourceLayout.gainValueFrame(in: row)
       appendDynamicMonospacedText(
-        decibels,
-        size: 7.5,
+        gainDescription,
+        size: 7,
         weight: .medium,
         origin: CGPoint(
-          x: row.maxX - decibelSize.width,
-          y: row.midY - decibelSize.height / 2
+          x: gainFrame.maxX - gainSize.width,
+          y: row.midY - gainSize.height / 2
         ),
-        color: meter?.isClipping == true ? palette.poppy : palette.muted,
+        color: control.isMuted ? palette.muted.withAlpha(0.48) : palette.muted,
+        to: &geometry
+      )
+      let muteFrame = RoutingAudioSourceLayout.muteButtonFrame(in: row)
+      geometry.shapes.append(
+        RoutingMetalShapeInstance(
+          rect: muteFrame,
+          fill: control.isMuted ? accent.withAlpha(0.13) : .zero,
+          border: .zero,
+          cornerRadius: 6,
+          borderWidth: 0,
+          opacity: 1
+        )
+      )
+      append(
+        atlas: textAtlas.symbol(
+          control.isMuted ? "speaker.slash.fill" : "speaker.wave.1",
+          pointSize: 7.5,
+          weight: .semibold
+        ),
+        centeredIn: muteFrame,
+        color: control.isMuted ? accent : palette.muted.withAlpha(0.7),
         to: &geometry
       )
     }
@@ -1495,6 +1584,40 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     scene.nodesInRenderOrder(selection: selection)
   }
 
+  private func audioChannelControl(at point: CGPoint) -> AudioChannelControlHit? {
+    for node in nodesInRenderOrder.reversed() {
+      guard node.hasAudioSourceSelection,
+        case .some(.separate(let channelCount)) = node.value.audioSourceChannelPresentation
+      else {
+        continue
+      }
+      let frame = translatedFrame(of: node)
+      let rows = RoutingAudioSourceLayout.rowFrames(in: frame, channelCount: channelCount)
+      for (channelIndex, row) in rows.enumerated() {
+        if RoutingAudioSourceLayout.muteButtonFrame(in: row).contains(point) {
+          return .mute(nodeID: node.workspaceID, channelIndex: channelIndex)
+        }
+        let track = RoutingAudioSourceLayout.gainTrackFrame(in: row)
+        let hitFrame = CGRect(
+          x: track.minX,
+          y: row.minY,
+          width: track.width,
+          height: row.height
+        )
+        if hitFrame.contains(point) {
+          return .gain(
+            AudioGainDrag(
+              nodeID: node.workspaceID,
+              channelIndex: channelIndex,
+              trackFrame: track
+            )
+          )
+        }
+      }
+    }
+    return nil
+  }
+
   private func node(at point: CGPoint) -> RoutingMetalScene.Node? {
     nodesInRenderOrder.reversed().first { translatedFrame(of: $0).contains(point) }
   }
@@ -1574,6 +1697,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     connectionSourceID = nil
     connectionLocation = nil
     connectionTargetID = nil
+    audioGainDrag = nil
     NSCursor.arrow.set()
   }
 

@@ -31,6 +31,11 @@ struct RoutingWorkflowPersistenceTests {
     #expect(restoredFirst.workspace.nodes.count == 2)
     #expect(restoredFirst.workspace.edges.count == 1)
     #expect(restoredFirst.workspace.edges[0].isEnabled)
+    #expect(
+      restoredFirst.workspace.nodes.first { $0.id == fixture.sourceID }?
+        .audioChannelControls[0]
+        == RoutingAudioChannelControl(gainDecibels: -8, isMuted: true)
+    )
     #expect(restoredFirst.canvasSession.viewport.transform.zoom == 1.4)
     #expect(restoredFirst.canvasSession.viewport.transform.offset.width == 48)
     #expect(restoredFirst.canvasSession.viewport.transform.offset.height == -32)
@@ -81,7 +86,10 @@ struct RoutingWorkflowPersistenceTests {
         ),
         channelPresentation: .aggregate
       ),
-      frame: CGRect(x: 80, y: 120, width: 252, height: 80)
+      frame: CGRect(x: 80, y: 120, width: 252, height: 80),
+      audioChannelControls: [
+        0: RoutingAudioChannelControl(gainDecibels: -8, isMuted: true)
+      ]
     )
     let visualizer = RoutingWorkspaceNode(
       id: visualizerID,
@@ -138,6 +146,7 @@ struct RoutingWorkflowPersistenceTests {
       fileURL: fileURL,
       snapshot: RoutingWorkflowLibrarySnapshot(library: library),
       firstWorkflowID: firstWorkflowID,
+      sourceID: sourceID,
       selectedWorkflowID: secondWorkflowID
     )
   }
@@ -148,5 +157,6 @@ private struct Fixture {
   let fileURL: URL
   let snapshot: RoutingWorkflowLibrarySnapshot
   let firstWorkflowID: UUID
+  let sourceID: UUID
   let selectedWorkflowID: UUID
 }

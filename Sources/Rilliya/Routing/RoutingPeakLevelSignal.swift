@@ -27,7 +27,8 @@ struct RoutingPeakLevelSignal: Equatable, Sendable {
 enum RoutingPeakLevelSignalBuilder {
   static func build(
     incomingEdges: [RoutingWorkspaceEdge],
-    snapshotForNode: (UUID) -> (any RoutingAudioMeterSnapshot)?
+    snapshotForNode: (UUID) -> (any RoutingAudioMeterSnapshot)?,
+    channelControl: (UUID, Int) -> RoutingAudioChannelControl = { _, _ in .unity }
   ) -> RoutingPeakLevelSignal? {
     let activeEdges = incomingEdges.filter(\.isEnabled)
     guard activeEdges.count == 1,
@@ -49,7 +50,9 @@ enum RoutingPeakLevelSignalBuilder {
     guard !channels.isEmpty else { return nil }
 
     let peaks = channels.map { channel in
-      channel.peak.isFinite ? max(channel.peak, 0) : 0
+      let rawPeak = channel.peak.isFinite ? max(channel.peak, 0) : 0
+      return rawPeak
+        * channelControl(edge.source.nodeID, channel.channelID.index.rawValue).linearGain
     }
     let linearPeak = peaks.max() ?? 0
     return RoutingPeakLevelSignal(

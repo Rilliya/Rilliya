@@ -138,6 +138,14 @@ struct RoutingCanvasView: View {
           removeEdges: workspace.removeEdges,
           toggleEdgeEnabled: workspace.toggleEdgeEnabled,
           togglePortEnabled: workspace.togglePortEnabled,
+          setAudioChannelGain: { nodeID, channelIndex, gainDecibels in
+            workspace.setAudioChannelGain(
+              gainDecibels,
+              nodeID: nodeID,
+              channelIndex: channelIndex
+            )
+          },
+          toggleAudioChannelMuted: workspace.toggleAudioChannelMuted,
           showsDisabledPortCrosses: settings.showsDisabledPortCrosses,
           isMiniMapVisible: isMiniMapVisible,
           setMiniMapVisible: setMiniMapVisible
@@ -224,6 +232,7 @@ struct RoutingCanvasView: View {
           visualizerSignal: nil,
           captureFormat: captureFormat,
           audioSourceMeters: audioSourceMeters(for: node),
+          audioChannelControls: node.audioChannelControls,
           applicationIcon: applicationIcon(selection)
         )
       case .inputAudio(let selection, _):
@@ -247,7 +256,8 @@ struct RoutingCanvasView: View {
           captureConsumerCount: inputCaptureController.consumerCount(for: node.id),
           visualizerSignal: nil,
           captureFormat: captureFormat,
-          audioSourceMeters: audioSourceMeters(for: node)
+          audioSourceMeters: audioSourceMeters(for: node),
+          audioChannelControls: node.audioChannelControls
         )
       case .visualizer(let configuration):
         supplements[node.id] = RoutingMetalNodeSupplement(
@@ -257,7 +267,8 @@ struct RoutingCanvasView: View {
           visualizerSignal: RoutingVisualizerSignalBuilder.build(
             configuration: configuration,
             incomingEdges: incomingEdgesByTargetNode[node.id] ?? [],
-            snapshotForNode: audioSnapshot
+            snapshotForNode: audioSnapshot,
+            channelControl: workspace.audioChannelControl
           )
         )
       case .peakLevel:
@@ -268,7 +279,8 @@ struct RoutingCanvasView: View {
           visualizerSignal: nil,
           peakLevelSignal: RoutingPeakLevelSignalBuilder.build(
             incomingEdges: incomingEdgesByTargetNode[node.id] ?? [],
-            snapshotForNode: audioSnapshot
+            snapshotForNode: audioSnapshot,
+            channelControl: workspace.audioChannelControl
           )
         )
       }
@@ -337,11 +349,26 @@ struct RoutingCanvasView: View {
         applicationCatalog: applicationCatalog,
         iconResolver: iconResolver,
         captureController: captureController,
+        channelControls: node.audioChannelControls,
         selectApplication: { selection in
           workspace.selectApplication(selection, for: node.id)
         },
         setChannelPresentation: { presentation in
           workspace.setApplicationChannelPresentation(presentation, for: node.id)
+        },
+        setChannelGain: { channelIndex, gainDecibels in
+          workspace.setAudioChannelGain(
+            gainDecibels,
+            nodeID: node.id,
+            channelIndex: channelIndex
+          )
+        },
+        setChannelMuted: { channelIndex, isMuted in
+          workspace.setAudioChannelMuted(
+            isMuted,
+            nodeID: node.id,
+            channelIndex: channelIndex
+          )
         }
       )
     case .inputAudio(let selection, let channelPresentation):
@@ -352,11 +379,26 @@ struct RoutingCanvasView: View {
         isRouted: workspace.edges.contains { $0.isEnabled && $0.source.nodeID == node.id },
         audioCatalog: audioCatalog,
         captureController: inputCaptureController,
+        channelControls: node.audioChannelControls,
         selectDevice: { selection in
           workspace.selectInputDevice(selection, for: node.id)
         },
         setChannelPresentation: { presentation in
           workspace.setInputDeviceChannelPresentation(presentation, for: node.id)
+        },
+        setChannelGain: { channelIndex, gainDecibels in
+          workspace.setAudioChannelGain(
+            gainDecibels,
+            nodeID: node.id,
+            channelIndex: channelIndex
+          )
+        },
+        setChannelMuted: { channelIndex, isMuted in
+          workspace.setAudioChannelMuted(
+            isMuted,
+            nodeID: node.id,
+            channelIndex: channelIndex
+          )
         }
       )
     case .visualizer(let configuration):
@@ -367,7 +409,8 @@ struct RoutingCanvasView: View {
       SelectedPeakLevelInspector(
         signal: RoutingPeakLevelSignalBuilder.build(
           incomingEdges: workspace.incomingEdges(for: node.id),
-          snapshotForNode: audioSnapshot
+          snapshotForNode: audioSnapshot,
+          channelControl: workspace.audioChannelControl
         )
       )
     }
@@ -384,7 +427,8 @@ struct RoutingCanvasView: View {
     return RoutingVisualizerSignalBuilder.build(
       configuration: configuration,
       incomingEdges: workspace.incomingEdges(for: nodeID),
-      snapshotForNode: audioSnapshot
+      snapshotForNode: audioSnapshot,
+      channelControl: workspace.audioChannelControl
     )
   }
 
@@ -398,7 +442,8 @@ struct RoutingCanvasView: View {
     }
     return RoutingPeakLevelSignalBuilder.build(
       incomingEdges: workspace.incomingEdges(for: nodeID),
-      snapshotForNode: audioSnapshot
+      snapshotForNode: audioSnapshot,
+      channelControl: workspace.audioChannelControl
     )
   }
 
@@ -417,7 +462,8 @@ struct RoutingCanvasView: View {
     }
     return RoutingAudioSourceMeterSignalBuilder.build(
       channelCount: channelCount,
-      snapshot: audioSnapshot(for: node.id)
+      snapshot: audioSnapshot(for: node.id),
+      controls: node.audioChannelControls
     )
   }
 
@@ -1482,8 +1528,11 @@ private struct SelectedApplicationInspector: View {
   let applicationCatalog: InstalledApplicationCatalogController
   let iconResolver: NSWorkspaceInstalledApplicationIconResolver
   let captureController: RoutingCaptureController
+  let channelControls: [Int: RoutingAudioChannelControl]
   let selectApplication: (RoutingApplicationSelection?) -> Void
   let setChannelPresentation: (RoutingChannelPresentation) -> Void
+  let setChannelGain: (Int, Double) -> Void
+  let setChannelMuted: (Int, Bool) -> Void
 
   private var catalogItems: [InstalledApplicationCatalogItem] {
     applicationCatalog.state.snapshot?.items ?? []
@@ -1568,6 +1617,17 @@ private struct SelectedApplicationInspector: View {
         Text("The native channel count will replace this preview when capture starts.")
           .font(.caption2)
           .foregroundStyle(FlowingPalette.faint)
+      }
+
+      if case .separate(let channelCount) = channelPresentation {
+        Divider()
+          .overlay(FlowingPalette.hairline)
+        RoutingAudioChannelControlsView(
+          channelCount: channelCount,
+          controls: channelControls,
+          setGain: setChannelGain,
+          setMuted: setChannelMuted
+        )
       }
     }
     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
@@ -1748,8 +1808,11 @@ private struct SelectedInputAudioInspector: View {
   let isRouted: Bool
   let audioCatalog: AudioCatalogController
   let captureController: RoutingInputCaptureController
+  let channelControls: [Int: RoutingAudioChannelControl]
   let selectDevice: (RoutingInputDeviceSelection?) -> Void
   let setChannelPresentation: (RoutingChannelPresentation) -> Void
+  let setChannelGain: (Int, Double) -> Void
+  let setChannelMuted: (Int, Bool) -> Void
 
   private var devices: [AudioDevice] {
     audioCatalog.state.snapshot?.inputDevices ?? []
@@ -1834,6 +1897,17 @@ private struct SelectedInputAudioInspector: View {
         Text("The device's live format replaces this preview when capture starts.")
           .font(.caption2)
           .foregroundStyle(FlowingPalette.faint)
+      }
+
+      if case .separate(let channelCount) = channelPresentation {
+        Divider()
+          .overlay(FlowingPalette.hairline)
+        RoutingAudioChannelControlsView(
+          channelCount: channelCount,
+          controls: channelControls,
+          setGain: setChannelGain,
+          setMuted: setChannelMuted
+        )
       }
     }
     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
@@ -1994,6 +2068,88 @@ private struct SelectedInputAudioInspector: View {
       let device = devices.first(where: { $0.id.rawValue == selectedID })
     else { return nil }
     return RoutingInputDeviceSelection(id: device.id, displayName: device.name)
+  }
+}
+
+private struct RoutingAudioChannelControlsView: View {
+  let channelCount: Int
+  let controls: [Int: RoutingAudioChannelControl]
+  let setGain: (Int, Double) -> Void
+  let setMuted: (Int, Bool) -> Void
+
+  private var gainRange: ClosedRange<Double> {
+    ClosedRange(
+      uncheckedBounds: (
+        lower: RoutingAudioChannelControl.minimumGainDecibels,
+        upper: RoutingAudioChannelControl.maximumGainDecibels
+      )
+    )
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 9) {
+      Text("Channel Levels")
+        .font(.caption.weight(.semibold))
+        .foregroundStyle(FlowingPalette.muted)
+
+      ScrollView {
+        LazyVStack(spacing: 7) {
+          ForEach(0..<max(channelCount, 1), id: \.self) { channelIndex in
+            channelRow(channelIndex)
+          }
+        }
+      }
+      .scrollIndicators(channelCount > 5 ? .visible : .hidden)
+      .frame(height: min(CGFloat(max(channelCount, 1)) * 37, 198))
+
+      Text("Gain and mute belong to this node; shared captures remain unchanged.")
+        .font(.caption2)
+        .foregroundStyle(FlowingPalette.faint)
+    }
+  }
+
+  private func channelRow(_ channelIndex: Int) -> some View {
+    let control = controls[channelIndex] ?? .unity
+    return HStack(spacing: 8) {
+      Text(channelLabel(channelIndex))
+        .font(.system(size: 10.5, weight: .semibold, design: .monospaced))
+        .foregroundStyle(FlowingPalette.muted)
+        .frame(width: 34, alignment: .leading)
+
+      FlowingSlider(
+        "\(channelLabel(channelIndex)) gain",
+        value: Binding(
+          get: { control.gainDecibels },
+          set: { setGain(channelIndex, $0) }
+        ),
+        in: gainRange,
+        step: 1,
+        formatValue: { value in
+          String(format: "%+.0f dB", locale: Locale(identifier: "en_US_POSIX"), value)
+        }
+      )
+
+      Text(control.gainDescription)
+        .font(.system(size: 9, weight: .medium, design: .monospaced))
+        .foregroundStyle(control.isMuted ? FlowingPalette.faint : FlowingPalette.muted)
+        .frame(width: 42, alignment: .trailing)
+
+      FlowingIconButton(
+        control.isMuted
+          ? "Unmute \(channelLabel(channelIndex))" : "Mute \(channelLabel(channelIndex))",
+        systemImage: control.isMuted ? "speaker.slash.fill" : "speaker.wave.1",
+        isSelected: control.isMuted
+      ) {
+        setMuted(channelIndex, !control.isMuted)
+      }
+    }
+  }
+
+  private func channelLabel(_ channelIndex: Int) -> String {
+    if channelCount == 2 {
+      return channelIndex == 0 ? "L" : "R"
+    }
+    return "Ch \(channelIndex + 1)"
   }
 }
 

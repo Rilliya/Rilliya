@@ -109,6 +109,37 @@ struct RoutingVisualizerSignalTests {
     #expect(signal?.waveforms == [[0.1, 0.2], [-0.3, -0.4]])
   }
 
+  @Test
+  func visualizerUsesTheSourceNodesIndependentChannelControls() throws {
+    let sourceID = UUID()
+    let targetID = UUID()
+    let snapshot = try makeSnapshot(processIdentifier: 41, waveforms: [[0.25, -0.5]])
+    let edge = RoutingWorkspaceEdge(
+      id: UUID(),
+      source: RoutingWorkspacePortAddress(
+        nodeID: sourceID,
+        portID: RoutingGraphPortID(direction: .output, channel: .channel(0))
+      ),
+      target: RoutingWorkspacePortAddress(
+        nodeID: targetID,
+        portID: RoutingGraphPortID(direction: .input, channel: .all)
+      )
+    )
+
+    let signal = RoutingVisualizerSignalBuilder.build(
+      configuration: .initial,
+      incomingEdges: [edge],
+      snapshotForNode: { $0 == sourceID ? snapshot : nil },
+      channelControl: { nodeID, channelIndex in
+        #expect(nodeID == sourceID)
+        #expect(channelIndex == 0)
+        return RoutingAudioChannelControl(gainDecibels: 0, isMuted: true)
+      }
+    )
+
+    #expect(signal?.waveforms == [[0, 0]])
+  }
+
   private func makeSnapshot(
     processIdentifier: Int32,
     waveforms: [[Float]]

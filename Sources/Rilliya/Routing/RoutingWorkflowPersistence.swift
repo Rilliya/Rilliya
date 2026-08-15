@@ -107,6 +107,16 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
   }
 
   private static func isValidPersistedNode(_ node: RoutingWorkspaceNode) -> Bool {
+    guard
+      node.audioChannelControls.allSatisfy({ channelIndex, control in
+        (0..<RoutingVisualizerConfiguration.maximumAvailableChannelCount).contains(channelIndex)
+          && control.gainDecibels.isFinite
+          && control.gainDecibels >= RoutingAudioChannelControl.minimumGainDecibels
+          && control.gainDecibels <= RoutingAudioChannelControl.maximumGainDecibels
+      })
+    else {
+      return false
+    }
     switch node.value {
     case .applicationAudio(let selection, let presentation):
       if let selection {

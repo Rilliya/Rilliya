@@ -44,6 +44,47 @@ struct RoutingAudioSourceMeterSignalTests {
     #expect(meters[2].isClipping)
     #expect(meters[2].peak > 1)
   }
+
+  @Test
+  func channelControlsScaleMetersAndMuteOnlyTheirOwnLane() throws {
+    let deviceID = try #require(AudioDeviceID(rawValue: "controlled-device"))
+    let channels = try [0, 1].map { index in
+      AudioChannelMeterSnapshot(
+        channelID: AudioChannelID(
+          ownerID: .source(.deviceInput(deviceID)),
+          index: try #require(AudioChannelIndex(rawValue: index))
+        ),
+        rootMeanSquare: 0.25,
+        peak: 0.5,
+        decibels: -12,
+        isClipping: false,
+        waveform: []
+      )
+    }
+    let snapshot = DeviceInputMeterSnapshot(
+      format: DeviceInputCaptureFormat(
+        deviceID: deviceID,
+        sampleRate: 48_000,
+        channelIDs: channels.map(\.channelID)
+      ),
+      sequence: 1,
+      frameCount: 128,
+      channels: channels
+    )
+
+    let meters = RoutingAudioSourceMeterSignalBuilder.build(
+      channelCount: 2,
+      snapshot: snapshot,
+      controls: [
+        0: RoutingAudioChannelControl(gainDecibels: 6, isMuted: false),
+        1: RoutingAudioChannelControl(gainDecibels: 0, isMuted: true),
+      ]
+    )
+
+    #expect(meters[0].peak.isApproximatelyEqual(to: 0.997_631))
+    #expect(meters[1].rootMeanSquare == 0)
+    #expect(meters[1].peak == 0)
+  }
 }
 
 extension Float {

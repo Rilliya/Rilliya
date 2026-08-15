@@ -12,6 +12,8 @@ struct RoutingMetalViewport: View {
   let removeEdges: (Set<UUID>) -> Void
   let toggleEdgeEnabled: (UUID) -> Void
   let togglePortEnabled: (UUID, RoutingGraphPortID) -> Void
+  let setAudioChannelGain: (UUID, Int, Double) -> Void
+  let toggleAudioChannelMuted: (UUID, Int) -> Void
   let showsDisabledPortCrosses: Bool
   let isMiniMapVisible: Bool
   let setMiniMapVisible: (Bool) -> Void
@@ -28,6 +30,8 @@ struct RoutingMetalViewport: View {
     removeEdges: @escaping (Set<UUID>) -> Void,
     toggleEdgeEnabled: @escaping (UUID) -> Void,
     togglePortEnabled: @escaping (UUID, RoutingGraphPortID) -> Void,
+    setAudioChannelGain: @escaping (UUID, Int, Double) -> Void,
+    toggleAudioChannelMuted: @escaping (UUID, Int) -> Void,
     showsDisabledPortCrosses: Bool,
     isMiniMapVisible: Bool,
     setMiniMapVisible: @escaping (Bool) -> Void
@@ -40,6 +44,8 @@ struct RoutingMetalViewport: View {
     self.removeEdges = removeEdges
     self.toggleEdgeEnabled = toggleEdgeEnabled
     self.togglePortEnabled = togglePortEnabled
+    self.setAudioChannelGain = setAudioChannelGain
+    self.toggleAudioChannelMuted = toggleAudioChannelMuted
     self.showsDisabledPortCrosses = showsDisabledPortCrosses
     self.isMiniMapVisible = isMiniMapVisible
     self.setMiniMapVisible = setMiniMapVisible
@@ -66,6 +72,8 @@ struct RoutingMetalViewport: View {
           onDeleteEdges: removeEdges,
           onToggleEdgeEnabled: toggleEdgeEnabled,
           onTogglePortEnabled: togglePortEnabled,
+          onSetAudioChannelGain: setAudioChannelGain,
+          onToggleAudioChannelMuted: toggleAudioChannelMuted,
           showsDisabledPortCrosses: showsDisabledPortCrosses,
           onViewportChange: updateViewport
         )
