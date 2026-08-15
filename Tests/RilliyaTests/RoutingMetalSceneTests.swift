@@ -56,22 +56,22 @@ struct RoutingMetalSceneTests {
     )
     let source = try #require(
       scene.nodes.first { $0.workspaceID == sourceID }?.ports.first {
-        $0.value.channel == .channel(0)
+        $0.value.audioChannel == .channel(0)
       }
     )
     let matchingTarget = try #require(
       scene.nodes.first { $0.workspaceID == targetID }?.ports.first {
-        $0.value.channel == .channel(0)
+        $0.value.audioChannel == .channel(0)
       }
     )
     let mismatchedTarget = try #require(
       scene.nodes.first { $0.workspaceID == targetID }?.ports.first {
-        $0.value.channel == .channel(1)
+        $0.value.audioChannel == .channel(1)
       }
     )
 
     #expect(scene.validatesConnection(from: source, to: matchingTarget))
-    #expect(!scene.validatesConnection(from: source, to: mismatchedTarget))
+    #expect(scene.validatesConnection(from: source, to: mismatchedTarget))
   }
 
   @Test @MainActor

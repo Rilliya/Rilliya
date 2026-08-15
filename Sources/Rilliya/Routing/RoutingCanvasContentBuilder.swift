@@ -18,6 +18,16 @@ enum RoutingCanvasContentBuilder {
   ) throws -> RoutingCanvasBuild {
     var graph = FlowingGraph<RoutingGraphSchema>()
     var portPlacements: [RoutingWorkspacePortAddress: RoutingPortPlacement] = [:]
+    let portValues = Dictionary(
+      uniqueKeysWithValues: nodes.flatMap { node in
+        RoutingGraphPorts.values(for: node).map { value in
+          (
+            RoutingWorkspacePortAddress(nodeID: node.id, portID: value.id),
+            value
+          )
+        }
+      }
+    )
     let update = graph.update { transaction in
       for node in nodes {
         transaction.insert(FlowingGraphNode(id: node.id, value: node.value))
@@ -39,6 +49,7 @@ enum RoutingCanvasContentBuilder {
         }
       }
       for edge in edges {
+        guard let sourceValue = portValues[edge.source] else { continue }
         transaction.insert(
           FlowingGraphEdge(
             id: edge.id,
@@ -56,7 +67,7 @@ enum RoutingCanvasContentBuilder {
                 )
               )
             ),
-            value: .audio
+            value: RoutingGraphEdgeValue(signalType: sourceValue.signalType)
           )
         )
       }
@@ -135,8 +146,8 @@ enum RoutingCanvasContentBuilder {
         .element(
           FlowingGraphCanvasAccessibilityDescription(
             label: port.value.label,
-            hint: "Drag to connect this audio port.",
-            roleDescription: "audio port"
+            hint: "Drag to connect this port.",
+            roleDescription: "routing port"
           )
         )
       },

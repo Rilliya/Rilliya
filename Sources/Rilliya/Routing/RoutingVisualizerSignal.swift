@@ -23,7 +23,7 @@ enum RoutingVisualizerSignalBuilder {
       var routedByTarget = Dictionary(
         uniqueKeysWithValues: selectedChannels.map { ($0, [[Float]]()) })
       for edge in incomingEdges {
-        guard case .channel(let targetChannel) = edge.target.portID.channel,
+        guard case .some(.channel(let targetChannel)) = edge.target.portID.audioChannel,
           routedByTarget[targetChannel] != nil
         else {
           continue
@@ -45,13 +45,15 @@ enum RoutingVisualizerSignalBuilder {
     snapshotForNode: (UUID) -> ProcessOutputMeterSnapshot?
   ) -> [[Float]] {
     guard let snapshot = snapshotForNode(edge.source.nodeID) else { return [] }
-    switch edge.source.portID.channel {
-    case .all:
+    switch edge.source.portID.audioChannel {
+    case .some(.all):
       return snapshot.channels.map(\.waveform)
-    case .channel(let channelIndex):
+    case .some(.channel(let channelIndex)):
       return snapshot.channels
         .filter { $0.channelID.index.rawValue == channelIndex }
         .map(\.waveform)
+    case .none:
+      return []
     }
   }
 

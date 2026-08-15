@@ -228,19 +228,14 @@ struct RoutingMetalScene {
     to target: Port
   ) -> Bool {
     guard source.workspaceNodeID != target.workspaceNodeID,
-      source.value.direction == .output,
-      target.value.direction == .input
+      RoutingPortCompatibility.incompatibilityReason(
+        source: source.value,
+        target: target.value
+      ) == nil
     else {
       return false
     }
-    switch (source.value.channel, target.value.channel) {
-    case (.all, .all), (.channel, .all):
-      return true
-    case (.channel(let sourceIndex), .channel(let targetIndex)):
-      return sourceIndex == targetIndex
-    case (.all, .channel):
-      return false
-    }
+    return true
   }
 }
 

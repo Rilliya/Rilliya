@@ -101,7 +101,7 @@ struct RoutingWorkspaceEdge: Equatable, Identifiable, Sendable {
   let target: RoutingWorkspacePortAddress
 }
 
-enum RoutingAudioPortDirection: Equatable, Hashable, Sendable {
+enum RoutingPortDirection: Equatable, Hashable, Sendable {
   case input
   case output
 }
@@ -112,28 +112,119 @@ enum RoutingAudioPortChannel: Equatable, Hashable, Sendable {
 }
 
 struct RoutingGraphPortID: Equatable, Hashable, Sendable {
-  let direction: RoutingAudioPortDirection
-  let channel: RoutingAudioPortChannel
-}
+  let direction: RoutingPortDirection
+  let key: RoutingPortKey
 
-struct RoutingGraphPortValue: Equatable, Sendable {
-  let direction: RoutingAudioPortDirection
-  let channel: RoutingAudioPortChannel
-  let ordinal: Int
-  let total: Int
+  init(direction: RoutingPortDirection, key: RoutingPortKey) {
+    self.direction = direction
+    self.key = key
+  }
 
-  var label: String {
-    switch channel {
-    case .all:
-      return direction == .input ? "All channels input" : "All channels output"
-    case .channel(let index):
-      return "Channel \(index + 1) \(direction == .input ? "input" : "output")"
-    }
+  init(direction: RoutingPortDirection, channel: RoutingAudioPortChannel) {
+    self.direction = direction
+    key = .audio(channel)
+  }
+
+  init(direction: RoutingPortDirection, name: String) {
+    precondition(!name.isEmpty)
+    self.direction = direction
+    key = .named(name)
+  }
+
+  var audioChannel: RoutingAudioPortChannel? {
+    guard case .audio(let channel) = key else { return nil }
+    return channel
   }
 }
 
-enum RoutingGraphEdgeValue: Equatable, Sendable {
+enum RoutingPortKey: Equatable, Hashable, Sendable {
+  case audio(RoutingAudioPortChannel)
+  case named(String)
+}
+
+enum RoutingSignalType: Equatable, Hashable, Sendable {
   case audio
+  case integer
+  case floatingPoint
+  case confidence
+  case boolean
+  case text
+  case label(domain: String?)
+  case structure(schema: String)
+}
+
+enum RoutingPortConnectionPolicy: Equatable, Hashable, Sendable {
+  case fanOut
+  case singleInput
+  case mixingInput
+}
+
+struct RoutingGraphPortValue: Equatable, Sendable {
+  let direction: RoutingPortDirection
+  let key: RoutingPortKey
+  let signalType: RoutingSignalType
+  let connectionPolicy: RoutingPortConnectionPolicy
+  let name: String
+  let ordinal: Int
+  let total: Int
+
+  init(
+    direction: RoutingPortDirection,
+    channel: RoutingAudioPortChannel,
+    ordinal: Int,
+    total: Int
+  ) {
+    self.direction = direction
+    key = .audio(channel)
+    signalType = .audio
+    connectionPolicy = direction == .input ? .mixingInput : .fanOut
+    name =
+      switch channel {
+      case .all:
+        "All channels"
+      case .channel(let index):
+        "Channel \(index + 1)"
+      }
+    self.ordinal = ordinal
+    self.total = total
+  }
+
+  init(
+    direction: RoutingPortDirection,
+    id: String,
+    name: String,
+    signalType: RoutingSignalType,
+    connectionPolicy: RoutingPortConnectionPolicy,
+    ordinal: Int,
+    total: Int
+  ) {
+    precondition(!id.isEmpty)
+    precondition(!name.isEmpty)
+    self.direction = direction
+    key = .named(id)
+    self.signalType = signalType
+    self.connectionPolicy = connectionPolicy
+    self.name = name
+    self.ordinal = ordinal
+    self.total = total
+  }
+
+  var id: RoutingGraphPortID {
+    RoutingGraphPortID(direction: direction, key: key)
+  }
+
+  var audioChannel: RoutingAudioPortChannel? {
+    guard case .audio(let channel) = key else { return nil }
+    return channel
+  }
+
+  var label: String {
+    "\(name) \(direction == .input ? "input" : "output")"
+  }
+}
+
+struct RoutingGraphEdgeValue: Equatable, Sendable {
+  let signalType: RoutingSignalType
 }
 
 enum RoutingGraphSchema: FlowingGraphSchema {
@@ -192,7 +283,7 @@ enum RoutingGraphPorts {
   }
 
   static func values(for value: RoutingNodeValue) -> [RoutingGraphPortValue] {
-    let identities: [(RoutingAudioPortDirection, RoutingAudioPortChannel)]
+    let identities: [(RoutingPortDirection, RoutingAudioPortChannel)]
     switch value {
     case .applicationAudio(_, let channelPresentation):
       identities = outputIdentities(for: channelPresentation)
@@ -215,21 +306,60 @@ enum RoutingGraphPorts {
   }
 
   static func portID(for value: RoutingGraphPortValue) -> RoutingGraphPortID {
-    RoutingGraphPortID(
-      direction: value.direction,
-      channel: value.channel
-    )
+    value.id
   }
 
   private static func outputIdentities(
     for presentation: RoutingChannelPresentation
-  ) -> [(RoutingAudioPortDirection, RoutingAudioPortChannel)] {
+  ) -> [(RoutingPortDirection, RoutingAudioPortChannel)] {
     switch presentation {
     case .aggregate:
       return [(.output, .all)]
     case .separate(let channelCount):
       return (0..<channelCount).map { (.output, .channel($0)) }
     }
+  }
+}
+
+enum RoutingPortCompatibility {
+  static func incompatibilityReason(
+    source: RoutingGraphPortValue,
+    target: RoutingGraphPortValue
+  ) -> String? {
+    guard source.direction == .output, target.direction == .input else {
+      return "Connect an output to an input"
+    }
+    guard signalTypesAreCompatible(source: source.signalType, target: target.signalType) else {
+      return "Connect ports carrying the same data type"
+    }
+    guard source.signalType == .audio else { return nil }
+    guard let sourceChannel = source.audioChannel,
+      let targetChannel = target.audioChannel
+    else {
+      return "Connect compatible audio ports"
+    }
+    switch (sourceChannel, targetChannel) {
+    case (.all, .all), (.channel, .all):
+      return nil
+    case (.channel, .channel):
+      return nil
+    case (.all, .channel):
+      return "Separate the source channels before connecting"
+    }
+  }
+
+  private static func signalTypesAreCompatible(
+    source: RoutingSignalType,
+    target: RoutingSignalType
+  ) -> Bool {
+    if source == target { return true }
+    if case .label(let sourceDomain) = source,
+      sourceDomain != nil,
+      case .label(domain: nil) = target
+    {
+      return true
+    }
+    return false
   }
 }
 

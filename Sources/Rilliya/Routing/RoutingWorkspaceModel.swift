@@ -195,16 +195,25 @@ final class RoutingWorkspaceModel {
     source: RoutingWorkspacePortAddress,
     target: RoutingWorkspacePortAddress
   ) -> FlowingGraphCanvasConnectionValidation {
-    switch (source.portID.channel, target.portID.channel) {
-    case (.all, .all), (.channel, .all):
-      return .valid
-    case (.channel(let sourceIndex), .channel(let targetIndex)) where sourceIndex == targetIndex:
-      return .valid
-    case (.all, .channel):
-      return .invalid(.init(message: "Separate the source channels before connecting"))
-    case (.channel, .channel):
-      return .invalid(.init(message: "Connect matching channel numbers"))
+    guard let sourceValue = portValue(at: source),
+      let targetValue = portValue(at: target)
+    else {
+      return .invalid(.init(message: "The selected port is no longer available"))
     }
+    if let reason = RoutingPortCompatibility.incompatibilityReason(
+      source: sourceValue,
+      target: targetValue
+    ) {
+      return .invalid(.init(message: reason))
+    }
+    return .valid
+  }
+
+  private func portValue(
+    at address: RoutingWorkspacePortAddress
+  ) -> RoutingGraphPortValue? {
+    guard let node = node(id: address.nodeID) else { return nil }
+    return RoutingGraphPorts.values(for: node).first { $0.id == address.portID }
   }
 
   private func apply(_ drag: FlowingGraphCanvasNodeDragIntent<RoutingCanvasSchema>) {
@@ -293,19 +302,30 @@ final class RoutingWorkspaceModel {
   }
 
   private func pruneEdgesWithMissingPorts() {
-    let availablePorts = Set(
-      nodes.flatMap { node in
+    let availablePorts = Dictionary(
+      uniqueKeysWithValues: nodes.flatMap { node in
         let values = RoutingGraphPorts.values(for: node)
         return values.map { value in
-          RoutingWorkspacePortAddress(
-            nodeID: node.id,
-            portID: RoutingGraphPorts.portID(for: value)
+          (
+            RoutingWorkspacePortAddress(
+              nodeID: node.id,
+              portID: RoutingGraphPorts.portID(for: value)
+            ),
+            value
           )
         }
       }
     )
-    edges.removeAll {
-      !availablePorts.contains($0.source) || !availablePorts.contains($0.target)
+    edges.removeAll { edge in
+      guard let source = availablePorts[edge.source],
+        let target = availablePorts[edge.target]
+      else {
+        return true
+      }
+      return RoutingPortCompatibility.incompatibilityReason(
+        source: source,
+        target: target
+      ) != nil
     }
   }
 

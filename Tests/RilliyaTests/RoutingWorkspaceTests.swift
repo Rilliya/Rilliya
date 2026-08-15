@@ -128,8 +128,8 @@ struct RoutingWorkspaceTests {
     let ports = try #require(model.canvasContent).presentation.ports
 
     #expect(ports.count == 2)
-    #expect(ports.contains { $0.value.direction == .output && $0.value.channel == .all })
-    #expect(ports.contains { $0.value.direction == .input && $0.value.channel == .all })
+    #expect(ports.contains { $0.value.direction == .output && $0.value.audioChannel == .all })
+    #expect(ports.contains { $0.value.direction == .input && $0.value.audioChannel == .all })
   }
 
   @Test @MainActor
@@ -150,13 +150,17 @@ struct RoutingWorkspaceTests {
 
     let ports = try #require(model.canvasContent).presentation.ports
     let outputChannels = ports.compactMap { port -> Int? in
-      guard port.value.direction == .output, case .channel(let index) = port.value.channel else {
+      guard port.value.direction == .output,
+        case .some(.channel(let index)) = port.value.audioChannel
+      else {
         return nil
       }
       return index
     }
     let inputChannels = ports.compactMap { port -> Int? in
-      guard port.value.direction == .input, case .channel(let index) = port.value.channel else {
+      guard port.value.direction == .input,
+        case .some(.channel(let index)) = port.value.audioChannel
+      else {
         return nil
       }
       return index
@@ -199,7 +203,7 @@ struct RoutingWorkspaceTests {
     let content = try #require(model.canvasContent)
     let source = try #require(
       content.presentation.ports.first {
-        $0.value.direction == .output && $0.value.channel == .channel(0)
+        $0.value.direction == .output && $0.value.audioChannel == .channel(0)
       }
     )
     let target = try #require(
@@ -222,7 +226,7 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
-  func reducerRejectsAProgrammaticMismatchedChannelConnection() throws {
+  func reducerAllowsRemappingOneAudioChannelToAnotherLane() throws {
     let model = RoutingWorkspaceModel()
     let applicationID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
     let visualizerID = model.addVisualizerNode(centeredAt: CGPoint(x: 500, y: 100))
@@ -238,12 +242,12 @@ struct RoutingWorkspaceTests {
     let content = try #require(model.canvasContent)
     let source = try #require(
       content.presentation.ports.first {
-        $0.value.direction == .output && $0.value.channel == .channel(0)
+        $0.value.direction == .output && $0.value.audioChannel == .channel(0)
       }
     )
     let target = try #require(
       content.presentation.ports.first {
-        $0.value.direction == .input && $0.value.channel == .channel(1)
+        $0.value.direction == .input && $0.value.audioChannel == .channel(1)
       }
     )
 
@@ -257,7 +261,7 @@ struct RoutingWorkspaceTests {
       )
     )
 
-    #expect(model.edges.isEmpty)
+    #expect(model.edges.count == 1)
   }
 
   @Test @MainActor
