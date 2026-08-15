@@ -1,8 +1,35 @@
 import Foundation
 import RilliyaKit
 
+enum RoutingVisualizerLaneID: Equatable, Hashable, Sendable {
+  case mixed
+  case channel(Int)
+}
+
+struct RoutingVisualizerLaneSignal: Equatable, Identifiable, Sendable {
+  let id: RoutingVisualizerLaneID
+  let samples: [Float]
+}
+
 struct RoutingVisualizerSignal: Equatable, Sendable {
-  let waveforms: [[Float]]
+  let lanes: [RoutingVisualizerLaneSignal]
+
+  init(lanes: [RoutingVisualizerLaneSignal]) {
+    self.lanes = lanes
+  }
+
+  init(waveforms: [[Float]]) {
+    lanes = waveforms.enumerated().map { index, samples in
+      RoutingVisualizerLaneSignal(
+        id: waveforms.count == 1 ? .mixed : .channel(index),
+        samples: samples
+      )
+    }
+  }
+
+  var waveforms: [[Float]] {
+    lanes.map(\.samples)
+  }
 }
 
 enum RoutingVisualizerSignalBuilder {
@@ -17,7 +44,9 @@ enum RoutingVisualizerSignalBuilder {
         routedWaveforms(for: edge, snapshotForNode: snapshotForNode)
       }
       guard let mixed = mix(routedWaveforms) else { return nil }
-      return RoutingVisualizerSignal(waveforms: [mixed])
+      return RoutingVisualizerSignal(
+        lanes: [RoutingVisualizerLaneSignal(id: .mixed, samples: mixed)]
+      )
     case .separate:
       let selectedChannels = configuration.normalizedSelectedChannels
       var routedByTarget = Dictionary(
@@ -33,10 +62,13 @@ enum RoutingVisualizerSignalBuilder {
         )
       }
       let lanes = selectedChannels.map { channel in
-        mix(routedByTarget[channel] ?? []) ?? []
+        RoutingVisualizerLaneSignal(
+          id: .channel(channel),
+          samples: mix(routedByTarget[channel] ?? []) ?? []
+        )
       }
-      guard lanes.contains(where: { !$0.isEmpty }) else { return nil }
-      return RoutingVisualizerSignal(waveforms: lanes)
+      guard lanes.contains(where: { !$0.samples.isEmpty }) else { return nil }
+      return RoutingVisualizerSignal(lanes: lanes)
     }
   }
 
@@ -65,5 +97,14 @@ enum RoutingVisualizerSignalBuilder {
       }
       return sum / Float(waveforms.count)
     }
+  }
+}
+
+enum RoutingWaveformDisplayTransform {
+  static func normalizedSamples(_ samples: [Float]) -> [Float] {
+    let finiteSamples = samples.map { $0.isFinite ? $0 : 0 }
+    let peak = finiteSamples.reduce(Float.zero) { max($0, abs($1)) }
+    let gain: Float = peak > 0.000_001 ? min(20, 0.9 / peak) : 1
+    return finiteSamples.map { min(max($0 * gain, -0.9), 0.9) }
   }
 }

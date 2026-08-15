@@ -105,12 +105,13 @@ struct RoutingMetalSceneTests {
   @Test
   func visualizerWithInputUsesWaveformPresentation() {
     let waveforms: [[Float]] = [[0, 0.25, -0.5, 0]]
+    let signal = RoutingVisualizerSignal(waveforms: waveforms)
 
     let presentation = RoutingMetalVisualizerPresentation(
-      signal: RoutingVisualizerSignal(waveforms: waveforms)
+      signal: signal
     )
 
-    #expect(presentation == .waveform(waveforms))
+    #expect(presentation == .waveform(signal.lanes))
   }
 
   @Test @MainActor

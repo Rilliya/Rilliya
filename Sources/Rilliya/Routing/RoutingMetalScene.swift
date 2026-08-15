@@ -21,14 +21,14 @@ enum RoutingMetalVisualizerPresentation: Equatable {
   static let waitingMessage = "Waiting for audio input"
 
   case waiting
-  case waveform([[Float]])
+  case waveform([RoutingVisualizerLaneSignal])
 
   init(signal: RoutingVisualizerSignal?) {
-    guard let waveforms = signal?.waveforms, !waveforms.isEmpty else {
+    guard let lanes = signal?.lanes, !lanes.isEmpty else {
       self = .waiting
       return
     }
-    self = .waveform(waveforms)
+    self = .waveform(lanes)
   }
 }
 

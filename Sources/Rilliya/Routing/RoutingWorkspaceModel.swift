@@ -99,7 +99,12 @@ final class RoutingWorkspaceModel {
     case .aggregate:
       normalized = .aggregate
     case .separate(let channelCount):
-      normalized = .separate(channelCount: max(1, min(32, channelCount)))
+      normalized = .separate(
+        channelCount: max(
+          1,
+          min(RoutingVisualizerConfiguration.maximumAvailableChannelCount, channelCount)
+        )
+      )
     }
     nodes[index].value = .applicationAudio(
       selection: selection,
@@ -119,7 +124,13 @@ final class RoutingWorkspaceModel {
       return
     }
     var normalized = configuration
-    normalized.availableChannelCount = max(1, min(32, configuration.availableChannelCount))
+    normalized.availableChannelCount = max(
+      1,
+      min(
+        RoutingVisualizerConfiguration.maximumAvailableChannelCount,
+        configuration.availableChannelCount
+      )
+    )
     normalized.selectedChannels = Set(normalized.normalizedSelectedChannels)
     if normalized.selectedChannels.isEmpty {
       normalized.selectedChannels = [0]

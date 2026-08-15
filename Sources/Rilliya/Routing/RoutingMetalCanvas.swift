@@ -95,7 +95,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     static let portHitRadius: CGFloat = 13
     static let edgeWidth: CGFloat = 1.6
     static let connectionPreviewWidth: CGFloat = 1.8
-    static let waveformWidth: CGFloat = 1.25
+    static let waveformWidth: CGFloat = 2
     static let fitPadding: CGFloat = 58
   }
 
@@ -693,55 +693,77 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     palette: RoutingMetalPalette,
     to geometry: inout RoutingMetalFrameGeometry
   ) {
-    let waveformFrame = CGRect(
-      x: frame.minX + 14,
-      y: frame.maxY - 56,
-      width: frame.width - 28,
-      height: 42
-    )
+    guard case .visualizer(let configuration) = node.value else { return }
     let presentation = RoutingMetalVisualizerPresentation(
       signal: node.supplement.visualizerSignal
     )
-    guard case .waveform(let waveforms) = presentation else {
+    guard case .waveform(let lanes) = presentation else {
       append(
         atlas: textAtlas.text(
           RoutingMetalVisualizerPresentation.waitingMessage,
           size: 10,
           weight: .medium
         ),
-        centeredIn: waveformFrame,
+        centeredIn: RoutingVisualizerLayout.waitingFrame(
+          in: frame,
+          configuration: configuration
+        ),
         color: palette.muted.withAlpha(0.72),
         to: &geometry
       )
       return
     }
-    geometry.shapes.append(
-      RoutingMetalShapeInstance(
-        rect: waveformFrame,
-        fill: palette.field,
-        border: .zero,
-        cornerRadius: 8,
-        borderWidth: 0,
-        opacity: 1
-      )
+    let frames = RoutingVisualizerLayout.laneFrames(
+      in: frame,
+      configuration: configuration
     )
-    let laneHeight = waveformFrame.height / CGFloat(waveforms.count)
-    for (laneIndex, samples) in waveforms.enumerated() where samples.count > 1 {
-      let middle = waveformFrame.minY + laneHeight * (CGFloat(laneIndex) + 0.5)
-      let amplitude = laneHeight * 0.38
+    for (lane, laneFrame) in zip(lanes, frames) {
+      geometry.shapes.append(
+        RoutingMetalShapeInstance(
+          rect: laneFrame,
+          fill: palette.field,
+          border: .zero,
+          cornerRadius: 8,
+          borderWidth: 0,
+          opacity: 1
+        )
+      )
+      let labelWidth: CGFloat = configuration.mode == .separate ? 34 : 0
+      if configuration.mode == .separate {
+        append(
+          atlas: textAtlas.text(label(for: lane.id), size: 8, weight: .semibold),
+          origin: CGPoint(x: laneFrame.minX + 7, y: laneFrame.midY - 5),
+          color: palette.muted.withAlpha(0.72),
+          to: &geometry
+        )
+      }
+      let samples = RoutingWaveformDisplayTransform.normalizedSamples(lane.samples)
+      guard samples.count > 1 else { continue }
+      let middle = laneFrame.midY
+      let amplitude = laneFrame.height * 0.42
       let points = samples.enumerated().map { index, sample in
         CGPoint(
-          x: waveformFrame.minX + 8
-            + (waveformFrame.width - 16) * CGFloat(index) / CGFloat(samples.count - 1),
+          x: laneFrame.minX + labelWidth + 8
+            + (laneFrame.width - labelWidth - 16) * CGFloat(index)
+              / CGFloat(samples.count - 1),
           y: middle - CGFloat(sample) * amplitude
         )
       }
-      appendStroke(
+      appendRoundStroke(
         points: points,
         width: Constants.waveformWidth / camera.zoom,
-        color: accent.withAlpha(laneIndex == 0 ? 0.95 : 0.64),
+        color: accent.withAlpha(0.92),
         to: &geometry
       )
+    }
+  }
+
+  private func label(for laneID: RoutingVisualizerLaneID) -> String {
+    switch laneID {
+    case .mixed:
+      return "Mix"
+    case .channel(let channel):
+      return "Ch \(channel + 1)"
     }
   }
 
@@ -818,6 +840,39 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       geometry.triangles.append(
         RoutingMetalTriangleInstance(point0: p2, point1: p1, point2: p3, color: color)
       )
+    }
+  }
+
+  private func appendRoundStroke(
+    points: [CGPoint],
+    width: CGFloat,
+    color: SIMD4<Float>,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
+    appendStroke(points: points, width: width, color: color, to: &geometry)
+    let radius = width / 2
+    let segmentCount = 8
+    for point in points {
+      for segment in 0..<segmentCount {
+        let firstAngle = CGFloat(segment) / CGFloat(segmentCount) * .pi * 2
+        let secondAngle = CGFloat(segment + 1) / CGFloat(segmentCount) * .pi * 2
+        let first = CGPoint(
+          x: point.x + cos(firstAngle) * radius,
+          y: point.y + sin(firstAngle) * radius
+        )
+        let second = CGPoint(
+          x: point.x + cos(secondAngle) * radius,
+          y: point.y + sin(secondAngle) * radius
+        )
+        geometry.triangles.append(
+          RoutingMetalTriangleInstance(
+            point0: point,
+            point1: first,
+            point2: second,
+            color: color
+          )
+        )
+      }
     }
   }
 

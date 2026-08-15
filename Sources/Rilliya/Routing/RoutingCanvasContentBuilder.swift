@@ -45,7 +45,11 @@ enum RoutingCanvasContentBuilder {
           )
           portPlacements[
             RoutingWorkspacePortAddress(nodeID: node.id, portID: portID)
-          ] = RoutingPortPlacement(ordinal: value.ordinal, total: value.total)
+          ] = RoutingPortPlacement(
+            ordinal: value.ordinal,
+            total: value.total,
+            verticalOffset: verticalOffset(for: value, in: node)
+          )
         }
       }
       for edge in edges {
@@ -159,6 +163,20 @@ enum RoutingCanvasContentBuilder {
     )
   }
 
+  private static func verticalOffset(
+    for value: RoutingGraphPortValue,
+    in node: RoutingWorkspaceNode
+  ) -> CGFloat? {
+    guard case .visualizer(let configuration) = node.value else { return nil }
+    let localFrame = CGRect(origin: .zero, size: node.frame.size)
+    let laneFrames = RoutingVisualizerLayout.laneFrames(
+      in: localFrame,
+      configuration: configuration
+    )
+    guard laneFrames.indices.contains(value.ordinal) else { return nil }
+    return laneFrames[value.ordinal].midY
+  }
+
   private static func accessibilityRepresentation(
     for node: FlowingGraphPresentationNode<RoutingCanvasSchema>
   ) -> FlowingGraphCanvasAccessibilityRepresentation {
@@ -208,6 +226,7 @@ private struct RoutingNodeSizeResolver: FlowingGraphNodeSizeResolver {
 private struct RoutingPortPlacement: Sendable {
   let ordinal: Int
   let total: Int
+  let verticalOffset: CGFloat?
 }
 
 private struct RoutingPortAnchorResolver: FlowingGraphPortAnchorResolver {
@@ -231,9 +250,10 @@ private struct RoutingPortAnchorResolver: FlowingGraphPortAnchorResolver {
     let placement =
       placements[
         RoutingWorkspacePortAddress(nodeID: key.nodeID, portID: key.portID)
-      ] ?? RoutingPortPlacement(ordinal: 0, total: 1)
+      ] ?? RoutingPortPlacement(ordinal: 0, total: 1, verticalOffset: nil)
     let verticalPosition =
-      nodeSize.height * CGFloat(placement.ordinal + 1) / CGFloat(placement.total + 1)
+      placement.verticalOffset
+      ?? nodeSize.height * CGFloat(placement.ordinal + 1) / CGFloat(placement.total + 1)
     let isInput = id.direction == .input
     return FlowingGraphPortAnchor(
       key: port.key,

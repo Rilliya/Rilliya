@@ -67,6 +67,9 @@ enum RoutingVisualizerMode: String, CaseIterable, Equatable, Hashable, Sendable 
 }
 
 struct RoutingVisualizerConfiguration: Equatable, Sendable {
+  static let maximumAvailableChannelCount = 256
+  static let maximumSeparateLaneCount = 8
+
   var mode: RoutingVisualizerMode
   var availableChannelCount: Int
   var selectedChannels: Set<Int>
@@ -78,9 +81,16 @@ struct RoutingVisualizerConfiguration: Equatable, Sendable {
   )
 
   var normalizedSelectedChannels: [Int] {
-    selectedChannels
-      .filter { (0..<availableChannelCount).contains($0) }
-      .sorted()
+    Array(
+      selectedChannels
+        .filter { (0..<availableChannelCount).contains($0) }
+        .sorted()
+        .prefix(Self.maximumSeparateLaneCount)
+    )
+  }
+
+  var canSelectAnotherChannel: Bool {
+    normalizedSelectedChannels.count < Self.maximumSeparateLaneCount
   }
 }
 
@@ -267,12 +277,83 @@ enum RoutingCanvasMetrics {
     case .applicationAudio(_, .separate(let channelCount)):
       portCount = channelCount
     case .visualizer(let configuration):
-      portCount =
-        configuration.mode == .mixed ? 1 : configuration.normalizedSelectedChannels.count
+      return CGSize(
+        width: baseNodeSize.width,
+        height: RoutingVisualizerLayout.nodeHeight(for: configuration)
+      )
     }
     return CGSize(
       width: baseNodeSize.width,
       height: max(baseNodeSize.height, CGFloat(portCount + 1) * 18)
+    )
+  }
+}
+
+enum RoutingVisualizerLayout {
+  static let waveformTop: CGFloat = 70
+  static let singleLaneHeight: CGFloat = 42
+  static let separateLaneHeight: CGFloat = 32
+  static let laneSpacing: CGFloat = 6
+  static let horizontalInset: CGFloat = 14
+  static let bottomInset: CGFloat = 14
+  static let maximumNodeHeight =
+    waveformTop
+    + CGFloat(RoutingVisualizerConfiguration.maximumSeparateLaneCount) * separateLaneHeight
+    + CGFloat(RoutingVisualizerConfiguration.maximumSeparateLaneCount - 1) * laneSpacing
+    + bottomInset
+
+  static func laneCount(for configuration: RoutingVisualizerConfiguration) -> Int {
+    configuration.mode == .mixed
+      ? 1
+      : max(configuration.normalizedSelectedChannels.count, 1)
+  }
+
+  static func laneHeight(for configuration: RoutingVisualizerConfiguration) -> CGFloat {
+    configuration.mode == .mixed ? singleLaneHeight : separateLaneHeight
+  }
+
+  static func waveformContentHeight(
+    for configuration: RoutingVisualizerConfiguration
+  ) -> CGFloat {
+    let count = laneCount(for: configuration)
+    return CGFloat(count) * laneHeight(for: configuration)
+      + CGFloat(max(count - 1, 0)) * laneSpacing
+  }
+
+  static func nodeHeight(for configuration: RoutingVisualizerConfiguration) -> CGFloat {
+    min(
+      maximumNodeHeight,
+      max(
+        RoutingCanvasMetrics.baseNodeSize.height,
+        waveformTop + waveformContentHeight(for: configuration) + bottomInset
+      )
+    )
+  }
+
+  static func laneFrames(
+    in nodeFrame: CGRect,
+    configuration: RoutingVisualizerConfiguration
+  ) -> [CGRect] {
+    let height = laneHeight(for: configuration)
+    return (0..<laneCount(for: configuration)).map { index in
+      CGRect(
+        x: nodeFrame.minX + horizontalInset,
+        y: nodeFrame.minY + waveformTop + CGFloat(index) * (height + laneSpacing),
+        width: nodeFrame.width - horizontalInset * 2,
+        height: height
+      )
+    }
+  }
+
+  static func waitingFrame(
+    in nodeFrame: CGRect,
+    configuration: RoutingVisualizerConfiguration
+  ) -> CGRect {
+    CGRect(
+      x: nodeFrame.minX + horizontalInset,
+      y: nodeFrame.minY + waveformTop,
+      width: nodeFrame.width - horizontalInset * 2,
+      height: waveformContentHeight(for: configuration)
     )
   }
 }

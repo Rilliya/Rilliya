@@ -732,11 +732,11 @@ private struct VisualizerNodeView: View {
       }
 
       if let snapshot {
-        RoutingWaveformDisplay(signal: snapshot)
-          .frame(height: 42)
+        RoutingWaveformDisplay(signal: snapshot, configuration: configuration)
+          .frame(height: RoutingVisualizerLayout.waveformContentHeight(for: configuration))
       } else {
         RoutingWaveformPlaceholder()
-          .frame(height: 42)
+          .frame(height: RoutingVisualizerLayout.waveformContentHeight(for: configuration))
       }
     }
     .overlay {
@@ -767,74 +767,75 @@ private struct VisualizerNodeView: View {
 
 private struct RoutingWaveformDisplay: View {
   let signal: RoutingVisualizerSignal
+  let configuration: RoutingVisualizerConfiguration
 
   @Environment(\.flowingAccent) private var accent
 
   var body: some View {
-    Canvas { graphics, size in
-      let lanes = signal.waveforms
-      guard !lanes.isEmpty else { return }
-      let laneHeight = size.height / CGFloat(lanes.count)
-      for (laneIndex, samples) in lanes.enumerated() {
-        guard samples.count > 1 else { continue }
-        let middle = laneHeight * (CGFloat(laneIndex) + 0.5)
-        let amplitude = laneHeight * 0.4
-        var path = Path()
-        for (sampleIndex, sample) in samples.enumerated() {
-          let x = size.width * CGFloat(sampleIndex) / CGFloat(samples.count - 1)
-          let y = middle - CGFloat(sample) * amplitude
-          if sampleIndex == 0 {
-            path.move(to: CGPoint(x: x, y: y))
-          } else {
-            path.addLine(to: CGPoint(x: x, y: y))
+    VStack(spacing: RoutingVisualizerLayout.laneSpacing) {
+      ForEach(signal.lanes) { lane in
+        HStack(spacing: 5) {
+          if configuration.mode == .separate {
+            Text(label(for: lane.id))
+              .font(.system(size: 8, weight: .semibold))
+              .foregroundStyle(FlowingPalette.muted)
+              .frame(width: 28, alignment: .leading)
           }
+          Canvas { graphics, size in
+            let samples = RoutingWaveformDisplayTransform.normalizedSamples(lane.samples)
+            guard samples.count > 1 else { return }
+            let middle = size.height / 2
+            let amplitude = size.height * 0.42
+            var path = Path()
+            for (sampleIndex, sample) in samples.enumerated() {
+              let x = size.width * CGFloat(sampleIndex) / CGFloat(samples.count - 1)
+              let y = middle - CGFloat(sample) * amplitude
+              if sampleIndex == 0 {
+                path.move(to: CGPoint(x: x, y: y))
+              } else {
+                path.addLine(to: CGPoint(x: x, y: y))
+              }
+            }
+            graphics.stroke(
+              path,
+              with: .color(accent.fill.opacity(0.92)),
+              style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round)
+            )
+          }
+          .padding(.vertical, 3)
         }
-        graphics.stroke(
-          path,
-          with: .color(accent.fill.opacity(laneIndex == 0 ? 0.95 : 0.62)),
-          lineWidth: 1.25
+        .padding(.horizontal, 8)
+        .frame(height: RoutingVisualizerLayout.laneHeight(for: configuration))
+        .background(
+          FlowingPalette.field,
+          in: RoundedRectangle(cornerRadius: 8, style: .continuous)
         )
       }
     }
-    .padding(.horizontal, 8)
-    .background(
-      FlowingPalette.field,
-      in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-    )
     .accessibilityElement()
     .accessibilityLabel("Waveform")
     .accessibilityValue("Live audio")
   }
 
+  private func label(for id: RoutingVisualizerLaneID) -> String {
+    switch id {
+    case .mixed:
+      return "Mix"
+    case .channel(let channel):
+      return "Ch \(channel + 1)"
+    }
+  }
 }
 
 private struct RoutingWaveformPlaceholder: View {
-  @Environment(\.flowingAccent) private var accent
-
   var body: some View {
-    GeometryReader { geometry in
-      Path { path in
-        let middle = geometry.size.height / 2
-        path.move(to: CGPoint(x: 0, y: middle))
-        path.addLine(to: CGPoint(x: geometry.size.width, y: middle))
-      }
-      .stroke(accent.fill.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
-    }
-    .padding(.horizontal, 9)
-    .background(
-      FlowingPalette.field,
-      in: RoundedRectangle(cornerRadius: 8, style: .continuous)
-    )
-    .overlay(alignment: .center) {
-      Text("Waiting for audio")
-        .font(.system(size: 9, weight: .medium))
-        .foregroundStyle(FlowingPalette.faint)
-        .padding(.horizontal, 6)
-        .background(FlowingPalette.field)
-    }
-    .accessibilityElement()
-    .accessibilityLabel("Waveform")
-    .accessibilityValue("Waiting for audio")
+    Text("Waiting for audio input")
+      .font(.system(size: 9, weight: .medium))
+      .foregroundStyle(FlowingPalette.faint)
+      .frame(maxWidth: .infinity, maxHeight: .infinity)
+      .accessibilityElement()
+      .accessibilityLabel("Waveform")
+      .accessibilityValue("Waiting for audio")
   }
 }
 
@@ -970,7 +971,7 @@ private struct SelectedApplicationInspector: View {
             FlowingStepper(
               "Output channel count",
               value: separateChannelCount,
-              in: 1...32,
+              in: 1...RoutingVisualizerConfiguration.maximumAvailableChannelCount,
               step: 1
             )
           }
@@ -1206,7 +1207,7 @@ private struct SelectedVisualizerInspector: View {
           FlowingStepper(
             "Available channel count",
             value: availableChannelCount,
-            in: 1...32,
+            in: 1...RoutingVisualizerConfiguration.maximumAvailableChannelCount,
             step: 1
           )
         }
@@ -1221,6 +1222,12 @@ private struct SelectedVisualizerInspector: View {
           .frame(maxWidth: .infinity, alignment: .leading)
         }
         .frame(maxHeight: 220)
+
+        Text(
+          "Show up to \(RoutingVisualizerConfiguration.maximumSeparateLaneCount) channels per visualizer. Add another visualizer for more lanes."
+        )
+        .font(.caption2)
+        .foregroundStyle(FlowingPalette.faint)
       }
     }
     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
@@ -1258,7 +1265,11 @@ private struct SelectedVisualizerInspector: View {
           set: { isSelected in
             var updated = configuration
             if isSelected {
-              updated.selectedChannels.insert(channel)
+              if updated.selectedChannels.contains(channel)
+                || updated.canSelectAnotherChannel
+              {
+                updated.selectedChannels.insert(channel)
+              }
             } else {
               updated.selectedChannels.remove(channel)
             }
