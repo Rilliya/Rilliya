@@ -8,6 +8,7 @@ enum RoutingPreparedAudioGraphError: Error, Equatable, LocalizedError, Sendable 
   case incompatibleSampleRate(UUID)
   case invalidRoute
   case cycle
+  case resourceBudgetExceeded(RoutingAudioGraphResource)
 
   var errorDescription: String? {
     switch self {
@@ -21,7 +22,187 @@ enum RoutingPreparedAudioGraphError: Error, Equatable, LocalizedError, Sendable 
       "The audio graph contains a route that cannot be compiled."
     case .cycle:
       "The audio graph contains a feedback cycle. Graph feedback routing is not available yet."
+    case .resourceBudgetExceeded(let resource):
+      "The audio graph exceeds the safe realtime \(resource.description) budget."
     }
+  }
+}
+
+enum RoutingAudioGraphResource: Equatable, Sendable {
+  case nodes
+  case edges
+  case operations
+  case routes
+  case scratchStorage
+  case persistentStorage
+
+  fileprivate var description: String {
+    switch self {
+    case .nodes: "node"
+    case .edges: "connection"
+    case .operations: "render-operation"
+    case .routes: "mix-route"
+    case .scratchStorage: "scratch-memory"
+    case .persistentStorage: "DSP-state-memory"
+    }
+  }
+}
+
+struct RoutingAudioGraphResourceBudget: Equatable, Sendable {
+  static let standard = RoutingAudioGraphResourceBudget(
+    maximumNodeCount: 2_048,
+    maximumEdgeCount: 8_192,
+    maximumOperationCount: 4_096,
+    maximumRouteCount: 8_192,
+    maximumScratchByteCount: 64 * 1_024 * 1_024,
+    maximumPersistentByteCount: 128 * 1_024 * 1_024
+  )
+
+  let maximumNodeCount: Int
+  let maximumEdgeCount: Int
+  let maximumOperationCount: Int
+  let maximumRouteCount: Int
+  let maximumScratchByteCount: Int
+  let maximumPersistentByteCount: Int
+
+  func validateTopology(nodeCount: Int, edgeCount: Int) throws {
+    guard nodeCount <= maximumNodeCount else {
+      throw RoutingPreparedAudioGraphError.resourceBudgetExceeded(.nodes)
+    }
+    guard edgeCount <= maximumEdgeCount else {
+      throw RoutingPreparedAudioGraphError.resourceBudgetExceeded(.edges)
+    }
+  }
+
+  func scratchByteCount(bufferCount: Int, maximumFrameCount: Int) throws -> Int {
+    try checkedByteCount(
+      factors: [bufferCount, maximumFrameCount, MemoryLayout<Float>.stride],
+      maximum: maximumScratchByteCount,
+      resource: .scratchStorage
+    )
+  }
+
+  func maximumBufferCount(maximumFrameCount: Int) throws -> Int {
+    guard maximumFrameCount > 0 else {
+      throw RoutingPreparedAudioGraphError.resourceBudgetExceeded(.scratchStorage)
+    }
+    return maximumScratchByteCount / MemoryLayout<Float>.stride / maximumFrameCount
+  }
+
+  fileprivate func validate(
+    plan: RoutingPreparedAudioGraphPlan,
+    preparation: AudioRenderPreparation
+  ) throws {
+    guard plan.operations.count <= maximumOperationCount else {
+      throw RoutingPreparedAudioGraphError.resourceBudgetExceeded(.operations)
+    }
+    var routeCount = plan.finalMix.routes.count
+    var persistentByteCount = try mixerByteCount(
+      outputChannelCount: preparation.format.channelCount,
+      maximumFrameCount: preparation.maximumFrameCount
+    )
+    for operation in plan.operations {
+      switch operation {
+      case .gain:
+        persistentByteCount = try adding(
+          persistentByteCount,
+          try floatByteCount(preparation.maximumFrameCount),
+          resource: .persistentStorage
+        )
+      case .mix(let mix):
+        routeCount = try adding(routeCount, mix.routes.count, resource: .routes)
+        persistentByteCount = try adding(
+          persistentByteCount,
+          try mixerByteCount(
+            outputChannelCount: max(mix.outputBufferIndices.count, 1),
+            maximumFrameCount: preparation.maximumFrameCount
+          ),
+          resource: .persistentStorage
+        )
+      case .delay(let delay):
+        let delayFrameCount = max(
+          1,
+          Int((delay.configuration.delaySeconds * preparation.format.sampleRate).rounded())
+        )
+        let delayBytes = try checkedByteCount(
+          factors: [delayFrameCount, delay.inputBufferIndices.count, MemoryLayout<Float>.stride],
+          maximum: maximumPersistentByteCount,
+          resource: .persistentStorage
+        )
+        persistentByteCount = try adding(
+          persistentByteCount,
+          delayBytes,
+          resource: .persistentStorage
+        )
+      case .generator, .captureRead, .noiseGate, .compressor:
+        break
+      }
+      guard persistentByteCount <= maximumPersistentByteCount else {
+        throw RoutingPreparedAudioGraphError.resourceBudgetExceeded(.persistentStorage)
+      }
+    }
+    guard routeCount <= maximumRouteCount else {
+      throw RoutingPreparedAudioGraphError.resourceBudgetExceeded(.routes)
+    }
+    _ = try scratchByteCount(
+      bufferCount: plan.bufferCount,
+      maximumFrameCount: preparation.maximumFrameCount
+    )
+  }
+
+  private func mixerByteCount(
+    outputChannelCount: Int,
+    maximumFrameCount: Int
+  ) throws -> Int {
+    let mixBytes = try checkedByteCount(
+      factors: [outputChannelCount, maximumFrameCount, MemoryLayout<Float>.stride],
+      maximum: maximumPersistentByteCount,
+      resource: .persistentStorage
+    )
+    return try adding(
+      mixBytes,
+      try floatByteCount(maximumFrameCount),
+      resource: .persistentStorage
+    )
+  }
+
+  private func floatByteCount(_ count: Int) throws -> Int {
+    try checkedByteCount(
+      factors: [count, MemoryLayout<Float>.stride],
+      maximum: maximumPersistentByteCount,
+      resource: .persistentStorage
+    )
+  }
+
+  private func checkedByteCount(
+    factors: [Int],
+    maximum: Int,
+    resource: RoutingAudioGraphResource
+  ) throws -> Int {
+    var result = 1
+    for factor in factors {
+      guard factor >= 0 else {
+        throw RoutingPreparedAudioGraphError.resourceBudgetExceeded(resource)
+      }
+      let multiplication = result.multipliedReportingOverflow(by: factor)
+      guard !multiplication.overflow, multiplication.partialValue <= maximum else {
+        throw RoutingPreparedAudioGraphError.resourceBudgetExceeded(resource)
+      }
+      result = multiplication.partialValue
+    }
+    return result
+  }
+
+  private func adding(
+    _ first: Int,
+    _ second: Int,
+    resource: RoutingAudioGraphResource
+  ) throws -> Int {
+    let result = first.addingReportingOverflow(second)
+    guard !result.overflow else {
+      throw RoutingPreparedAudioGraphError.resourceBudgetExceeded(resource)
+    }
+    return result.partialValue
   }
 }
 
@@ -38,19 +219,30 @@ final class RoutingPreparedAudioGraphSource: PreparedAudioSource, @unchecked Sen
     nodes: [RoutingWorkspaceNode],
     edges: [RoutingWorkspaceEdge],
     outputNodeID: UUID,
-    frameBuffers: [UUID: AudioRealtimeFrameBuffer]
+    frameBuffers: [UUID: AudioRealtimeFrameBuffer],
+    resourceBudget: RoutingAudioGraphResourceBudget = .standard
   ) throws {
+    let enabledEdges = edges.filter(\.isEnabled)
+    try resourceBudget.validateTopology(
+      nodeCount: nodes.count,
+      edgeCount: enabledEdges.count
+    )
     var compiler = RoutingPreparedAudioGraphCompiler(
       preparation: preparation,
       nodes: nodes,
-      edges: edges.filter(\.isEnabled),
+      edges: enabledEdges,
       outputNodeID: outputNodeID,
-      frameBuffers: frameBuffers
+      frameBuffers: frameBuffers,
+      maximumBufferCount: try resourceBudget.maximumBufferCount(
+        maximumFrameCount: preparation.maximumFrameCount
+      )
     )
     let plan = try compiler.compile()
-    let storage = RoutingPreparedAudioStorage(
+    try resourceBudget.validate(plan: plan, preparation: preparation)
+    let storage = try RoutingPreparedAudioStorage(
       bufferCount: plan.bufferCount,
-      maximumFrameCount: preparation.maximumFrameCount
+      maximumFrameCount: preparation.maximumFrameCount,
+      resourceBudget: resourceBudget
     )
     self.preparation = preparation
     self.storage = storage
@@ -101,6 +293,14 @@ final class RoutingPreparedAudioGraphSource: PreparedAudioSource, @unchecked Sen
         return .noiseGate(
           try RoutingPreparedNoiseGateOperation(
             plan: noiseGate,
+            preparation: preparation,
+            storage: storage
+          )
+        )
+      case .compressor(let compressor):
+        return .compressor(
+          try RoutingPreparedCompressorOperation(
+            plan: compressor,
             preparation: preparation,
             storage: storage
           )
@@ -173,6 +373,13 @@ private struct RoutingNoiseGatePlan {
   let outputBufferIndices: [Int]
 }
 
+private struct RoutingCompressorPlan {
+  let nodeID: UUID
+  let configuration: RoutingCompressorConfiguration
+  let inputBufferIndices: [Int]
+  let outputBufferIndices: [Int]
+}
+
 private struct RoutingPreparedControlAddress {
   let nodeID: UUID
   let channelIndex: Int
@@ -210,6 +417,7 @@ private enum RoutingPreparedAudioOperationPlan {
   case mix(RoutingMixPlan)
   case delay(RoutingDelayPlan)
   case noiseGate(RoutingNoiseGatePlan)
+  case compressor(RoutingCompressorPlan)
 }
 
 private struct RoutingPreparedAudioGraphPlan {
@@ -224,6 +432,7 @@ private struct RoutingPreparedAudioGraphCompiler {
   private let incomingEdgesByNodeID: [UUID: [RoutingWorkspaceEdge]]
   private let outputNodeID: UUID
   private let frameBuffers: [UUID: AudioRealtimeFrameBuffer]
+  private let maximumBufferCount: Int
 
   private var nextBufferIndex = 0
   private var operationPlans: [RoutingPreparedAudioOperationPlan] = []
@@ -236,13 +445,15 @@ private struct RoutingPreparedAudioGraphCompiler {
     nodes: [RoutingWorkspaceNode],
     edges: [RoutingWorkspaceEdge],
     outputNodeID: UUID,
-    frameBuffers: [UUID: AudioRealtimeFrameBuffer]
+    frameBuffers: [UUID: AudioRealtimeFrameBuffer],
+    maximumBufferCount: Int
   ) {
     self.preparation = preparation
     nodesByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
     incomingEdgesByNodeID = Dictionary(grouping: edges, by: { $0.target.nodeID })
     self.outputNodeID = outputNodeID
     self.frameBuffers = frameBuffers
+    self.maximumBufferCount = maximumBufferCount
   }
 
   mutating func compile() throws -> RoutingPreparedAudioGraphPlan {
@@ -253,7 +464,7 @@ private struct RoutingPreparedAudioGraphCompiler {
     }
     var finalContributions: [(bufferIndex: Int, destinationChannel: Int)] = []
     for edge in sortedIncomingEdges(for: outputNodeID) {
-      let signal = try resolveOutput(edge.source, visited: [])
+      let signal = try resolveInput(edge, visited: [])
       guard let targetChannel = edge.target.portID.audioChannel else {
         throw RoutingPreparedAudioGraphError.invalidRoute
       }
@@ -348,11 +559,34 @@ private struct RoutingPreparedAudioGraphCompiler {
         configuration: configuration,
         visited: visited
       )
+    case .compressor(let configuration):
+      signal = try compressorSignal(
+        nodeID: node.id,
+        address: address,
+        configuration: configuration,
+        visited: visited
+      )
     case .outputAudio, .peakLevel:
       throw RoutingPreparedAudioGraphError.invalidRoute
     }
     signalsByAddress[address] = signal
     return signal
+  }
+
+  private mutating func resolveInput(
+    _ edge: RoutingWorkspaceEdge,
+    visited: Set<RoutingWorkspacePortAddress>
+  ) throws -> [RoutingCompiledAudioChannel] {
+    let signal = try resolveOutput(edge.source, visited: visited)
+    guard edge.source.portID.audioChannel == .all,
+      case .some(.channel(let targetChannel)) = edge.target.portID.audioChannel
+    else {
+      return signal
+    }
+    if let matchingChannel = signal.first(where: { $0.channelIndex == targetChannel }) {
+      return [matchingChannel]
+    }
+    return signal.count == 1 ? signal : []
   }
 
   private mutating func signalGeneratorSignal(
@@ -366,7 +600,7 @@ private struct RoutingPreparedAudioGraphCompiler {
     if let existing = sourceSignalsByNodeID[nodeID] {
       return existing
     }
-    let outputBufferIndex = allocateBuffers(count: 1)[0]
+    let outputBufferIndex = try allocateBuffers(count: 1)[0]
     operationPlans.append(
       .generator(
         RoutingSignalGeneratorPlan(
@@ -399,7 +633,7 @@ private struct RoutingPreparedAudioGraphCompiler {
       if let existing = rawSignalsByBuffer[bufferIdentity] {
         raw = existing
       } else {
-        let indices = allocateBuffers(count: frameBuffer.format.channelCount)
+        let indices = try allocateBuffers(count: frameBuffer.format.channelCount)
         raw = indices.enumerated().map {
           RoutingCompiledAudioChannel(channelIndex: $0.offset, bufferIndex: $0.element)
         }
@@ -413,7 +647,7 @@ private struct RoutingPreparedAudioGraphCompiler {
           )
         )
       }
-      let outputIndices = allocateBuffers(count: raw.count)
+      let outputIndices = try allocateBuffers(count: raw.count)
       operationPlans.append(
         .gain(
           RoutingGainPlan(
@@ -465,14 +699,14 @@ private struct RoutingPreparedAudioGraphCompiler {
       guard let edge = incoming.first(where: { $0.target.portID.audioChannel == .all }) else {
         return []
       }
-      return try resolveOutput(edge.source, visited: visited)
+      return try resolveInput(edge, visited: visited)
     case (.separate, .channel(let channelIndex)):
       guard
         let edge = incoming.first(where: {
           $0.target.portID.audioChannel == .channel(channelIndex)
         })
       else { return [] }
-      return try resolveOutput(edge.source, visited: visited).map {
+      return try resolveInput(edge, visited: visited).map {
         RoutingCompiledAudioChannel(channelIndex: channelIndex, bufferIndex: $0.bufferIndex)
       }
     case (.separate, .all):
@@ -481,7 +715,7 @@ private struct RoutingPreparedAudioGraphCompiler {
         guard case .some(.channel(let channelIndex)) = edge.target.portID.audioChannel,
           configuration.normalizedSelectedChannels.contains(channelIndex)
         else { return [] }
-        return try resolveOutput(edge.source, visited: visited)
+        return try resolveInput(edge, visited: visited)
       }
       return try makeMixSignal(
         inputs,
@@ -506,7 +740,7 @@ private struct RoutingPreparedAudioGraphCompiler {
     let inputs = try sortedIncomingEdges(for: node.id).flatMap {
       edge -> [RoutingCompiledAudioChannel] in
       guard edge.target.portID.audioChannel == .channel(channelIndex) else { return [] }
-      return try resolveOutput(edge.source, visited: visited)
+      return try resolveInput(edge, visited: visited)
     }
     return try makeMixSignal(
       inputs,
@@ -536,9 +770,9 @@ private struct RoutingPreparedAudioGraphCompiler {
     else {
       return []
     }
-    let input = try resolveOutput(edge.source, visited: visited)
+    let input = try resolveInput(edge, visited: visited)
     guard !input.isEmpty else { return [] }
-    let outputIndices = allocateBuffers(count: input.count)
+    let outputIndices = try allocateBuffers(count: input.count)
     operationPlans.append(
       .delay(
         RoutingDelayPlan(
@@ -569,9 +803,9 @@ private struct RoutingPreparedAudioGraphCompiler {
     else {
       return []
     }
-    let input = try resolveOutput(edge.source, visited: visited)
+    let input = try resolveInput(edge, visited: visited)
     guard !input.isEmpty else { return [] }
-    let outputIndices = allocateBuffers(count: input.count)
+    let outputIndices = try allocateBuffers(count: input.count)
     operationPlans.append(
       .gain(
         RoutingGainPlan(
@@ -611,7 +845,7 @@ private struct RoutingPreparedAudioGraphCompiler {
     else {
       return []
     }
-    let input = try resolveOutput(edge.source, visited: visited)
+    let input = try resolveInput(edge, visited: visited)
     guard let selected = input.first(where: { $0.channelIndex == inputChannel }) ?? input.first
     else {
       return []
@@ -640,12 +874,46 @@ private struct RoutingPreparedAudioGraphCompiler {
     else {
       return []
     }
-    let input = try resolveOutput(edge.source, visited: visited)
+    let input = try resolveInput(edge, visited: visited)
     guard !input.isEmpty else { return [] }
-    let outputIndices = allocateBuffers(count: input.count)
+    let outputIndices = try allocateBuffers(count: input.count)
     operationPlans.append(
       .noiseGate(
         RoutingNoiseGatePlan(
+          nodeID: nodeID,
+          configuration: configuration,
+          inputBufferIndices: input.map(\.bufferIndex),
+          outputBufferIndices: outputIndices
+        )
+      )
+    )
+    return zip(input, outputIndices).map {
+      RoutingCompiledAudioChannel(channelIndex: $0.0.channelIndex, bufferIndex: $0.1)
+    }
+  }
+
+  private mutating func compressorSignal(
+    nodeID: UUID,
+    address: RoutingWorkspacePortAddress,
+    configuration: RoutingCompressorConfiguration,
+    visited: Set<RoutingWorkspacePortAddress>
+  ) throws -> [RoutingCompiledAudioChannel] {
+    guard address.portID.audioChannel == .all else {
+      throw RoutingPreparedAudioGraphError.invalidRoute
+    }
+    guard
+      let edge = sortedIncomingEdges(for: nodeID).first(where: {
+        $0.target.portID.audioChannel == .all
+      })
+    else {
+      return []
+    }
+    let input = try resolveInput(edge, visited: visited)
+    guard !input.isEmpty else { return [] }
+    let outputIndices = try allocateBuffers(count: input.count)
+    operationPlans.append(
+      .compressor(
+        RoutingCompressorPlan(
           nodeID: nodeID,
           configuration: configuration,
           inputBufferIndices: input.map(\.bufferIndex),
@@ -666,7 +934,7 @@ private struct RoutingPreparedAudioGraphCompiler {
     controlAddress: RoutingPreparedControlAddress?
   ) throws -> [RoutingCompiledAudioChannel] {
     guard !inputs.isEmpty else { return [] }
-    let outputIndex = allocateBuffers(count: 1)[0]
+    let outputIndex = try allocateBuffers(count: 1)[0]
     let routeGain = normalized ? 1 / Float(inputs.count) : 1
     operationPlans.append(
       .mix(
@@ -691,8 +959,11 @@ private struct RoutingPreparedAudioGraphCompiler {
     (incomingEdgesByNodeID[nodeID] ?? []).sorted { $0.id.uuidString < $1.id.uuidString }
   }
 
-  private mutating func allocateBuffers(count: Int) -> [Int] {
+  private mutating func allocateBuffers(count: Int) throws -> [Int] {
     guard count > 0 else { return [] }
+    guard count <= maximumBufferCount, nextBufferIndex <= maximumBufferCount - count else {
+      throw RoutingPreparedAudioGraphError.resourceBudgetExceeded(.scratchStorage)
+    }
     let result = Array(nextBufferIndex..<(nextBufferIndex + count))
     nextBufferIndex += count
     return result
@@ -703,18 +974,31 @@ private final class RoutingPreparedAudioStorage {
   let maximumFrameCount: Int
 
   private let bufferCount: Int
+  private let allocatedSampleCount: Int
   private let samples: UnsafeMutablePointer<Float>
 
-  init(bufferCount: Int, maximumFrameCount: Int) {
-    precondition(bufferCount >= 0 && maximumFrameCount > 0)
+  init(
+    bufferCount: Int,
+    maximumFrameCount: Int,
+    resourceBudget: RoutingAudioGraphResourceBudget
+  ) throws {
+    guard bufferCount >= 0, maximumFrameCount > 0 else {
+      throw RoutingPreparedAudioGraphError.resourceBudgetExceeded(.scratchStorage)
+    }
     self.bufferCount = bufferCount
     self.maximumFrameCount = maximumFrameCount
-    samples = .allocate(capacity: max(bufferCount * maximumFrameCount, 1))
-    samples.initialize(repeating: 0, count: max(bufferCount * maximumFrameCount, 1))
+    let sampleCount =
+      try resourceBudget.scratchByteCount(
+        bufferCount: bufferCount,
+        maximumFrameCount: maximumFrameCount
+      ) / MemoryLayout<Float>.stride
+    allocatedSampleCount = max(sampleCount, 1)
+    samples = .allocate(capacity: allocatedSampleCount)
+    samples.initialize(repeating: 0, count: allocatedSampleCount)
   }
 
   deinit {
-    samples.deinitialize(count: max(bufferCount * maximumFrameCount, 1))
+    samples.deinitialize(count: allocatedSampleCount)
     samples.deallocate()
   }
 
@@ -812,6 +1096,7 @@ private enum RoutingPreparedAudioOperation {
   case mix(RoutingPreparedMixOperation)
   case delay(RoutingPreparedDelayOperation)
   case noiseGate(RoutingPreparedNoiseGateOperation)
+  case compressor(RoutingPreparedCompressorOperation)
 
   func render(frameCount: Int) -> AudioRenderResult {
     switch self {
@@ -827,6 +1112,8 @@ private enum RoutingPreparedAudioOperation {
       operation.render(frameCount: frameCount)
     case .noiseGate(let operation):
       operation.render(frameCount: frameCount)
+    case .compressor(let operation):
+      operation.render(frameCount: frameCount)
     }
   }
 
@@ -837,6 +1124,8 @@ private enum RoutingPreparedAudioOperation {
     case .mix(let operation):
       try operation.updateControls(nodesByID: nodesByID)
     case .noiseGate(let operation):
+      try operation.updateControls(nodesByID: nodesByID)
+    case .compressor(let operation):
       try operation.updateControls(nodesByID: nodesByID)
     case .generator, .captureRead, .delay:
       break
@@ -1053,6 +1342,67 @@ private final class RoutingPreparedNoiseGateOperation {
         releaseSeconds: configuration.releaseSeconds,
         reductionDecibels: configuration.reductionDecibels
       )
+    )
+  }
+}
+
+private final class RoutingPreparedCompressorOperation {
+  private let nodeID: UUID
+  private let processor: PreparedAudioCompressorProcessor
+  private let inputs: RoutingPreparedPointerList
+  private let outputs: RoutingPreparedPointerList
+
+  init(
+    plan: RoutingCompressorPlan,
+    preparation: AudioRenderPreparation,
+    storage: RoutingPreparedAudioStorage
+  ) throws {
+    precondition(!plan.inputBufferIndices.isEmpty)
+    precondition(plan.inputBufferIndices.count == plan.outputBufferIndices.count)
+    nodeID = plan.nodeID
+    processor = try PreparedAudioCompressorProcessor(
+      preparation: AudioRenderPreparation(
+        format: AudioProcessingFormat(
+          sampleRate: preparation.format.sampleRate,
+          channelCount: plan.inputBufferIndices.count
+        ),
+        maximumFrameCount: preparation.maximumFrameCount
+      ),
+      configuration: try Self.configuration(from: plan.configuration)
+    )
+    inputs = RoutingPreparedPointerList(
+      bufferIndices: plan.inputBufferIndices,
+      storage: storage
+    )
+    outputs = RoutingPreparedPointerList(
+      bufferIndices: plan.outputBufferIndices,
+      storage: storage
+    )
+  }
+
+  func render(frameCount: Int) -> AudioRenderResult {
+    processor.process(
+      inputChannels: inputs.immutableBuffer,
+      outputChannels: outputs.mutableBuffer,
+      frameCount: frameCount
+    )
+  }
+
+  func updateControls(nodesByID: [UUID: RoutingWorkspaceNode]) throws {
+    guard case .compressor(let configuration) = nodesByID[nodeID]?.value else { return }
+    processor.setConfiguration(try Self.configuration(from: configuration))
+  }
+
+  private static func configuration(
+    from configuration: RoutingCompressorConfiguration
+  ) throws -> AudioCompressorConfiguration {
+    try AudioCompressorConfiguration(
+      thresholdDecibels: configuration.thresholdDecibels,
+      ratio: configuration.ratio,
+      kneeDecibels: configuration.kneeDecibels,
+      attackSeconds: configuration.attackSeconds,
+      releaseSeconds: configuration.releaseSeconds,
+      makeupGainDecibels: configuration.makeupGainDecibels
     )
   }
 }

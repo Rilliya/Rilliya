@@ -188,6 +188,35 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func compressorInsertionBuildsOneTypedInputAndOutput() throws {
+    let model = RoutingWorkspaceModel()
+    let center = CGPoint(x: 480, y: 300)
+    let nodeID = model.addCompressorNode(centeredAt: center)
+    let configuration = RoutingCompressorConfiguration(
+      thresholdDecibels: -24,
+      ratio: 6,
+      kneeDecibels: 8,
+      attackSeconds: 0.02,
+      releaseSeconds: 0.25,
+      makeupGainDecibels: 3
+    )
+
+    model.configureCompressor(configuration, for: nodeID)
+
+    let node = try #require(model.node(id: nodeID))
+    #expect(node.value == .compressor(configuration: configuration))
+    #expect(CGPoint(x: node.frame.midX, y: node.frame.midY) == center)
+    let ports = RoutingGraphPorts.values(for: node)
+    #expect(ports.count == 2)
+    #expect(ports[0].direction == .input)
+    #expect(ports[0].audioChannel == .all)
+    #expect(ports[0].connectionPolicy == .singleInput)
+    #expect(ports[1].direction == .output)
+    #expect(ports[1].audioChannel == .all)
+    #expect(ports[1].connectionPolicy == .fanOut)
+  }
+
+  @Test @MainActor
   func gainInsertionBuildsOneBusInputAndOutputAndStoresItsControls() throws {
     let model = RoutingWorkspaceModel()
     let center = CGPoint(x: 480, y: 300)
@@ -211,6 +240,49 @@ struct RoutingWorkspaceTests {
     #expect(ports[1].direction == .output)
     #expect(ports[1].audioChannel == .all)
     #expect(ports[1].connectionPolicy == .fanOut)
+  }
+
+  @Test @MainActor
+  func aggregateProcessorOutputCanFeedSeparatedRouterInputs() throws {
+    let model = RoutingWorkspaceModel()
+    let gainID = model.addGainNode(centeredAt: .zero)
+    let routerID = model.addChannelRouterNode(centeredAt: CGPoint(x: 360, y: 0))
+
+    for targetChannel in 0..<2 {
+      let content = try #require(model.canvasContent)
+      let source = try #require(
+        content.presentation.ports.first {
+          guard case .port(let key) = $0.address.elementID else { return false }
+          return key.nodeID == gainID
+            && $0.value.direction == .output
+            && $0.value.audioChannel == .all
+        }
+      )
+      let target = try #require(
+        content.presentation.ports.first {
+          guard case .port(let key) = $0.address.elementID else { return false }
+          return key.nodeID == routerID
+            && $0.value.direction == .input
+            && $0.value.audioChannel == .channel(targetChannel)
+        }
+      )
+      model.send(
+        .connectionCompleted(
+          FlowingGraphCanvasConnectionCompletionIntent(
+            operation: .create(sourcePortID: source.id, targetPortID: target.id),
+            basePresentationSnapshotID: content.presentation.snapshotID,
+            baseLayoutInputID: content.id
+          )
+        )
+      )
+    }
+
+    #expect(model.edges.count == 2)
+    #expect(model.edges.allSatisfy { $0.source.portID.audioChannel == .all })
+    #expect(
+      Set(model.edges.compactMap(\.target.portID.audioChannel))
+        == Set([.channel(0), .channel(1)])
+    )
   }
 
   @Test @MainActor

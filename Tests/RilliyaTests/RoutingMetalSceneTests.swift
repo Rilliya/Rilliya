@@ -315,6 +315,33 @@ struct RoutingMetalSceneTests {
   }
 
   @Test @MainActor
+  func compressorCarriesItsConfigurationIntoTheGpuScene() throws {
+    let model = RoutingWorkspaceModel()
+    let nodeID = model.addCompressorNode(centeredAt: CGPoint(x: 100, y: 100))
+    let configuration = RoutingCompressorConfiguration(
+      thresholdDecibels: -24,
+      ratio: 6,
+      kneeDecibels: 8,
+      attackSeconds: 0.02,
+      releaseSeconds: 0.25,
+      makeupGainDecibels: 3
+    )
+    model.configureCompressor(configuration, for: nodeID)
+    let scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [:]
+    )
+    let node = try #require(scene.nodes.first)
+
+    #expect(node.title == "Compressor")
+    #expect(node.subtitle == "-24 dBFS · 6.0:1")
+    #expect(node.status == "Ready to route")
+    #expect(node.symbolName == "arrow.down.right.and.arrow.up.left")
+    #expect(node.miniMapStyleIndex == RoutingAccentID.bloom.paletteIndex)
+    #expect(node.ports.count == 2)
+  }
+
+  @Test @MainActor
   func sceneUsesTheResolvedPerNodeAccent() throws {
     let model = RoutingWorkspaceModel()
     let nodeID = model.addVisualizerNode(centeredAt: CGPoint(x: 100, y: 100))

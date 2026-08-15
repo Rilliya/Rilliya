@@ -81,14 +81,11 @@ struct RoutingPortTypeTests {
   }
 
   @Test
-  func anAggregateBusMustBeSeparatedBeforeConnectingToOneLane() {
+  func anAggregateBusCanAdaptToOneLaneAtTheConnectionBoundary() {
     let source = audioPort(direction: .output, channel: .all)
     let target = audioPort(direction: .input, channel: .channel(0))
 
-    #expect(
-      RoutingPortCompatibility.incompatibilityReason(source: source, target: target)
-        == "Separate the source channels before connecting"
-    )
+    #expect(RoutingPortCompatibility.incompatibilityReason(source: source, target: target) == nil)
   }
 
   @Test

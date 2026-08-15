@@ -101,6 +101,8 @@ struct RoutingMetalScene {
         return "Delay"
       case .noiseGate:
         return "Noise Gate"
+      case .compressor:
+        return "Compressor"
       }
     }
 
@@ -142,6 +144,10 @@ struct RoutingMetalScene {
         ) + " s"
       case .noiseGate(let configuration):
         return "\(Int(configuration.thresholdDecibels.rounded())) dBFS threshold"
+      case .compressor(let configuration):
+        return
+          "\(Int(configuration.thresholdDecibels.rounded())) dBFS · "
+          + "\(configuration.ratio.formatted(.number.precision(.fractionLength(1)))):1"
       }
     }
 
@@ -194,7 +200,7 @@ struct RoutingMetalScene {
         return "Ready to route"
       case .delay:
         return "Ready to route"
-      case .noiseGate:
+      case .noiseGate, .compressor:
         return "Ready to route"
       }
     }
@@ -243,7 +249,7 @@ struct RoutingMetalScene {
       case .outputAudio(let selection, _):
         return selection != nil
       case .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel, .signalGenerator,
-        .delay, .noiseGate:
+        .delay, .noiseGate, .compressor:
         return false
       }
     }
@@ -258,7 +264,7 @@ struct RoutingMetalScene {
       case .applicationAudio:
         supplement.applicationIcon == nil
       case .inputAudio, .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter,
-        .peakLevel, .signalGenerator, .delay, .noiseGate:
+        .peakLevel, .signalGenerator, .delay, .noiseGate, .compressor:
         true
       }
     }
@@ -287,6 +293,8 @@ struct RoutingMetalScene {
         return "clock.arrow.trianglehead.counterclockwise.rotate.90"
       case .noiseGate:
         return "waveform.badge.minus"
+      case .compressor:
+        return "arrow.down.right.and.arrow.up.left"
       }
     }
 
@@ -310,7 +318,7 @@ struct RoutingMetalScene {
       case .audioMixer, .channelRouter:
         return true
       case .applicationAudio, .inputAudio, .outputAudio, .visualizer, .peakLevel,
-        .gain, .signalGenerator, .delay, .noiseGate:
+        .gain, .signalGenerator, .delay, .noiseGate, .compressor:
         return false
       }
     }

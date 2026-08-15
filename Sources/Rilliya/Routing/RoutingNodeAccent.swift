@@ -149,6 +149,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
   case signalGenerator
   case delay
   case noiseGate
+  case compressor
 
   var title: String {
     switch self {
@@ -163,6 +164,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .signalGenerator: "Signal Generator"
     case .delay: "Delay"
     case .noiseGate: "Noise Gate"
+    case .compressor: "Compressor"
     }
   }
 
@@ -179,6 +181,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .signalGenerator: "waveform.path"
     case .delay: "clock.arrow.trianglehead.counterclockwise.rotate.90"
     case .noiseGate: "waveform.badge.minus"
+    case .compressor: "arrow.down.right.and.arrow.up.left"
     }
   }
 
@@ -193,6 +196,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .signalGenerator: .poppy
     case .delay: .wisteria
     case .noiseGate: .lagoon
+    case .compressor: .bloom
     }
   }
 }
@@ -211,6 +215,7 @@ extension RoutingNodeValue {
     case .signalGenerator: .signalGenerator
     case .delay: .delay
     case .noiseGate: .noiseGate
+    case .compressor: .compressor
     }
   }
 }

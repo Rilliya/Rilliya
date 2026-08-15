@@ -20,6 +20,7 @@ private enum RoutingPaletteItem: String, Codable, Transferable {
   case signalGenerator = "moe.uwucocoa.rilliya.node.signal-generator"
   case delay = "moe.uwucocoa.rilliya.node.delay"
   case noiseGate = "moe.uwucocoa.rilliya.node.noise-gate"
+  case compressor = "moe.uwucocoa.rilliya.node.compressor"
 
   var kind: RoutingNodeKind {
     switch self {
@@ -34,6 +35,7 @@ private enum RoutingPaletteItem: String, Codable, Transferable {
     case .signalGenerator: .signalGenerator
     case .delay: .delay
     case .noiseGate: .noiseGate
+    case .compressor: .compressor
     }
   }
 
@@ -306,6 +308,9 @@ struct RoutingCanvasView: View {
           case .noiseGate(let configuration):
             NoiseGateNodeView(configuration: configuration, context: context)
               .zIndex(context.isSelected ? 2 : 1)
+          case .compressor(let configuration):
+            CompressorNodeView(configuration: configuration, context: context)
+              .zIndex(context.isSelected ? 2 : 1)
           }
         }
         .flowingAccent(resolvedAccentID(for: node).accent)
@@ -449,6 +454,8 @@ struct RoutingCanvasView: View {
       case .delay:
         supplements[node.id] = .empty
       case .noiseGate:
+        supplements[node.id] = .empty
+      case .compressor:
         supplements[node.id] = .empty
       }
     }
@@ -673,6 +680,10 @@ struct RoutingCanvasView: View {
       SelectedNoiseGateInspector(configuration: configuration) { updated in
         workspace.configureNoiseGate(updated, for: node.id)
       }
+    case .compressor(let configuration):
+      SelectedCompressorInspector(configuration: configuration) { updated in
+        workspace.configureCompressor(updated, for: node.id)
+      }
     }
   }
 
@@ -846,6 +857,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   let insertSignalGenerator: () -> Void
   let insertDelay: () -> Void
   let insertNoiseGate: () -> Void
+  let insertCompressor: () -> Void
   let workflowNavigation: WorkflowNavigation
 
   @State private var searchText = ""
@@ -865,6 +877,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     insertSignalGenerator: @escaping () -> Void,
     insertDelay: @escaping () -> Void,
     insertNoiseGate: @escaping () -> Void,
+    insertCompressor: @escaping () -> Void,
     @ViewBuilder workflowNavigation: () -> WorkflowNavigation
   ) {
     self.applicationCatalog = applicationCatalog
@@ -881,6 +894,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     self.insertSignalGenerator = insertSignalGenerator
     self.insertDelay = insertDelay
     self.insertNoiseGate = insertNoiseGate
+    self.insertCompressor = insertCompressor
     self.workflowNavigation = workflowNavigation()
   }
 
@@ -1085,6 +1099,19 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     )
   }
 
+  private var compressorItem: some View {
+    RoutingPaletteNodeItem(
+      item: .compressor,
+      title: "Compressor",
+      subtitle: "Control dynamics and peaks",
+      systemImage: "arrow.down.right.and.arrow.up.left",
+      foreground: accent(for: .compressor).foreground,
+      veil: accent(for: .compressor).veil,
+      allowsClickInsertion: allowsClickInsertion,
+      action: insertCompressor
+    )
+  }
+
   private var header: some View {
     HStack(alignment: .center, spacing: 10) {
       VStack(alignment: .leading, spacing: 2) {
@@ -1182,6 +1209,9 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     if showsPaletteItem(title: "Noise Gate", subtitle: "Attenuate quiet passages") {
       noiseGateItem
     }
+    if showsPaletteItem(title: "Compressor", subtitle: "Control dynamics and peaks") {
+      compressorItem
+    }
     if !hasPaletteResults {
       FlowingEmptyState(systemImage: "magnifyingglass") {
         Text("No matching audio nodes")
@@ -1204,6 +1234,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       ("Signal Generator", "Create tones and colored noise"),
       ("Delay", "Add time and feedback"),
       ("Noise Gate", "Attenuate quiet passages"),
+      ("Compressor", "Control dynamics and peaks"),
     ].contains { showsPaletteItem(title: $0.0, subtitle: $0.1) }
   }
 
@@ -1409,6 +1440,12 @@ private struct RoutingCanvasDropPreview: View {
         "Noise Gate",
         "−40 dBFS threshold",
         "waveform.badge.minus"
+      )
+    case .compressor:
+      return (
+        "Compressor",
+        "−18 dBFS · 4:1",
+        "arrow.down.right.and.arrow.up.left"
       )
     }
   }
@@ -2349,6 +2386,64 @@ private struct NoiseGateNodeView: View {
       }
 
       Text("\(Int(configuration.reductionDecibels.rounded())) dB reduction")
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(FlowingPalette.muted)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+        .background(
+          accent.wash,
+          in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .padding(.horizontal, RoutingVisualizerLayout.portLabelGutter)
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width,
+      height: RoutingCanvasMetrics.baseNodeSize.height
+    )
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width * context.renderScale,
+      height: RoutingCanvasMetrics.baseNodeSize.height * context.renderScale,
+      alignment: .topLeading
+    )
+  }
+}
+
+private struct CompressorNodeView: View {
+  let configuration: RoutingCompressorConfiguration
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  @Environment(\.flowingAccent) private var accent
+
+  var body: some View {
+    FlowingCard(
+      spacing: 10,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      HStack(spacing: 9) {
+        Image(systemName: "arrow.down.right.and.arrow.up.left")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(accent.foreground)
+        VStack(alignment: .leading, spacing: 1) {
+          Text("Compressor")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text("\(Int(configuration.thresholdDecibels.rounded())) dBFS threshold")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(FlowingPalette.muted)
+        }
+        Spacer(minLength: 0)
+      }
+
+      Text("\(configuration.ratio.formatted(.number.precision(.fractionLength(1)))):1 ratio")
         .font(.caption.monospacedDigit())
         .foregroundStyle(FlowingPalette.muted)
         .padding(.horizontal, 12)
@@ -3613,7 +3708,10 @@ private struct SelectedChannelRouterInspector: View {
   let configuration: RoutingChannelRouterConfiguration
   let updateConfiguration: (RoutingChannelRouterConfiguration) -> Void
 
-  private let channelCountOptions = [1, 2, 4, 6, 8]
+  private let channelCountOptions = Array(
+    RoutingChannelRouterConfiguration
+      .minimumChannelCount...RoutingChannelRouterConfiguration.maximumChannelCount
+  )
 
   var body: some View {
     FlowingCard(
@@ -4227,6 +4325,209 @@ private struct SelectedNoiseGateInspector: View {
 
   private func boundedDoubleBinding(
     keyPath: WritableKeyPath<RoutingNoiseGateConfiguration, Double>,
+    range: ClosedRange<Double>
+  ) -> Binding<Double> {
+    Binding(
+      get: { configuration[keyPath: keyPath] },
+      set: { value in
+        var updated = configuration
+        updated[keyPath: keyPath] = min(max(value, range.lowerBound), range.upperBound)
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private func durationDescription(_ seconds: Double) -> String {
+    if seconds < 1 {
+      return "\(Int((seconds * 1_000).rounded())) ms"
+    }
+    return seconds.formatted(.number.precision(.fractionLength(2))) + " s"
+  }
+}
+
+private struct SelectedCompressorInspector: View {
+  let configuration: RoutingCompressorConfiguration
+  let updateConfiguration: (RoutingCompressorConfiguration) -> Void
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Compressor")
+          .font(.headline)
+          .foregroundStyle(FlowingPalette.ink)
+        Text("Control dynamic range while preserving the routed channel balance.")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      parameterSlider(
+        title: "Threshold",
+        value: threshold,
+        range: thresholdRange,
+        formattedValue: "\(Int(configuration.thresholdDecibels.rounded())) dBFS",
+        accessibilityFormat: { "\(Int($0.rounded())) decibels full scale" }
+      )
+      parameterSlider(
+        title: "Ratio",
+        value: ratio,
+        range: ratioRange,
+        formattedValue: configuration.ratio.formatted(
+          .number.precision(.fractionLength(1))
+        ) + ":1",
+        accessibilityFormat: { value in
+          value.formatted(.number.precision(.fractionLength(1))) + " to one"
+        }
+      )
+      parameterSlider(
+        title: "Knee",
+        value: knee,
+        range: 0...Double(RoutingCompressorConfiguration.maximumKneeDecibels),
+        formattedValue: "\(Int(configuration.kneeDecibels.rounded())) dB",
+        accessibilityFormat: { "\(Int($0.rounded())) decibels" }
+      )
+      parameterSlider(
+        title: "Attack",
+        value: attack,
+        range: 0...RoutingCompressorConfiguration.maximumAttackSeconds,
+        formattedValue: durationDescription(configuration.attackSeconds),
+        accessibilityFormat: durationDescription
+      )
+      parameterSlider(
+        title: "Release",
+        value: release,
+        range: 0...RoutingCompressorConfiguration.maximumReleaseSeconds,
+        formattedValue: durationDescription(configuration.releaseSeconds),
+        accessibilityFormat: durationDescription
+      )
+      parameterSlider(
+        title: "Makeup Gain",
+        value: makeupGain,
+        range: makeupGainRange,
+        formattedValue: String(
+          format: "%+.0f dB",
+          locale: Locale(identifier: "en_US_POSIX"),
+          configuration.makeupGainDecibels
+        ),
+        accessibilityFormat: { "\(Int($0.rounded())) decibels" }
+      )
+
+      FlowingCallout(
+        "Detection is linked across every routed channel, so compression cannot pull the stereo image toward one side. The processor retains Float32 headroom and does not clip internally.",
+        title: "Linked Dynamics",
+        systemImage: "arrow.down.right.and.arrow.up.left",
+        tone: .neutral
+      )
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  private func parameterSlider(
+    title: String,
+    value: Binding<Double>,
+    range: ClosedRange<Double>,
+    formattedValue: String,
+    accessibilityFormat: @escaping (Double) -> String
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      HStack {
+        Text(title)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+        Spacer(minLength: 8)
+        Text(formattedValue)
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(FlowingPalette.ink)
+      }
+      FlowingSlider(title, value: value, in: range, formatValue: accessibilityFormat)
+    }
+  }
+
+  private var thresholdRange: ClosedRange<Double> {
+    ClosedRange(
+      uncheckedBounds: (
+        lower: Double(RoutingCompressorConfiguration.minimumThresholdDecibels),
+        upper: Double(RoutingCompressorConfiguration.maximumThresholdDecibels)
+      )
+    )
+  }
+
+  private var ratioRange: ClosedRange<Double> {
+    ClosedRange(
+      uncheckedBounds: (
+        lower: Double(RoutingCompressorConfiguration.minimumRatio),
+        upper: Double(RoutingCompressorConfiguration.maximumRatio)
+      )
+    )
+  }
+
+  private var makeupGainRange: ClosedRange<Double> {
+    ClosedRange(
+      uncheckedBounds: (
+        lower: Double(RoutingCompressorConfiguration.minimumMakeupGainDecibels),
+        upper: Double(RoutingCompressorConfiguration.maximumMakeupGainDecibels)
+      )
+    )
+  }
+
+  private var threshold: Binding<Double> {
+    boundedFloatBinding(keyPath: \.thresholdDecibels, range: thresholdRange)
+  }
+
+  private var ratio: Binding<Double> {
+    boundedFloatBinding(
+      keyPath: \.ratio,
+      range: ratioRange
+    )
+  }
+
+  private var knee: Binding<Double> {
+    boundedFloatBinding(
+      keyPath: \.kneeDecibels,
+      range: 0...Double(RoutingCompressorConfiguration.maximumKneeDecibels)
+    )
+  }
+
+  private var attack: Binding<Double> {
+    boundedDoubleBinding(
+      keyPath: \.attackSeconds,
+      range: 0...RoutingCompressorConfiguration.maximumAttackSeconds
+    )
+  }
+
+  private var release: Binding<Double> {
+    boundedDoubleBinding(
+      keyPath: \.releaseSeconds,
+      range: 0...RoutingCompressorConfiguration.maximumReleaseSeconds
+    )
+  }
+
+  private var makeupGain: Binding<Double> {
+    boundedFloatBinding(
+      keyPath: \.makeupGainDecibels,
+      range: makeupGainRange
+    )
+  }
+
+  private func boundedFloatBinding(
+    keyPath: WritableKeyPath<RoutingCompressorConfiguration, Float>,
+    range: ClosedRange<Double>
+  ) -> Binding<Double> {
+    Binding(
+      get: { Double(configuration[keyPath: keyPath]) },
+      set: { value in
+        var updated = configuration
+        updated[keyPath: keyPath] = Float(min(max(value, range.lowerBound), range.upperBound))
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private func boundedDoubleBinding(
+    keyPath: WritableKeyPath<RoutingCompressorConfiguration, Double>,
     range: ClosedRange<Double>
   ) -> Binding<Double> {
     Binding(

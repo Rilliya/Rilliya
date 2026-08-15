@@ -68,7 +68,7 @@ struct RoutingAudioSignalResolver {
         configuration: configuration,
         visited: visited
       )
-    case .delay, .noiseGate:
+    case .delay, .noiseGate, .compressor:
       guard
         let edge = (incomingEdgesByNodeID[address.nodeID] ?? [])
           .filter({ $0.target.portID.audioChannel == .all })

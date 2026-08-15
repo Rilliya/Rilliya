@@ -46,6 +46,23 @@ struct RoutingWorkflowLibrarySnapshot: Codable, Equatable, Sendable {
     guard !workflows.isEmpty else {
       throw RoutingWorkflowPersistenceError.emptyLibrary
     }
+    guard workflows.count <= RoutingWorkflowPersistenceLimits.maximumWorkflowCount else {
+      throw RoutingWorkflowPersistenceError.graphTooLarge
+    }
+    var totalNodeCount = 0
+    var totalEdgeCount = 0
+    for workflow in workflows {
+      let nodes = totalNodeCount.addingReportingOverflow(workflow.nodes.count)
+      let edges = totalEdgeCount.addingReportingOverflow(workflow.edges.count)
+      guard !nodes.overflow, !edges.overflow,
+        nodes.partialValue <= RoutingWorkflowPersistenceLimits.maximumTotalNodeCount,
+        edges.partialValue <= RoutingWorkflowPersistenceLimits.maximumTotalEdgeCount
+      else {
+        throw RoutingWorkflowPersistenceError.graphTooLarge
+      }
+      totalNodeCount = nodes.partialValue
+      totalEdgeCount = edges.partialValue
+    }
     guard Set(workflows.map(\.id)).count == workflows.count else {
       throw RoutingWorkflowPersistenceError.duplicateWorkflowID
     }
@@ -228,6 +245,8 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
         && (0...1).contains(configuration.dryWetMix)
     case .noiseGate(let configuration):
       return configuration.isValid
+    case .compressor(let configuration):
+      return configuration.isValid
     }
   }
 
@@ -285,8 +304,11 @@ enum RoutingWorkflowPersistenceError: Error, Equatable {
 
 private enum RoutingWorkflowPersistenceLimits {
   static let maximumDocumentByteCount = 16 * 1_024 * 1_024
-  static let maximumNodeCount = 10_000
-  static let maximumEdgeCount = 100_000
+  static let maximumWorkflowCount = 256
+  static let maximumNodeCount = 2_048
+  static let maximumEdgeCount = 8_192
+  static let maximumTotalNodeCount = 4_096
+  static let maximumTotalEdgeCount = 16_384
   static let maximumViewportOffset = 10_000_000.0
 }
 

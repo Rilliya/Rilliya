@@ -128,13 +128,14 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
   case signalGenerator(configuration: RoutingSignalGeneratorConfiguration)
   case delay(configuration: RoutingDelayConfiguration)
   case noiseGate(configuration: RoutingNoiseGateConfiguration)
+  case compressor(configuration: RoutingCompressorConfiguration)
 
   var applicationSelection: RoutingApplicationSelection? {
     switch self {
     case .applicationAudio(let selection, _):
       return selection
     case .inputAudio, .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter,
-      .peakLevel, .signalGenerator, .delay, .noiseGate:
+      .peakLevel, .signalGenerator, .delay, .noiseGate, .compressor:
       return nil
     }
   }
@@ -174,7 +175,7 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     case .applicationAudio(_, let presentation), .inputAudio(_, let presentation):
       return presentation
     case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
-      .signalGenerator, .delay, .noiseGate:
+      .signalGenerator, .delay, .noiseGate, .compressor:
       return nil
     }
   }
@@ -188,7 +189,7 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     case .inputAudio(let selection, _):
       return .inputAudio(selection: selection, channelPresentation: presentation)
     case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
-      .signalGenerator, .delay, .noiseGate:
+      .signalGenerator, .delay, .noiseGate, .compressor:
       return nil
     }
   }
@@ -229,6 +230,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return "Delay"
     case .noiseGate:
       return "Noise Gate"
+    case .compressor:
+      return "Compressor"
     }
   }
 }
@@ -671,6 +674,116 @@ struct RoutingNoiseGateConfiguration: Codable, Equatable, Hashable, Sendable {
       && Self.isValidHold(holdSeconds)
       && Self.isValidRelease(releaseSeconds)
       && Self.isValidReduction(reductionDecibels)
+  }
+}
+
+struct RoutingCompressorConfiguration: Codable, Equatable, Hashable, Sendable {
+  static let minimumThresholdDecibels: Float = -96
+  static let maximumThresholdDecibels: Float = 0
+  static let minimumRatio: Float = 1
+  static let maximumRatio: Float = 100
+  static let maximumKneeDecibels: Float = 24
+  static let maximumAttackSeconds = 1.0
+  static let maximumReleaseSeconds = 10.0
+  static let minimumMakeupGainDecibels: Float = -24
+  static let maximumMakeupGainDecibels: Float = 24
+  static let initial = RoutingCompressorConfiguration(
+    thresholdDecibels: -18,
+    ratio: 4,
+    kneeDecibels: 6,
+    attackSeconds: 0.01,
+    releaseSeconds: 0.12,
+    makeupGainDecibels: 0
+  )
+
+  var thresholdDecibels: Float
+  var ratio: Float
+  var kneeDecibels: Float
+  var attackSeconds: Double
+  var releaseSeconds: Double
+  var makeupGainDecibels: Float
+
+  init(
+    thresholdDecibels: Float,
+    ratio: Float,
+    kneeDecibels: Float,
+    attackSeconds: Double,
+    releaseSeconds: Double,
+    makeupGainDecibels: Float
+  ) {
+    precondition(Self.isValidThreshold(thresholdDecibels))
+    precondition(Self.isValidRatio(ratio))
+    precondition(Self.isValidKnee(kneeDecibels))
+    precondition(Self.isValidAttack(attackSeconds))
+    precondition(Self.isValidRelease(releaseSeconds))
+    precondition(Self.isValidMakeupGain(makeupGainDecibels))
+    self.thresholdDecibels = thresholdDecibels
+    self.ratio = ratio
+    self.kneeDecibels = kneeDecibels
+    self.attackSeconds = attackSeconds
+    self.releaseSeconds = releaseSeconds
+    self.makeupGainDecibels = makeupGainDecibels
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let threshold = try container.decode(Float.self, forKey: .thresholdDecibels)
+    let ratio = try container.decode(Float.self, forKey: .ratio)
+    let knee = try container.decode(Float.self, forKey: .kneeDecibels)
+    let attack = try container.decode(Double.self, forKey: .attackSeconds)
+    let release = try container.decode(Double.self, forKey: .releaseSeconds)
+    let makeup = try container.decode(Float.self, forKey: .makeupGainDecibels)
+    guard Self.isValidThreshold(threshold), Self.isValidRatio(ratio), Self.isValidKnee(knee),
+      Self.isValidAttack(attack), Self.isValidRelease(release), Self.isValidMakeupGain(makeup)
+    else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .thresholdDecibels,
+        in: container,
+        debugDescription: "Compressor parameters are outside the supported range."
+      )
+    }
+    self.init(
+      thresholdDecibels: threshold,
+      ratio: ratio,
+      kneeDecibels: knee,
+      attackSeconds: attack,
+      releaseSeconds: release,
+      makeupGainDecibels: makeup
+    )
+  }
+
+  private static func isValidThreshold(_ value: Float) -> Bool {
+    value.isFinite && (minimumThresholdDecibels...maximumThresholdDecibels).contains(value)
+  }
+
+  private static func isValidRatio(_ value: Float) -> Bool {
+    value.isFinite && (minimumRatio...maximumRatio).contains(value)
+  }
+
+  private static func isValidKnee(_ value: Float) -> Bool {
+    value.isFinite && (0...maximumKneeDecibels).contains(value)
+  }
+
+  private static func isValidAttack(_ value: Double) -> Bool {
+    value.isFinite && (0...maximumAttackSeconds).contains(value)
+  }
+
+  private static func isValidRelease(_ value: Double) -> Bool {
+    value.isFinite && (0...maximumReleaseSeconds).contains(value)
+  }
+
+  private static func isValidMakeupGain(_ value: Float) -> Bool {
+    value.isFinite
+      && (minimumMakeupGainDecibels...maximumMakeupGainDecibels).contains(value)
+  }
+
+  var isValid: Bool {
+    Self.isValidThreshold(thresholdDecibels)
+      && Self.isValidRatio(ratio)
+      && Self.isValidKnee(kneeDecibels)
+      && Self.isValidAttack(attackSeconds)
+      && Self.isValidRelease(releaseSeconds)
+      && Self.isValidMakeupGain(makeupGainDecibels)
   }
 }
 
@@ -1169,7 +1282,7 @@ enum RoutingCanvasMetrics {
           )
         )
       )
-    case .gain, .peakLevel, .signalGenerator, .delay, .noiseGate:
+    case .gain, .peakLevel, .signalGenerator, .delay, .noiseGate, .compressor:
       return baseNodeSize
     }
     return CGSize(
@@ -1436,6 +1549,8 @@ enum RoutingGraphPorts {
       return effectValues(outputName: "Delayed Audio")
     case .noiseGate:
       return effectValues(outputName: "Gated Audio")
+    case .compressor:
+      return effectValues(outputName: "Compressed Audio")
     }
     return identities.enumerated().map { ordinal, identity in
       RoutingGraphPortValue(
@@ -1634,12 +1749,10 @@ enum RoutingPortCompatibility {
       return "Connect compatible audio ports"
     }
     switch (sourceChannel, targetChannel) {
-    case (.all, .all), (.channel, .all):
+    case (.all, .all), (.channel, .all), (.all, .channel):
       return nil
     case (.channel, .channel):
       return nil
-    case (.all, .channel):
-      return "Separate the source channels before connecting"
     }
   }
 

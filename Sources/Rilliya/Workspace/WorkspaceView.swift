@@ -42,7 +42,8 @@ struct WorkspaceView: View {
         insertPeakLevel: insertPeakLevel,
         insertSignalGenerator: insertSignalGenerator,
         insertDelay: insertDelay,
-        insertNoiseGate: insertNoiseGate
+        insertNoiseGate: insertNoiseGate,
+        insertCompressor: insertCompressor
       ) {
         RoutingWorkflowSwitcher(
           library: workflowLibrary,
@@ -410,6 +411,17 @@ struct WorkspaceView: View {
   private func insertNoiseGate() {
     let workflow = workflowLibrary.selectedWorkflow
     let nodeID = workflow.workspace.addNoiseGateNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
+      )
+    )
+    selectNode(nodeID, in: workflow)
+  }
+
+  private func insertCompressor() {
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addCompressorNode(
       centeredAt: RoutingNodeInsertion.point(
         in: workflow.canvasSession.viewport.visibleWorldRect,
         existingNodeCount: workflow.workspace.nodes.count

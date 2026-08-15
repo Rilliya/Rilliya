@@ -271,6 +271,40 @@ struct RoutingPreparedAudioGraphTests {
   }
 
   @Test
+  func aggregateProcessorBusFeedsSeparatedRouterChannelsWithoutImplicitMixing() throws {
+    let sourceID = UUID()
+    let gainID = UUID()
+    let routerID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(channelCount: 2)
+    try write([[0.1, 0.2, 0.3], [-0.4, -0.5, -0.6]], to: buffer)
+    let renderer = try makeRenderer(
+      nodes: [
+        sourceNode(id: sourceID, channelCount: 2),
+        gainNode(id: gainID, configuration: .initial),
+        channelRouterNode(id: routerID, configuration: .initial),
+        outputNode(id: outputID),
+      ],
+      edges: [
+        edge(from: sourceID, .all, to: gainID, .all),
+        edge(from: gainID, .all, to: routerID, .channel(0)),
+        edge(from: gainID, .all, to: routerID, .channel(1)),
+        edge(from: routerID, .channel(0), to: outputID, .all),
+        edge(from: routerID, .channel(1), to: outputID, .all),
+      ],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer],
+      outputChannelCount: 2
+    )
+
+    let rendered = render(renderer, channelCount: 2, frameCount: 3)
+
+    #expect(rendered.result == .rendered)
+    #expect(rendered.channels[0] == [0.1, 0.2, 0.3])
+    #expect(rendered.channels[1] == [-0.4, -0.5, -0.6])
+  }
+
+  @Test
   func inputDeviceThroughVisualizerPreservesPCM() throws {
     let inputID = UUID()
     let visualizerID = UUID()
@@ -413,6 +447,87 @@ struct RoutingPreparedAudioGraphTests {
   }
 
   @Test
+  func compressorAppliesLinkedGainInsideThePreparedRenderGraph() throws {
+    let sourceID = UUID()
+    let compressorID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(channelCount: 2)
+    try write([[1], [0.5]], to: buffer)
+    let renderer = try makeRenderer(
+      nodes: [
+        sourceNode(id: sourceID, channelCount: 2),
+        compressorNode(id: compressorID),
+        outputNode(id: outputID),
+      ],
+      edges: [
+        edge(from: sourceID, .all, to: compressorID, .all),
+        edge(from: compressorID, .all, to: outputID, .all),
+      ],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer]
+    )
+
+    let rendered = render(renderer, channelCount: 2, frameCount: 1)
+    let expectedGain = Float(pow(10, -15.0 / 20))
+
+    #expect(rendered.result == .rendered)
+    #expect(abs(rendered.channels[0][0] - expectedGain) < 0.000_001)
+    #expect(abs(rendered.channels[1][0] - 0.5 * expectedGain) < 0.000_001)
+  }
+
+  @Test
+  func compressorControlUpdatesApplyWithoutRebuildingThePreparedGraph() throws {
+    let sourceID = UUID()
+    let compressorID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(channelCount: 1)
+    try write([[1, 1]], to: buffer)
+    let initialConfiguration = RoutingCompressorConfiguration(
+      thresholdDecibels: -20,
+      ratio: 2,
+      kneeDecibels: 0,
+      attackSeconds: 0,
+      releaseSeconds: 0,
+      makeupGainDecibels: 0
+    )
+    let renderer = try makeRenderer(
+      nodes: [
+        sourceNode(id: sourceID, channelCount: 1),
+        compressorNode(id: compressorID, configuration: initialConfiguration),
+        outputNode(id: outputID),
+      ],
+      edges: [
+        edge(from: sourceID, .all, to: compressorID, .all),
+        edge(from: compressorID, .all, to: outputID, .all),
+      ],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer],
+      outputChannelCount: 1
+    )
+    let updatedConfiguration = RoutingCompressorConfiguration(
+      thresholdDecibels: -20,
+      ratio: 10,
+      kneeDecibels: 0,
+      attackSeconds: 0,
+      releaseSeconds: 0,
+      makeupGainDecibels: 0
+    )
+
+    let initial = render(renderer, channelCount: 1, frameCount: 1)
+    try renderer.updateControls(
+      nodes: [
+        sourceNode(id: sourceID, channelCount: 1),
+        compressorNode(id: compressorID, configuration: updatedConfiguration),
+        outputNode(id: outputID),
+      ]
+    )
+    let updated = render(renderer, channelCount: 1, frameCount: 1)
+
+    #expect(abs(initial.channels[0][0] - Float(pow(10, -10.0 / 20))) < 0.000_001)
+    #expect(abs(updated.channels[0][0] - Float(pow(10, -18.0 / 20))) < 0.000_001)
+  }
+
+  @Test
   func mixerSumsInputsAndAppliesOutputControl() throws {
     let firstSourceID = UUID()
     let secondSourceID = UUID()
@@ -489,13 +604,87 @@ struct RoutingPreparedAudioGraphTests {
     }
   }
 
+  @Test
+  func preparationRejectsGraphsOutsideEveryResourceBudgetBeforeAllocation() throws {
+    let sourceID = UUID()
+    let outputID = UUID()
+    let nodes = [sourceNode(id: sourceID, channelCount: 1), outputNode(id: outputID)]
+    let edges = [edge(from: sourceID, .all, to: outputID, .all)]
+    let buffer = try makeFrameBuffer(channelCount: 1)
+
+    #expect(throws: RoutingPreparedAudioGraphError.resourceBudgetExceeded(.nodes)) {
+      try makeRenderer(
+        nodes: nodes,
+        edges: edges,
+        outputNodeID: outputID,
+        frameBuffers: [sourceID: buffer],
+        resourceBudget: resourceBudget(maximumNodeCount: 1)
+      )
+    }
+    #expect(throws: RoutingPreparedAudioGraphError.resourceBudgetExceeded(.edges)) {
+      try makeRenderer(
+        nodes: nodes,
+        edges: edges,
+        outputNodeID: outputID,
+        frameBuffers: [sourceID: buffer],
+        resourceBudget: resourceBudget(maximumEdgeCount: 0)
+      )
+    }
+    #expect(throws: RoutingPreparedAudioGraphError.resourceBudgetExceeded(.operations)) {
+      try makeRenderer(
+        nodes: nodes,
+        edges: edges,
+        outputNodeID: outputID,
+        frameBuffers: [sourceID: buffer],
+        resourceBudget: resourceBudget(maximumOperationCount: 0)
+      )
+    }
+    #expect(throws: RoutingPreparedAudioGraphError.resourceBudgetExceeded(.routes)) {
+      try makeRenderer(
+        nodes: nodes,
+        edges: edges,
+        outputNodeID: outputID,
+        frameBuffers: [sourceID: buffer],
+        resourceBudget: resourceBudget(maximumRouteCount: 0)
+      )
+    }
+    #expect(throws: RoutingPreparedAudioGraphError.resourceBudgetExceeded(.scratchStorage)) {
+      try makeRenderer(
+        nodes: nodes,
+        edges: edges,
+        outputNodeID: outputID,
+        frameBuffers: [sourceID: buffer],
+        resourceBudget: resourceBudget(maximumScratchByteCount: 1)
+      )
+    }
+    #expect(throws: RoutingPreparedAudioGraphError.resourceBudgetExceeded(.persistentStorage)) {
+      try makeRenderer(
+        nodes: nodes,
+        edges: edges,
+        outputNodeID: outputID,
+        frameBuffers: [sourceID: buffer],
+        resourceBudget: resourceBudget(maximumPersistentByteCount: 1)
+      )
+    }
+  }
+
+  @Test
+  func scratchBudgetUsesCheckedMultiplication() {
+    let budget = resourceBudget(maximumScratchByteCount: .max)
+
+    #expect(throws: RoutingPreparedAudioGraphError.resourceBudgetExceeded(.scratchStorage)) {
+      try budget.scratchByteCount(bufferCount: .max, maximumFrameCount: 2)
+    }
+  }
+
   private func makeRenderer(
     nodes: [RoutingWorkspaceNode],
     edges: [RoutingWorkspaceEdge],
     outputNodeID: UUID,
     frameBuffers: [UUID: AudioRealtimeFrameBuffer],
     outputChannelCount: Int = 2,
-    maximumFrameCount: Int = 32
+    maximumFrameCount: Int = 32,
+    resourceBudget: RoutingAudioGraphResourceBudget = .standard
   ) throws -> RoutingPreparedAudioGraphSource {
     try RoutingPreparedAudioGraphSource(
       preparation: AudioRenderPreparation(
@@ -505,7 +694,26 @@ struct RoutingPreparedAudioGraphTests {
       nodes: nodes,
       edges: edges,
       outputNodeID: outputNodeID,
-      frameBuffers: frameBuffers
+      frameBuffers: frameBuffers,
+      resourceBudget: resourceBudget
+    )
+  }
+
+  private func resourceBudget(
+    maximumNodeCount: Int = .max,
+    maximumEdgeCount: Int = .max,
+    maximumOperationCount: Int = .max,
+    maximumRouteCount: Int = .max,
+    maximumScratchByteCount: Int = .max,
+    maximumPersistentByteCount: Int = .max
+  ) -> RoutingAudioGraphResourceBudget {
+    RoutingAudioGraphResourceBudget(
+      maximumNodeCount: maximumNodeCount,
+      maximumEdgeCount: maximumEdgeCount,
+      maximumOperationCount: maximumOperationCount,
+      maximumRouteCount: maximumRouteCount,
+      maximumScratchByteCount: maximumScratchByteCount,
+      maximumPersistentByteCount: maximumPersistentByteCount
     )
   }
 
@@ -636,6 +844,24 @@ struct RoutingPreparedAudioGraphTests {
     RoutingWorkspaceNode(
       id: id,
       value: .noiseGate(configuration: configuration),
+      frame: .zero
+    )
+  }
+
+  private func compressorNode(
+    id: UUID,
+    configuration: RoutingCompressorConfiguration = RoutingCompressorConfiguration(
+      thresholdDecibels: -20,
+      ratio: 4,
+      kneeDecibels: 0,
+      attackSeconds: 0,
+      releaseSeconds: 0,
+      makeupGainDecibels: 0
+    )
+  ) -> RoutingWorkspaceNode {
+    RoutingWorkspaceNode(
+      id: id,
+      value: .compressor(configuration: configuration),
       frame: .zero
     )
   }

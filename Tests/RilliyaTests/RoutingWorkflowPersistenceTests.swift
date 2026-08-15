@@ -30,6 +30,39 @@ struct RoutingWorkflowPersistenceTests {
   }
 
   @Test
+  func compressorConfigurationRoundTripsThroughTheWorkflowValueCodec() throws {
+    let value = RoutingNodeValue.compressor(
+      configuration: RoutingCompressorConfiguration(
+        thresholdDecibels: -26,
+        ratio: 5,
+        kneeDecibels: 9,
+        attackSeconds: 0.03,
+        releaseSeconds: 0.28,
+        makeupGainDecibels: 2
+      )
+    )
+
+    let encoded = try JSONEncoder().encode(value)
+    let decoded = try JSONDecoder().decode(RoutingNodeValue.self, from: encoded)
+
+    #expect(decoded == value)
+  }
+
+  @Test
+  func restorationRejectsAnExcessiveWorkflowCountBeforeBuildingGraphs() throws {
+    let workflows = (0...256).map { RoutingWorkflowModel(name: "Flow \($0 + 1)") }
+    let library = RoutingWorkflowLibrary(
+      workflows: workflows,
+      selectedWorkflowID: workflows[0].id
+    )
+    let snapshot = RoutingWorkflowLibrarySnapshot(library: library)
+
+    #expect(throws: RoutingWorkflowPersistenceError.graphTooLarge) {
+      try snapshot.makeLibrary()
+    }
+  }
+
+  @Test
   func gainAndChannelRouterConfigurationsRoundTripThroughTheWorkflowValueCodec() throws {
     let values: [RoutingNodeValue] = [
       .gain(
