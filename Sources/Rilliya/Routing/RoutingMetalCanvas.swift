@@ -125,7 +125,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
 
   private enum Constants {
     static let maximumFramesInFlight = 2
-    static let preferredSampleCount = 2
+    static let preferredSampleCount = 1
     static let nodeCornerRadius: CGFloat = 16
     static let iconFrame = CGRect(x: 14, y: 14, width: 38, height: 38)
     static let portDiameter: CGFloat = 11

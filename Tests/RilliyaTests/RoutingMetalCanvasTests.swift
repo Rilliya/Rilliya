@@ -27,6 +27,7 @@ struct RoutingMetalCanvasTests {
 
     #expect(canvas.acceptsFirstResponder)
     #expect(canvas.focusRingType == .none)
+    #expect(canvas.sampleCount == 1)
     #expect((canvas.layer as? CAMetalLayer)?.maximumDrawableCount == 2)
   }
 }
