@@ -6,11 +6,13 @@ import Foundation
 struct RoutingMetalNodeSupplement: Equatable {
   let isRunning: Bool
   let isCapturing: Bool
+  let captureConsumerCount: Int
   let visualizerSignal: RoutingVisualizerSignal?
 
   static let empty = RoutingMetalNodeSupplement(
     isRunning: false,
     isCapturing: false,
+    captureConsumerCount: 0,
     visualizerSignal: nil
   )
 }
@@ -47,7 +49,12 @@ struct RoutingMetalScene {
     var status: String {
       switch value {
       case .applicationAudio(let selection, _):
-        if supplement.isCapturing { return "Capturing live audio" }
+        if supplement.isCapturing {
+          if supplement.captureConsumerCount > 1 {
+            return "Shared capture · \(supplement.captureConsumerCount) nodes"
+          }
+          return "Capturing live audio"
+        }
         if supplement.isRunning { return "Ready to capture" }
         return selection == nil ? "Select to configure" : "Application is not running"
       case .visualizer:

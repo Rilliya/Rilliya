@@ -84,6 +84,7 @@ struct RoutingMetalSceneTests {
         nodeID: RoutingMetalNodeSupplement(
           isRunning: false,
           isCapturing: false,
+          captureConsumerCount: 0,
           visualizerSignal: signal
         )
       ]
@@ -106,5 +107,24 @@ struct RoutingMetalSceneTests {
     #expect(node.applicationStatusText == "Select this node to configure")
     #expect(!node.hasApplicationSelection)
     #expect(node.applicationURL == nil)
+  }
+
+  @Test @MainActor
+  func sharedApplicationCaptureIsVisibleInTheGpuNodeStatus() throws {
+    let model = RoutingWorkspaceModel()
+    let nodeID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    let scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [
+        nodeID: RoutingMetalNodeSupplement(
+          isRunning: true,
+          isCapturing: true,
+          captureConsumerCount: 3,
+          visualizerSignal: nil
+        )
+      ]
+    )
+
+    #expect(scene.nodes.first?.status == "Shared capture · 3 nodes")
   }
 }

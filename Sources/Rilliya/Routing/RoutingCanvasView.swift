@@ -172,12 +172,14 @@ struct RoutingCanvasView: View {
         supplements[node.id] = RoutingMetalNodeSupplement(
           isRunning: isRunning(selection),
           isCapturing: isCapturing,
+          captureConsumerCount: captureController.consumerCount(for: node.id),
           visualizerSignal: nil
         )
       case .visualizer(let configuration):
         supplements[node.id] = RoutingMetalNodeSupplement(
           isRunning: false,
           isCapturing: false,
+          captureConsumerCount: 0,
           visualizerSignal: RoutingVisualizerSignalBuilder.build(
             configuration: configuration,
             incomingEdges: workspace.incomingEdges(for: node.id),
@@ -1043,6 +1045,11 @@ private struct SelectedApplicationInspector: View {
           Text("\(format.sampleRate.formatted()) Hz")
             .font(.caption2)
             .foregroundStyle(FlowingPalette.muted)
+          if captureController.consumerCount(for: nodeID) > 1 {
+            Text("Shared by \(captureController.consumerCount(for: nodeID)) nodes")
+              .font(.caption2)
+              .foregroundStyle(FlowingPalette.faint)
+          }
         }
         Spacer(minLength: 8)
         Button("Stop") {
