@@ -259,6 +259,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       contentInsets: contentInsets,
       viewportController: controller
     )
+    focusRingType = .none
     wantsLayer = true
     layer?.zPosition = -1
     colorPixelFormat = .bgra8Unorm

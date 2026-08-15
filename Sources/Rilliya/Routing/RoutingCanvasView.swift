@@ -313,6 +313,7 @@ struct RoutingCanvasView: View {
       decorations: { _ in EmptyView() },
       overlays: { _ in selectedNodeInspectorOverlay }
     )
+    .focusEffectDisabled()
   }
 
   private func metalScene(for content: RoutingCanvasContent) -> RoutingMetalScene {
