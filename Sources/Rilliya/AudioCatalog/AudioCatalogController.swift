@@ -1,6 +1,7 @@
 import Foundation
 import Observation
-import RilliyaKit
+import RilliyaCore
+import RilliyaDiscovery
 
 protocol AudioCatalogLoading: Sendable {
   func snapshot() async throws -> AudioCatalogSnapshot

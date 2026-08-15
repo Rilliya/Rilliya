@@ -1,7 +1,9 @@
 import CoreGraphics
 import FlowingDayGraphCanvas
 import Foundation
-import RilliyaKit
+import RilliyaCapture
+import RilliyaCore
+import RilliyaDSP
 import Testing
 
 @testable import Rilliya
@@ -365,6 +367,40 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func connectingAggregateSourceToOneLaneSeparatesItAutomatically() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    let mixerID = model.addAudioMixerNode(centeredAt: CGPoint(x: 500, y: 100))
+    let content = try #require(model.canvasContent)
+    let source = try #require(
+      content.presentation.ports.first {
+        $0.value.direction == .output && $0.value.audioChannel == .all
+      }
+    )
+    let target = try #require(
+      content.presentation.ports.first {
+        $0.value.direction == .input && $0.value.audioChannel == .channel(1)
+      }
+    )
+
+    model.send(
+      .connectionCompleted(
+        FlowingGraphCanvasConnectionCompletionIntent(
+          operation: .create(sourcePortID: source.id, targetPortID: target.id),
+          basePresentationSnapshotID: content.presentation.snapshotID,
+          baseLayoutInputID: content.id
+        )
+      )
+    )
+
+    #expect(model.node(id: sourceID)?.value.channelPresentation == .separate(channelCount: 2))
+    #expect(model.edges.count == 1)
+    #expect(model.edges.first?.source.portID.audioChannel == .channel(1))
+    #expect(model.edges.first?.target.nodeID == mixerID)
+    #expect(model.edges.first?.target.portID.audioChannel == .channel(1))
+  }
+
+  @Test @MainActor
   func disabledConnectionStopsParticipatingWithoutLosingItsTopology() throws {
     let model = RoutingWorkspaceModel()
     let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
@@ -651,6 +687,37 @@ struct RoutingWorkspaceTests {
     #expect(movedFrame.origin.x == originalFrame.origin.x + 48)
     #expect(movedFrame.origin.y == originalFrame.origin.y - 32)
     #expect(movedFrame.size == originalFrame.size)
+  }
+
+  @Test @MainActor
+  func multiNodeDragMovesTheSelectionAsOneGroup() throws {
+    let model = RoutingWorkspaceModel()
+    let firstID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 200, y: 180))
+    let secondID = model.addVisualizerNode(centeredAt: CGPoint(x: 500, y: 180))
+    let stationaryID = model.addPeakLevelNode(centeredAt: CGPoint(x: 800, y: 180))
+    let firstFrame = try #require(model.node(id: firstID)?.frame)
+    let secondFrame = try #require(model.node(id: secondID)?.frame)
+    let stationaryFrame = try #require(model.node(id: stationaryID)?.frame)
+    let content = try #require(model.canvasContent)
+    let firstElementID = try #require(model.elementID(for: firstID))
+    let secondElementID = try #require(model.elementID(for: secondID))
+    let translation = CGSize(width: 36, height: -24)
+
+    model.send(
+      .nodeDragCompleted(
+        FlowingGraphCanvasNodeDragIntent(
+          nodeID: firstElementID,
+          nodeIDs: [firstElementID, secondElementID],
+          basePresentationSnapshotID: content.presentation.snapshotID,
+          baseLayoutInputID: content.id,
+          translation: translation
+        )
+      )
+    )
+
+    #expect(model.node(id: firstID)?.frame == firstFrame.offsetBy(dx: 36, dy: -24))
+    #expect(model.node(id: secondID)?.frame == secondFrame.offsetBy(dx: 36, dy: -24))
+    #expect(model.node(id: stationaryID)?.frame == stationaryFrame)
   }
 
   @Test @MainActor

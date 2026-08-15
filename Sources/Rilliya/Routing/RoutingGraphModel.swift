@@ -3,7 +3,8 @@ import FlowingDayGraphCanvas
 import FlowingDayGraphComposition
 import FlowingDayGraphCore
 import Foundation
-import RilliyaKit
+import RilliyaCore
+import RilliyaDSP
 
 struct RoutingApplicationSelection: Codable, Equatable, Hashable, Identifiable, Sendable {
   let id: String
@@ -1407,6 +1408,20 @@ enum RoutingGraphPorts {
 }
 
 enum RoutingPortCompatibility {
+  static func separatedSourceChannel(
+    source: RoutingGraphPortValue,
+    target: RoutingGraphPortValue
+  ) -> Int? {
+    guard source.signalType == .audio,
+      target.signalType == .audio,
+      source.audioChannel == .all,
+      case .some(.channel(let channel)) = target.audioChannel
+    else {
+      return nil
+    }
+    return channel
+  }
+
   static func incompatibilityReason(
     source: RoutingGraphPortValue,
     target: RoutingGraphPortValue

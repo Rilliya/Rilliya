@@ -1,5 +1,5 @@
 import AppKit
-import RilliyaKit
+import RilliyaCore
 
 struct ResolvedApplicationIdentity {
   let displayName: String?

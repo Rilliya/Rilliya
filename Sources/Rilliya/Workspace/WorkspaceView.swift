@@ -2,7 +2,8 @@ import AppKit
 import FlowingDayCanvas
 import FlowingDayControls
 import FlowingDayGraphCanvas
-import RilliyaKit
+import RilliyaCapture
+import RilliyaCore
 import SwiftUI
 
 struct WorkspaceView: View {
@@ -486,6 +487,7 @@ private struct RoutingWorkflowSwitcher: View {
   let inputCaptureController: RoutingInputCaptureController
 
   @State private var workflowDialog: WorkflowDialog?
+  @State private var isWorkflowPopoverPresented = false
   @State private var pendingWorkflowID: UUID?
   @State private var proposedWorkflowName = ""
 
@@ -498,74 +500,26 @@ private struct RoutingWorkflowSwitcher: View {
           .accessibilityLabel("Workflow has active audio capture")
       }
 
-      FlowingMenu(
-        library.selectedWorkflow.name,
-        systemImage: "point.3.connected.trianglepath.dotted",
-        minimumWidth: 154,
-        fillsAvailableWidth: true
+      FlowingPopover(
+        isPresented: $isWorkflowPopoverPresented,
+        accessibilityLabel: "Choose workflow",
+        arrowEdge: .top,
+        minimumWidth: 248,
+        maximumWidth: 280,
+        contentInsets: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
       ) {
-        ForEach(library.workflows) { workflow in
-          Button {
-            library.selectWorkflow(id: workflow.id)
-          } label: {
-            HStack {
-              Text(workflow.name)
-              if workflow.isRunning {
-                Image(systemName: "play.circle.fill")
-              }
-              if workflow.id == library.selectedWorkflowID {
-                Image(systemName: "checkmark")
-              }
-            }
-          }
-        }
-
-        Divider()
-
-        Button {
-          library.addWorkflow()
-        } label: {
-          Label("New Workflow", systemImage: "plus")
-        }
-
-        Button {
-          beginRenaming(library.selectedWorkflow)
-        } label: {
-          Label("Rename Workflow…", systemImage: "pencil")
-        }
-
-        Button {
-          library.duplicateWorkflow(id: library.selectedWorkflowID)
-        } label: {
-          Label("Duplicate Workflow", systemImage: "plus.square.on.square")
-        }
-
-        Button(role: .destructive) {
-          beginDeleting(library.selectedWorkflow)
-        } label: {
-          Label("Delete Workflow…", systemImage: "trash")
-        }
-        .disabled(library.workflows.count == 1)
-
-        Divider()
-
-        Button {
-          let workflow = library.selectedWorkflow
-          workflow.setRunsAutomaticallyOnLaunch(!workflow.runsAutomaticallyOnLaunch)
-        } label: {
-          Label(
-            "Run on App Launch",
-            systemImage: library.selectedWorkflow.runsAutomaticallyOnLaunch
-              ? "checkmark.circle.fill"
-              : "circle"
-          )
-        }
+        RoutingWorkflowPopoverLabel(title: library.selectedWorkflow.name)
+      } content: {
+        workflowPopoverContent
       }
+      .buttonStyle(.plain)
+      .frame(maxWidth: .infinity)
 
       FlowingIconButton(
         library.selectedWorkflow.isRunning ? "Pause Workflow" : "Run Workflow",
         systemImage: library.selectedWorkflow.isRunning ? "pause.fill" : "play.fill",
-        emphasis: .standard
+        emphasis: .standard,
+        isSelected: library.selectedWorkflow.isRunning
       ) {
         library.selectedWorkflow.toggleRunning()
       }
@@ -597,6 +551,60 @@ private struct RoutingWorkflowSwitcher: View {
       }
     } message: {
       Text(workflowDialogMessage)
+    }
+  }
+
+  private var workflowPopoverContent: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      VStack(spacing: 3) {
+        ForEach(library.workflows) { workflow in
+          RoutingWorkflowSelectionRow(
+            name: workflow.name,
+            isRunning: workflow.isRunning,
+            isSelected: workflow.id == library.selectedWorkflowID
+          ) {
+            library.selectWorkflow(id: workflow.id)
+            isWorkflowPopoverPresented = false
+          }
+        }
+      }
+
+      Divider()
+        .overlay(FlowingPalette.hairline)
+
+      HStack(spacing: 5) {
+        FlowingIconButton("New Workflow", systemImage: "plus", emphasis: .standard) {
+          library.addWorkflow()
+          isWorkflowPopoverPresented = false
+        }
+        FlowingIconButton("Rename Workflow", systemImage: "pencil", emphasis: .standard) {
+          isWorkflowPopoverPresented = false
+          beginRenaming(library.selectedWorkflow)
+        }
+        FlowingIconButton(
+          "Duplicate Workflow",
+          systemImage: "plus.square.on.square",
+          emphasis: .standard
+        ) {
+          library.duplicateWorkflow(id: library.selectedWorkflowID)
+          isWorkflowPopoverPresented = false
+        }
+        FlowingIconButton("Delete Workflow", systemImage: "trash", emphasis: .standard) {
+          isWorkflowPopoverPresented = false
+          beginDeleting(library.selectedWorkflow)
+        }
+        .disabled(library.workflows.count == 1)
+      }
+
+      Divider()
+        .overlay(FlowingPalette.hairline)
+
+      RoutingWorkflowLaunchToggle(
+        isOn: library.selectedWorkflow.runsAutomaticallyOnLaunch
+      ) {
+        let workflow = library.selectedWorkflow
+        workflow.setRunsAutomaticallyOnLaunch(!workflow.runsAutomaticallyOnLaunch)
+      }
     }
   }
 
@@ -657,6 +665,116 @@ private struct RoutingWorkflowSwitcher: View {
         return false
       }
     }
+  }
+}
+
+private struct RoutingWorkflowPopoverLabel: View {
+  let title: String
+
+  @Environment(\.flowingAccent) private var accent
+  @State private var isHovering = false
+
+  var body: some View {
+    HStack(spacing: 7) {
+      Text(title)
+        .font(.callout.weight(.semibold))
+        .lineLimit(1)
+      Spacer(minLength: 4)
+      Image(systemName: "chevron.down")
+        .font(.system(size: 8, weight: .bold))
+    }
+    .foregroundStyle(accent.foreground)
+    .padding(.horizontal, 10)
+    .frame(maxWidth: .infinity, minHeight: 30, alignment: .leading)
+    .background(
+      isHovering ? accent.wash : accent.veil,
+      in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+    )
+    .overlay {
+      RoundedRectangle(cornerRadius: 8, style: .continuous)
+        .strokeBorder(accent.foreground.opacity(0.16))
+    }
+    .contentShape(Rectangle())
+    .onHover { isHovering = $0 }
+  }
+}
+
+private struct RoutingWorkflowSelectionRow: View {
+  let name: String
+  let isRunning: Bool
+  let isSelected: Bool
+  let action: () -> Void
+
+  @Environment(\.flowingAccent) private var accent
+  @State private var isHovering = false
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 8) {
+        Circle()
+          .fill(isRunning ? Color(nsColor: .systemGreen) : FlowingPalette.hairline)
+          .frame(width: 7, height: 7)
+          .accessibilityHidden(true)
+        Text(name)
+          .font(.callout.weight(isSelected ? .semibold : .regular))
+          .foregroundStyle(FlowingPalette.ink)
+          .lineLimit(1)
+        Spacer(minLength: 8)
+        if isSelected {
+          Image(systemName: "checkmark")
+            .font(.system(size: 10, weight: .bold))
+            .foregroundStyle(accent.foreground)
+        }
+      }
+      .padding(.horizontal, 9)
+      .frame(maxWidth: .infinity, minHeight: 31, alignment: .leading)
+      .background(
+        isSelected ? accent.veil : (isHovering ? FlowingPalette.control : .clear),
+        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+      )
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .onHover { isHovering = $0 }
+    .accessibilityLabel(name)
+    .accessibilityValue(
+      [isSelected ? "Selected" : nil, isRunning ? "Running" : "Paused"]
+        .compactMap { $0 }
+        .joined(separator: ", ")
+    )
+  }
+}
+
+private struct RoutingWorkflowLaunchToggle: View {
+  let isOn: Bool
+  let action: () -> Void
+
+  @Environment(\.flowingAccent) private var accent
+  @State private var isHovering = false
+
+  var body: some View {
+    Button(action: action) {
+      HStack(spacing: 8) {
+        Image(systemName: isOn ? "checkmark.circle.fill" : "circle")
+          .font(.system(size: 12, weight: .semibold))
+          .foregroundStyle(isOn ? accent.foreground : FlowingPalette.muted)
+        Text("Run on App Launch")
+          .font(.callout)
+          .foregroundStyle(FlowingPalette.ink)
+        Spacer(minLength: 8)
+      }
+      .padding(.horizontal, 9)
+      .frame(maxWidth: .infinity, minHeight: 31, alignment: .leading)
+      .background(
+        isHovering ? accent.veil.opacity(0.72) : .clear,
+        in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+      )
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.plain)
+    .onHover { isHovering = $0 }
+    .accessibilityLabel("Run on App Launch")
+    .accessibilityValue(isOn ? "On" : "Off")
   }
 }
 

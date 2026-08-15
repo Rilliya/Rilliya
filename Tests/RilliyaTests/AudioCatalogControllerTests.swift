@@ -1,5 +1,6 @@
 import Foundation
-import RilliyaKit
+import RilliyaCore
+import RilliyaDiscovery
 import Testing
 
 @testable import Rilliya

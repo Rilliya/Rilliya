@@ -1,6 +1,8 @@
 import Foundation
 import Observation
-import RilliyaKit
+import RilliyaCore
+import RilliyaPlayback
+import RilliyaRealtime
 
 enum RoutingAudioOutputState: Equatable {
   case idle

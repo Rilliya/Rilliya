@@ -1,5 +1,4 @@
 import Foundation
-import RilliyaKit
 
 enum RoutingConnectionLabelFormatter {
   static func label(

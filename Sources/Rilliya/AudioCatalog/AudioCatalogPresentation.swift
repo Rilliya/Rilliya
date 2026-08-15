@@ -1,4 +1,4 @@
-import RilliyaKit
+import RilliyaCore
 
 struct ApplicationOutputPresentation: Equatable, Identifiable {
   let id: AudioProcessID

@@ -3,7 +3,8 @@ import FlowingDayCanvas
 import FlowingDayControls
 import FlowingDayGraphCanvas
 import FlowingDayGraphComposition
-import RilliyaKit
+import RilliyaCore
+import RilliyaDSP
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -824,6 +825,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   let insertNoiseGate: () -> Void
   let workflowNavigation: WorkflowNavigation
 
+  @State private var searchText = ""
+
   init(
     applicationCatalog: InstalledApplicationCatalogController,
     settings: RilliyaSettings,
@@ -876,15 +879,16 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
               "Drag a node onto the canvas, then choose the source or visualization it should use."
           ) {
             VStack(spacing: 10) {
-              applicationAudioItem
-              inputAudioItem
-              outputAudioItem
-              visualizerItem
-              audioMixerItem
-              peakLevelItem
-              signalGeneratorItem
-              delayItem
-              noiseGateItem
+              FlowingTextField(
+                "Search audio nodes",
+                text: $searchText,
+                placeholder: "Search nodes",
+                systemImage: "magnifyingglass",
+                emphasis: .standard
+              )
+              .padding(.bottom, 1)
+
+              paletteResults
             }
           }
 
@@ -918,7 +922,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     .shadow(color: .black.opacity(0.06), radius: 18, y: 8)
     .padding(.leading, 12)
     .padding(.trailing, 10)
-    .padding(.top, 22)
+    .padding(.top, 26)
     .padding(.bottom, 12)
     .frame(width: 286)
     .background(Color.clear)
@@ -1038,6 +1042,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
           .font(.caption)
           .foregroundStyle(FlowingPalette.muted)
       }
+      .allowsHitTesting(false)
 
       Spacer(minLength: 8)
 
@@ -1047,7 +1052,11 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
           .accessibilityLabel("Refreshing installed applications")
       }
 
-      FlowingIconButton("Refresh Applications", systemImage: "arrow.clockwise") {
+      FlowingIconButton(
+        "Refresh Applications",
+        systemImage: "arrow.clockwise",
+        emphasis: .standard
+      ) {
         Task {
           await applicationCatalog.refresh()
         }
@@ -1083,6 +1092,66 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
 
   private func accent(for kind: RoutingNodeKind) -> FlowingAccent {
     settings.resolvedAccentID(for: kind).accent
+  }
+
+  @ViewBuilder
+  private var paletteResults: some View {
+    if showsPaletteItem(title: "Application Audio", subtitle: "Capture an app output") {
+      applicationAudioItem
+    }
+    if showsPaletteItem(title: "Input Audio", subtitle: "Capture an input device") {
+      inputAudioItem
+    }
+    if showsPaletteItem(title: "Output Audio", subtitle: "Play through an output device") {
+      outputAudioItem
+    }
+    if showsPaletteItem(title: "Visualizer", subtitle: "Inspect routed channels") {
+      visualizerItem
+    }
+    if showsPaletteItem(title: "Audio Mixer", subtitle: "Mix routed channel levels") {
+      audioMixerItem
+    }
+    if showsPaletteItem(title: "Peak Level", subtitle: "Measure the strongest sample") {
+      peakLevelItem
+    }
+    if showsPaletteItem(title: "Signal Generator", subtitle: "Create tones and colored noise") {
+      signalGeneratorItem
+    }
+    if showsPaletteItem(title: "Delay", subtitle: "Add time and feedback") {
+      delayItem
+    }
+    if showsPaletteItem(title: "Noise Gate", subtitle: "Attenuate quiet passages") {
+      noiseGateItem
+    }
+    if !hasPaletteResults {
+      FlowingEmptyState(systemImage: "magnifyingglass") {
+        Text("No matching audio nodes")
+      }
+      .padding(.vertical, 18)
+      .allowsHitTesting(false)
+    }
+  }
+
+  private var hasPaletteResults: Bool {
+    [
+      ("Application Audio", "Capture an app output"),
+      ("Input Audio", "Capture an input device"),
+      ("Output Audio", "Play through an output device"),
+      ("Visualizer", "Inspect routed channels"),
+      ("Audio Mixer", "Mix routed channel levels"),
+      ("Peak Level", "Measure the strongest sample"),
+      ("Signal Generator", "Create tones and colored noise"),
+      ("Delay", "Add time and feedback"),
+      ("Noise Gate", "Attenuate quiet passages"),
+    ].contains { showsPaletteItem(title: $0.0, subtitle: $0.1) }
+  }
+
+  private func showsPaletteItem(title: String, subtitle: String) -> Bool {
+    RoutingPaletteSearch.matches(
+      query: searchText,
+      title: title,
+      description: subtitle
+    )
   }
 }
 
@@ -1160,11 +1229,6 @@ private struct RoutingPaletteNodeItem: View {
         }
 
         Spacer(minLength: 6)
-
-        Image(systemName: "line.3.horizontal")
-          .font(.system(size: 10, weight: .semibold))
-          .foregroundStyle(isHovering ? foreground : FlowingPalette.faint)
-          .accessibilityHidden(true)
       }
     }
     .overlay {
@@ -1354,6 +1418,7 @@ private struct RoutingPaletteSection<Content: View>: View {
         .foregroundStyle(FlowingPalette.faint)
         .padding(.leading, 4)
         .padding(.bottom, 7)
+        .allowsHitTesting(false)
 
       content
 
@@ -1363,6 +1428,7 @@ private struct RoutingPaletteSection<Content: View>: View {
         .fixedSize(horizontal: false, vertical: true)
         .padding(.horizontal, 12)
         .padding(.top, 7)
+        .allowsHitTesting(false)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Color.clear)

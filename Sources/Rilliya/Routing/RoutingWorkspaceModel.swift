@@ -2,7 +2,7 @@ import CoreGraphics
 import FlowingDayGraphCanvas
 import Foundation
 import Observation
-import RilliyaKit
+import RilliyaCapture
 
 enum RoutingWorkspaceRestorationError: Error, Equatable {
   case duplicateNodeID
@@ -950,7 +950,13 @@ final class RoutingWorkspaceModel {
     if let reason = RoutingPortCompatibility.incompatibilityReason(
       source: sourceValue,
       target: targetValue
-    ) {
+    ),
+      !canAutomaticallySeparateSource(
+        source: source,
+        sourceValue: sourceValue,
+        targetValue: targetValue
+      )
+    {
       return .invalid(.init(message: reason))
     }
     if targetValue.connectionPolicy == .singleInput,
@@ -1002,11 +1008,23 @@ final class RoutingWorkspaceModel {
       return
     }
     guard case .create(let sourceElementID, let targetElementID) = connection.operation,
-      let source = portAddress(for: sourceElementID),
+      let originalSource = portAddress(for: sourceElementID),
       let target = portAddress(for: targetElementID),
-      source.portID.direction == .output,
+      originalSource.portID.direction == .output,
       target.portID.direction == .input,
-      source.nodeID != target.nodeID,
+      originalSource.nodeID != target.nodeID
+    else {
+      return
+    }
+    guard case .valid = connectionValidation(source: originalSource, target: target) else {
+      return
+    }
+    let source =
+      automaticallySeparatedSource(
+        source: originalSource,
+        target: target
+      ) ?? originalSource
+    guard
       case .valid = connectionValidation(source: source, target: target)
     else {
       return
@@ -1019,6 +1037,66 @@ final class RoutingWorkspaceModel {
     }
     edges.append(RoutingWorkspaceEdge(id: UUID(), source: source, target: target))
     rebuildCanvas()
+  }
+
+  private func canAutomaticallySeparateSource(
+    source: RoutingWorkspacePortAddress,
+    sourceValue: RoutingGraphPortValue,
+    targetValue: RoutingGraphPortValue
+  ) -> Bool {
+    guard
+      let channel = RoutingPortCompatibility.separatedSourceChannel(
+        source: sourceValue,
+        target: targetValue
+      ),
+      let sourceNode = node(id: source.nodeID),
+      sourceNode.value.audioSourceChannelPresentation == .aggregate
+    else {
+      return false
+    }
+    return runtimeCaptureFormats[source.nodeID].map { channel < $0.channelIDs.count } ?? true
+  }
+
+  private func automaticallySeparatedSource(
+    source: RoutingWorkspacePortAddress,
+    target: RoutingWorkspacePortAddress
+  ) -> RoutingWorkspacePortAddress? {
+    guard let sourceValue = portValue(at: source),
+      let targetValue = portValue(at: target),
+      canAutomaticallySeparateSource(
+        source: source,
+        sourceValue: sourceValue,
+        targetValue: targetValue
+      ),
+      let channel = RoutingPortCompatibility.separatedSourceChannel(
+        source: sourceValue,
+        target: targetValue
+      ),
+      let index = nodes.firstIndex(where: { $0.id == source.nodeID })
+    else {
+      return nil
+    }
+    let channelCount =
+      runtimeCaptureFormats[source.nodeID].map(\.channelIDs.count)
+      ?? max(2, channel + 1)
+    guard
+      migrateAudioSourceEdges(
+        nodeID: source.nodeID,
+        from: nodes[index].value,
+        to: .separate(channelCount: channelCount)
+      ),
+      let updatedValue = nodes[index].value.replacingAudioSourceChannelPresentation(
+        .separate(channelCount: channelCount)
+      )
+    else {
+      return nil
+    }
+    nodes[index].value = updatedValue
+    resizeNode(at: index)
+    return RoutingWorkspacePortAddress(
+      nodeID: source.nodeID,
+      portID: RoutingGraphPortID(direction: .output, channel: .channel(channel))
+    )
   }
 
   private func portAddress(

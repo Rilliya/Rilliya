@@ -7,6 +7,7 @@ import SwiftUI
 
 @MainActor
 final class RoutingMetalCanvasController: FlowingGraphCanvasMetalBackendController {
+  @Published private(set) var mouseTool: RoutingCanvasMouseTool = .select
   private weak var routingCanvas: RoutingMetalCanvasView?
   private var hasAttachedCanvas = false
 
@@ -35,6 +36,17 @@ final class RoutingMetalCanvasController: FlowingGraphCanvasMetalBackendControll
   func fit() {
     routingCanvas?.fitContent()
   }
+
+  func setMouseTool(_ mouseTool: RoutingCanvasMouseTool) {
+    guard self.mouseTool != mouseTool else { return }
+    self.mouseTool = mouseTool
+    routingCanvas?.setMouseTool(mouseTool)
+  }
+}
+
+enum RoutingCanvasMouseTool: String, CaseIterable, Hashable, Sendable {
+  case select
+  case pan
 }
 
 struct RoutingMetalCanvas: NSViewRepresentable {
@@ -43,8 +55,9 @@ struct RoutingMetalCanvas: NSViewRepresentable {
   let configuration: FlowingGraphCanvasConfiguration
   let contentInsets: EdgeInsets
   let controller: RoutingMetalCanvasController
+  let mouseTool: RoutingCanvasMouseTool
   let onSelectionChange: (Set<RoutingCanvasElementID>) -> Void
-  let onMoveNode: (RoutingCanvasElementID, CGSize) -> Void
+  let onMoveNodes: (Set<RoutingCanvasElementID>, CGSize) -> Void
   let onConnect: (RoutingCanvasElementID, RoutingCanvasElementID) -> Void
   let onDeleteNodes: (Set<UUID>) -> Void
   let onDeleteEdges: (Set<UUID>) -> Void
@@ -61,6 +74,7 @@ struct RoutingMetalCanvas: NSViewRepresentable {
       selection: selection,
       configuration: configuration,
       contentInsets: contentInsets,
+      mouseTool: mouseTool,
       showsDisabledPortCrosses: showsDisabledPortCrosses,
       controller: controller
     )
@@ -71,6 +85,7 @@ struct RoutingMetalCanvas: NSViewRepresentable {
 
   func updateNSView(_ nsView: RoutingMetalCanvasView, context: Context) {
     configure(nsView)
+    nsView.setMouseTool(mouseTool)
     nsView.update(
       scene: scene,
       selection: selection,
@@ -83,7 +98,7 @@ struct RoutingMetalCanvas: NSViewRepresentable {
 
   private func configure(_ view: RoutingMetalCanvasView) {
     view.onSelectionChange = onSelectionChange
-    view.onMoveNode = onMoveNode
+    view.onMoveNodes = onMoveNodes
     view.onConnect = onConnect
     view.onDeleteNodes = onDeleteNodes
     view.onDeleteEdges = onDeleteEdges
@@ -98,7 +113,7 @@ struct RoutingMetalCanvas: NSViewRepresentable {
 @MainActor
 final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   var onSelectionChange: ((Set<RoutingCanvasElementID>) -> Void)?
-  var onMoveNode: ((RoutingCanvasElementID, CGSize) -> Void)?
+  var onMoveNodes: ((Set<RoutingCanvasElementID>, CGSize) -> Void)?
   var onConnect: ((RoutingCanvasElementID, RoutingCanvasElementID) -> Void)?
   var onDeleteNodes: ((Set<UUID>) -> Void)?
   var onDeleteEdges: ((Set<UUID>) -> Void)?
@@ -146,12 +161,15 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   private var mouseDownViewportPoint: CGPoint?
   private var mouseDownWorldPoint: CGPoint?
   private var mouseDownCameraOffset: CGSize?
-  private var draggedNodeID: RoutingCanvasElementID?
+  private var draggedNodeIDs: Set<RoutingCanvasElementID> = []
   private var dragTranslation = CGSize.zero
+  private var marqueeBaseSelection: Set<RoutingCanvasElementID> = []
+  private var marqueeWorldRect: CGRect?
   private var connectionSourceID: RoutingCanvasElementID?
   private var connectionLocation: CGPoint?
   private var connectionTargetID: RoutingCanvasElementID?
   private var audioGainDrag: AudioGainDrag?
+  private var mouseTool: RoutingCanvasMouseTool
   private var showsDisabledPortCrosses: Bool
 
   private struct AudioGainDrag {
@@ -175,6 +193,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     selection: Set<RoutingCanvasElementID>,
     configuration: FlowingGraphCanvasConfiguration,
     contentInsets: EdgeInsets,
+    mouseTool: RoutingCanvasMouseTool,
     showsDisabledPortCrosses: Bool,
     controller: RoutingMetalCanvasController
   ) {
@@ -184,6 +203,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     self.scene = scene
     self.selection = selection
     graphConfiguration = configuration
+    self.mouseTool = mouseTool
     self.showsDisabledPortCrosses = showsDisabledPortCrosses
     textAtlas = RoutingMetalTextAtlas(device: device)
     let sampleCount =
@@ -310,6 +330,12 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     mouseDownViewportPoint = viewportPoint
     mouseDownWorldPoint = worldPoint
 
+    if mouseTool == .pan {
+      mouseDownCameraOffset = camera.offset
+      NSCursor.closedHand.set()
+      return
+    }
+
     if let hit = audioChannelControl(at: worldPoint) {
       switch hit {
       case .gain(let drag):
@@ -357,10 +383,13 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
           next.insert(node.id)
         }
         updateSelection(next)
-      } else if !selection.contains(node.id) || selection.count != 1 {
+      } else if !selection.contains(node.id) {
         updateSelection([node.id])
       }
-      draggedNodeID = node.id
+      if selection.contains(node.id) {
+        let nodeElementIDs = Set(scene.nodes.map(\.id))
+        draggedNodeIDs = selection.intersection(nodeElementIDs)
+      }
       return
     }
 
@@ -369,8 +398,13 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       return
     }
 
-    updateSelection([])
-    mouseDownCameraOffset = camera.offset
+    let extendsSelection =
+      event.modifierFlags.contains(.command)
+      || event.modifierFlags.contains(.shift)
+    marqueeBaseSelection = extendsSelection ? selection : []
+    if !extendsSelection {
+      updateSelection([])
+    }
   }
 
   override func mouseDragged(with event: NSEvent) {
@@ -394,7 +428,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       return
     }
 
-    if draggedNodeID != nil, let startWorldPoint = mouseDownWorldPoint {
+    if !draggedNodeIDs.isEmpty, let startWorldPoint = mouseDownWorldPoint {
       dragTranslation = CGSize(
         width: worldPoint.x - startWorldPoint.x,
         height: worldPoint.y - startWorldPoint.y
@@ -403,12 +437,25 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       return
     }
 
-    if let startOffset = mouseDownCameraOffset {
+    if mouseTool == .pan, let startOffset = mouseDownCameraOffset {
       NSCursor.closedHand.set()
       camera.offset = CGSize(
         width: startOffset.width + viewportPoint.x - startViewportPoint.x,
         height: startOffset.height + viewportPoint.y - startViewportPoint.y
       )
+      return
+    }
+
+    if mouseTool == .select, let startWorldPoint = mouseDownWorldPoint {
+      let rect = CGRect(
+        x: min(startWorldPoint.x, worldPoint.x),
+        y: min(startWorldPoint.y, worldPoint.y),
+        width: abs(worldPoint.x - startWorldPoint.x),
+        height: abs(worldPoint.y - startWorldPoint.y)
+      )
+      marqueeWorldRect = rect
+      updateSelection(marqueeBaseSelection.union(scene.nodeIDs(intersecting: rect)))
+      requestDisplay()
     }
   }
 
@@ -417,10 +464,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       let targetID = connectionTargetID
     {
       onConnect?(sourceID, targetID)
-    } else if let nodeID = draggedNodeID,
-      dragTranslation != .zero
-    {
-      onMoveNode?(nodeID, dragTranslation)
+    } else if !draggedNodeIDs.isEmpty, dragTranslation != .zero {
+      onMoveNodes?(draggedNodeIDs, dragTranslation)
     }
     resetPointerInteraction()
     finishViewportChange()
@@ -428,6 +473,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   }
 
   override func mouseMoved(with event: NSEvent) {
+    if mouseTool == .pan {
+      hoveredPortID = nil
+      hoveredNodeID = nil
+      hoveredEdgeID = nil
+      cursorForCurrentTool.set()
+      requestDisplay()
+      return
+    }
     let worldPoint = camera.worldPoint(for: convert(event.locationInWindow, from: nil))
     let nextPort = port(at: worldPoint)
     let nextNode = nextPort == nil ? node(at: worldPoint) : nil
@@ -435,7 +488,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     hoveredPortID = nextPort?.id
     hoveredNodeID = nextNode?.id
     hoveredEdgeID = nextEdge?.id
-    NSCursor.arrow.set()
+    cursorForCurrentTool.set()
     requestDisplay()
   }
 
@@ -443,7 +496,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     hoveredNodeID = nil
     hoveredPortID = nil
     hoveredEdgeID = nil
-    NSCursor.arrow.set()
+    cursorForCurrentTool.set()
     requestDisplay()
   }
 
@@ -494,6 +547,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     if let hoveredEdgeID, !scene.edges.contains(where: { $0.id == hoveredEdgeID }) {
       self.hoveredEdgeID = nil
     }
+    requestDisplay()
+  }
+
+  func setMouseTool(_ mouseTool: RoutingCanvasMouseTool) {
+    guard self.mouseTool != mouseTool else { return }
+    resetPointerInteraction()
+    self.mouseTool = mouseTool
+    cursorForCurrentTool.set()
     requestDisplay()
   }
 
@@ -748,6 +809,9 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         palette: palette,
         to: &frameGeometry
       )
+    }
+    if let marqueeWorldRect, marqueeWorldRect.width > 0, marqueeWorldRect.height > 0 {
+      appendMarquee(marqueeWorldRect, palette: palette, to: &frameGeometry)
     }
     frameGeometry.backgroundTriangleRange = frameGeometry.triangles.indices
     frameGeometry.backgroundShapeRange = frameGeometry.shapes.indices
@@ -1022,11 +1086,10 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     else {
       return
     }
-    let statusFrame = CGRect(
-      x: frame.minX + 14,
-      y: frame.maxY - 44,
-      width: frame.width - 66,
-      height: 30
+    let statusFrame = RoutingAudioSourceStatusLayout.frame(
+      in: frame,
+      hasInputPort: node.ports.contains { $0.value.direction == .input },
+      hasOutputPort: node.ports.contains { $0.value.direction == .output }
     )
     geometry.shapes.append(
       RoutingMetalShapeInstance(
@@ -1463,8 +1526,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   ) {
     let route = RoutingMetalEdgeRouteProjection.route(
       edge.route,
-      sourceMoves: draggedNodeID == edge.sourceNodeID,
-      targetMoves: draggedNodeID == edge.targetNodeID,
+      sourceMoves: draggedNodeIDs.contains(edge.sourceNodeID),
+      targetMoves: draggedNodeIDs.contains(edge.targetNodeID),
       translation: dragTranslation
     )
     appendStroke(
@@ -1564,6 +1627,23 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       width: Constants.connectionPreviewWidth / camera.zoom,
       color: (isValid ? palette.fern : palette.muted).withAlpha(0.82),
       to: &geometry
+    )
+  }
+
+  private func appendMarquee(
+    _ rect: CGRect,
+    palette: RoutingMetalPalette,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
+    geometry.shapes.append(
+      RoutingMetalShapeInstance(
+        rect: rect,
+        fill: palette.fern.withAlpha(0.08),
+        border: palette.fern.withAlpha(0.72),
+        cornerRadius: Float(5 / camera.zoom),
+        borderWidth: Float(1 / camera.zoom),
+        opacity: 1
+      )
     )
   }
 
@@ -1820,8 +1900,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     return scene.edges.compactMap { edge -> (RoutingMetalScene.Edge, CGFloat)? in
       let route = RoutingMetalEdgeRouteProjection.route(
         edge.route,
-        sourceMoves: draggedNodeID == edge.sourceNodeID,
-        targetMoves: draggedNodeID == edge.targetNodeID,
+        sourceMoves: draggedNodeIDs.contains(edge.sourceNodeID),
+        targetMoves: draggedNodeIDs.contains(edge.targetNodeID),
         translation: dragTranslation
       )
       let routePoints = points(for: route)
@@ -1849,12 +1929,12 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   }
 
   private func translatedFrame(of node: RoutingMetalScene.Node) -> CGRect {
-    guard draggedNodeID == node.id else { return node.frame }
+    guard draggedNodeIDs.contains(node.id) else { return node.frame }
     return node.frame.offsetBy(dx: dragTranslation.width, dy: dragTranslation.height)
   }
 
   private func translatedPosition(of port: RoutingMetalScene.Port) -> CGPoint {
-    guard draggedNodeID == port.nodeID else { return port.position }
+    guard draggedNodeIDs.contains(port.nodeID) else { return port.position }
     return CGPoint(
       x: port.position.x + dragTranslation.width,
       y: port.position.y + dragTranslation.height
@@ -1872,13 +1952,19 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     mouseDownViewportPoint = nil
     mouseDownWorldPoint = nil
     mouseDownCameraOffset = nil
-    draggedNodeID = nil
+    draggedNodeIDs.removeAll(keepingCapacity: true)
     dragTranslation = .zero
+    marqueeBaseSelection.removeAll(keepingCapacity: true)
+    marqueeWorldRect = nil
     connectionSourceID = nil
     connectionLocation = nil
     connectionTargetID = nil
     audioGainDrag = nil
-    NSCursor.arrow.set()
+    cursorForCurrentTool.set()
+  }
+
+  private var cursorForCurrentTool: NSCursor {
+    mouseTool == .pan ? .openHand : .arrow
   }
 
   private func requestDisplay() {

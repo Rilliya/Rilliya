@@ -1,5 +1,5 @@
 import Foundation
-import RilliyaKit
+import RilliyaCapture
 
 enum RoutingVisualizerLaneID: Equatable, Hashable, Sendable {
   case mixed

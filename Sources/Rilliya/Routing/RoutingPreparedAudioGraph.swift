@@ -1,5 +1,6 @@
 import Foundation
-import RilliyaKit
+import RilliyaDSP
+import RilliyaRealtime
 
 enum RoutingPreparedAudioGraphError: Error, Equatable, LocalizedError, Sendable {
   case missingOutputNode

@@ -1,6 +1,6 @@
 import AppKit
 import FlowingDayControls
-import RilliyaKit
+import RilliyaCore
 import SwiftUI
 
 struct AudioCatalogSidebar: View {

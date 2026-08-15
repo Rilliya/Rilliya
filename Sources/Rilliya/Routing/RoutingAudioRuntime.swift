@@ -1,5 +1,6 @@
 import Foundation
-import RilliyaKit
+import RilliyaCapture
+import RilliyaCore
 
 struct RoutingAudioCaptureFormat: Equatable, Sendable {
   let sampleRate: Double

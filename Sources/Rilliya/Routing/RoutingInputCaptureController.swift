@@ -1,7 +1,9 @@
 import AVFoundation
 import Foundation
 import Observation
-import RilliyaKit
+import RilliyaCapture
+import RilliyaCore
+import RilliyaRealtime
 
 enum RoutingInputCaptureState: Equatable {
   case idle
@@ -19,7 +21,7 @@ protocol RoutingInputCaptureSession: AnyObject, Sendable {
 
 protocol RoutingInputCaptureStarting: Sendable {
   func start(
-    deviceID: RilliyaKit.AudioDeviceID,
+    deviceID: RilliyaCore.AudioDeviceID,
     snapshotHandler: @escaping DeviceInputCapture.SnapshotHandler,
     failureHandler: @escaping DeviceInputCapture.FailureHandler
   ) async throws -> any RoutingInputCaptureSession
@@ -27,7 +29,7 @@ protocol RoutingInputCaptureStarting: Sendable {
 
 struct SystemRoutingInputCaptureStarter: RoutingInputCaptureStarting {
   func start(
-    deviceID: RilliyaKit.AudioDeviceID,
+    deviceID: RilliyaCore.AudioDeviceID,
     snapshotHandler: @escaping DeviceInputCapture.SnapshotHandler,
     failureHandler: @escaping DeviceInputCapture.FailureHandler
   ) async throws -> any RoutingInputCaptureSession {
@@ -105,8 +107,8 @@ final class RoutingInputCaptureController {
   private(set) var snapshots: [UUID: DeviceInputMeterSnapshot] = [:]
 
   @ObservationIgnored private let captureStarter: any RoutingInputCaptureStarting
-  @ObservationIgnored private var sources: [RilliyaKit.AudioDeviceID: SharedSource] = [:]
-  @ObservationIgnored private var deviceIDsByNode: [UUID: RilliyaKit.AudioDeviceID] = [:]
+  @ObservationIgnored private var sources: [RilliyaCore.AudioDeviceID: SharedSource] = [:]
+  @ObservationIgnored private var deviceIDsByNode: [UUID: RilliyaCore.AudioDeviceID] = [:]
   @ObservationIgnored private var nextGeneration: UInt64 = 0
 
   init(
@@ -136,7 +138,7 @@ final class RoutingInputCaptureController {
     return sources[deviceID]?.nodeIDs.count ?? 0
   }
 
-  func start(nodeID: UUID, deviceID: RilliyaKit.AudioDeviceID) {
+  func start(nodeID: UUID, deviceID: RilliyaCore.AudioDeviceID) {
     if deviceIDsByNode[nodeID] == deviceID,
       let source = sources[deviceID],
       source.nodeIDs.contains(nodeID)
@@ -167,7 +169,7 @@ final class RoutingInputCaptureController {
     beginStart(deviceID: deviceID, generation: generation)
   }
 
-  func reconcile(deviceIDsByNode requirements: [UUID: RilliyaKit.AudioDeviceID]) {
+  func reconcile(deviceIDsByNode requirements: [UUID: RilliyaCore.AudioDeviceID]) {
     for (nodeID, deviceID) in Array(deviceIDsByNode) {
       guard requirements[nodeID] != deviceID else { continue }
       detach(nodeID: nodeID, publishesIdleState: true)
@@ -212,7 +214,7 @@ final class RoutingInputCaptureController {
     }
   }
 
-  private func beginStart(deviceID: RilliyaKit.AudioDeviceID, generation: UInt64) {
+  private func beginStart(deviceID: RilliyaCore.AudioDeviceID, generation: UInt64) {
     let captureStarter = captureStarter
     let snapshotHandler: DeviceInputCapture.SnapshotHandler = { [weak self] snapshot in
       Task { @MainActor [weak self] in
@@ -245,7 +247,7 @@ final class RoutingInputCaptureController {
 
   private func finishStart(
     _ capture: any RoutingInputCaptureSession,
-    deviceID: RilliyaKit.AudioDeviceID,
+    deviceID: RilliyaCore.AudioDeviceID,
     generation: UInt64
   ) {
     guard var source = sources[deviceID], source.generation == generation,
@@ -272,7 +274,7 @@ final class RoutingInputCaptureController {
 
   private func failStart(
     _ error: any Error,
-    deviceID: RilliyaKit.AudioDeviceID,
+    deviceID: RilliyaCore.AudioDeviceID,
     generation: UInt64
   ) {
     guard let source = sources[deviceID], source.generation == generation,
@@ -289,7 +291,7 @@ final class RoutingInputCaptureController {
 
   private func receiveFailure(
     _ error: DeviceInputCaptureError,
-    deviceID: RilliyaKit.AudioDeviceID,
+    deviceID: RilliyaCore.AudioDeviceID,
     generation: UInt64
   ) {
     guard var source = sources[deviceID], source.generation == generation,
@@ -310,7 +312,7 @@ final class RoutingInputCaptureController {
 
   private func beginStop(
     _ capture: any RoutingInputCaptureSession,
-    deviceID: RilliyaKit.AudioDeviceID,
+    deviceID: RilliyaCore.AudioDeviceID,
     generation: UInt64
   ) {
     Task { @MainActor [weak self] in
@@ -319,7 +321,7 @@ final class RoutingInputCaptureController {
     }
   }
 
-  private func finishStop(deviceID: RilliyaKit.AudioDeviceID, generation: UInt64) {
+  private func finishStop(deviceID: RilliyaCore.AudioDeviceID, generation: UInt64) {
     guard var source = sources[deviceID], source.generation == generation,
       case .stopping = source.phase
     else { return }
@@ -342,7 +344,7 @@ final class RoutingInputCaptureController {
 
   private func receive(
     _ snapshot: DeviceInputMeterSnapshot,
-    deviceID: RilliyaKit.AudioDeviceID,
+    deviceID: RilliyaCore.AudioDeviceID,
     generation: UInt64
   ) {
     guard snapshot.format.deviceID == deviceID,

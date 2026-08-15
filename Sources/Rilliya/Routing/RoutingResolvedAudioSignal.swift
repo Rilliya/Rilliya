@@ -1,5 +1,5 @@
 import Foundation
-import RilliyaKit
+import RilliyaCapture
 
 struct RoutingResolvedAudioChannelSignal: Equatable, Sendable {
   let channelIndex: Int

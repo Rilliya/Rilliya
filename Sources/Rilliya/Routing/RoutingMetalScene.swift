@@ -3,7 +3,6 @@ import FlowingDayGraphCanvas
 import FlowingDayGraphComposition
 import FlowingDayGraphLayout
 import Foundation
-import RilliyaKit
 
 struct RoutingMetalNodeSupplement: Equatable {
   let isRunning: Bool
@@ -443,6 +442,10 @@ struct RoutingMetalScene {
     }.map(\.element)
   }
 
+  func nodeIDs(intersecting rect: CGRect) -> Set<RoutingCanvasElementID> {
+    Set(nodes.lazy.filter { $0.frame.intersects(rect) }.map(\.id))
+  }
+
   func renderElements(
     intersecting rect: CGRect,
     selection: Set<RoutingCanvasElementID>
@@ -471,12 +474,16 @@ struct RoutingMetalScene {
   ) -> Bool {
     guard source.workspaceNodeID != target.workspaceNodeID,
       source.value.isEnabled,
-      target.value.isEnabled,
-      RoutingPortCompatibility.incompatibilityReason(
-        source: source.value,
-        target: target.value
-      ) == nil
+      target.value.isEnabled
     else {
+      return false
+    }
+    if RoutingPortCompatibility.incompatibilityReason(
+      source: source.value,
+      target: target.value
+    ) != nil,
+      !canAutomaticallySeparateSource(source: source, target: target)
+    {
       return false
     }
     if target.value.connectionPolicy == .singleInput,
@@ -485,6 +492,23 @@ struct RoutingMetalScene {
       return false
     }
     return true
+  }
+
+  private func canAutomaticallySeparateSource(
+    source: Port,
+    target: Port
+  ) -> Bool {
+    guard
+      let channel = RoutingPortCompatibility.separatedSourceChannel(
+        source: source.value,
+        target: target.value
+      ),
+      let sourceNode = nodes.first(where: { $0.id == source.nodeID }),
+      sourceNode.value.audioSourceChannelPresentation == .aggregate
+    else {
+      return false
+    }
+    return sourceNode.supplement.captureFormat.map { channel < $0.channelIDs.count } ?? true
   }
 
   private static func cullingBounds(for route: FlowingGraphEdgeRoute) -> CGRect {

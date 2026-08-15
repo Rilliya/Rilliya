@@ -2,7 +2,9 @@ import CoreGraphics
 import FlowingDayCanvas
 import FlowingDayGraphCanvas
 import Foundation
-import RilliyaKit
+import RilliyaCapture
+import RilliyaCore
+import RilliyaDSP
 import Testing
 
 @testable import Rilliya

@@ -1,5 +1,6 @@
 import Foundation
-import RilliyaKit
+import RilliyaCapture
+import RilliyaCore
 
 struct RoutingCaptureRequirements: Equatable {
   let processIDsByNode: [UUID: AudioProcessID]

@@ -65,8 +65,9 @@ struct RoutingMetalViewport: View {
           configuration: context.configuration,
           contentInsets: context.contentInsets,
           controller: controller,
+          mouseTool: controller.mouseTool,
           onSelectionChange: updateSelection,
-          onMoveNode: moveNode,
+          onMoveNodes: moveNodes,
           onConnect: connect,
           onDeleteNodes: removeNodes,
           onDeleteEdges: removeEdges,
@@ -163,6 +164,27 @@ struct RoutingMetalViewport: View {
 
   private var viewportControls: some View {
     HStack(spacing: 0) {
+      FlowingIconButton(
+        "Select and move nodes",
+        systemImage: "cursorarrow",
+        isSelected: controller.mouseTool == .select
+      ) {
+        controller.setMouseTool(.select)
+      }
+
+      FlowingIconButton(
+        "Pan canvas",
+        systemImage: "hand.raised",
+        isSelected: controller.mouseTool == .pan
+      ) {
+        controller.setMouseTool(.pan)
+      }
+
+      Rectangle()
+        .fill(FlowingPalette.hairline)
+        .frame(width: 1, height: 18)
+        .padding(.horizontal, 3)
+
       RoutingViewportControlButton(
         systemImage: "minus",
         accessibilityLabel: "Zoom out"
@@ -226,11 +248,16 @@ struct RoutingMetalViewport: View {
     context.session.wrappedValue.focusedElementID = selection.first
   }
 
-  private func moveNode(_ nodeID: RoutingCanvasElementID, translation: CGSize) {
+  private func moveNodes(
+    _ nodeIDs: Set<RoutingCanvasElementID>,
+    translation: CGSize
+  ) {
+    guard let nodeID = nodeIDs.first else { return }
     context.send(
       .nodeDragCompleted(
         FlowingGraphCanvasNodeDragIntent(
           nodeID: nodeID,
+          nodeIDs: nodeIDs,
           basePresentationSnapshotID: scene.presentationSnapshotID,
           baseLayoutInputID: scene.contentID,
           translation: translation

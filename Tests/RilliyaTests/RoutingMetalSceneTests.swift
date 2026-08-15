@@ -44,6 +44,26 @@ struct RoutingMetalSceneTests {
   }
 
   @Test @MainActor
+  func marqueeFindsEveryIntersectingNode() throws {
+    let model = RoutingWorkspaceModel()
+    let firstID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    let secondID = model.addVisualizerNode(centeredAt: CGPoint(x: 500, y: 100))
+    _ = model.addPeakLevelNode(centeredAt: CGPoint(x: 1_000, y: 1_000))
+    let scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [:]
+    )
+
+    let matches = scene.nodeIDs(
+      intersecting: CGRect(x: -40, y: -40, width: 700, height: 280)
+    )
+
+    let firstElementID = try #require(model.elementID(for: firstID))
+    let secondElementID = try #require(model.elementID(for: secondID))
+    #expect(matches == [firstElementID, secondElementID])
+  }
+
+  @Test @MainActor
   func sceneUsesActualNodeBoundsInsteadOfThePanSafetyBounds() throws {
     let model = RoutingWorkspaceModel()
     _ = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
@@ -93,6 +113,29 @@ struct RoutingMetalSceneTests {
 
     #expect(scene.validatesConnection(from: source, to: matchingTarget))
     #expect(scene.validatesConnection(from: source, to: mismatchedTarget))
+  }
+
+  @Test @MainActor
+  func aggregateAudioSourceCanPreviewAutomaticSeparationIntoALane() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    let targetID = model.addAudioMixerNode(centeredAt: CGPoint(x: 500, y: 100))
+    let scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [:]
+    )
+    let source = try #require(
+      scene.nodes.first { $0.workspaceID == sourceID }?.ports.first {
+        $0.value.audioChannel == .all
+      }
+    )
+    let target = try #require(
+      scene.nodes.first { $0.workspaceID == targetID }?.ports.first {
+        $0.value.direction == .input && $0.value.audioChannel == .channel(1)
+      }
+    )
+
+    #expect(scene.validatesConnection(from: source, to: target))
   }
 
   @Test @MainActor

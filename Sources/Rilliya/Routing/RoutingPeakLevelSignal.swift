@@ -1,5 +1,5 @@
 import Foundation
-import RilliyaKit
+import RilliyaCapture
 
 struct RoutingPeakLevelSignal: Equatable, Sendable {
   let linearPeak: Float
