@@ -3,10 +3,12 @@ import FlowingDayCanvas
 import FlowingDayControls
 import FlowingDayGraphCanvas
 import FlowingDayGraphComposition
+import RilliyaKit
 import SwiftUI
 
 private enum RoutingPaletteItem: String, Codable, Transferable {
   case applicationAudio = "moe.uwucocoa.rilliya.node.application-audio"
+  case visualizer = "moe.uwucocoa.rilliya.node.visualizer"
 
   static var transferRepresentation: some TransferRepresentation {
     CodableRepresentation(contentType: .plainText)
@@ -17,12 +19,11 @@ struct RoutingCanvasView: View {
   let workspace: RoutingWorkspaceModel
   let applicationCatalog: InstalledApplicationCatalogController
   let iconResolver: NSWorkspaceInstalledApplicationIconResolver
+  let captureController: RoutingCaptureController
   let sessionID: FlowingGraphCanvasSessionID
 
   @Binding var session: FlowingGraphCanvasSessionState<RoutingCanvasSchema>
-  @Binding var inspectedNodeID: UUID?
 
-  @State private var command: FlowingGraphCanvasSessionCommand<RoutingCanvasSchema>?
   @State private var isDropTargeted = false
 
   var body: some View {
@@ -62,41 +63,19 @@ struct RoutingCanvasView: View {
         .allowsHitTesting(false)
     }
     .dropDestination(for: RoutingPaletteItem.self) { items, location in
-      guard items.contains(.applicationAudio) else { return false }
+      guard let item = items.first else { return false }
       let worldPoint = session.viewport.transform.removing(from: location)
-      let nodeID = workspace.addApplicationAudioNode(centeredAt: worldPoint)
-      inspectedNodeID = nodeID
+      let nodeID: UUID
+      switch item {
+      case .applicationAudio:
+        nodeID = workspace.addApplicationAudioNode(centeredAt: worldPoint)
+      case .visualizer:
+        nodeID = workspace.addVisualizerNode(centeredAt: worldPoint)
+      }
+      selectNode(nodeID)
       return true
     } isTargeted: {
       isDropTargeted = $0
-    }
-    .onChange(of: session.selection) { _, _ in
-      if let selectedWorkspaceNodeID {
-        inspectedNodeID = selectedWorkspaceNodeID
-      } else if session.selection.isEmpty {
-        Task { @MainActor in
-          await Task.yield()
-          if session.selection.isEmpty {
-            inspectedNodeID = nil
-          }
-        }
-      }
-    }
-    .onChange(of: inspectedNodeID) { _, nodeID in
-      guard let nodeID else { return }
-      Task { @MainActor in
-        await Task.yield()
-        guard inspectedNodeID == nodeID,
-          let elementID = workspace.elementID(for: nodeID)
-        else {
-          return
-        }
-        command = FlowingGraphCanvasSessionCommand(
-          targetSessionID: sessionID,
-          action: .select(.replace([elementID])),
-          animated: false
-        )
-      }
     }
   }
 
@@ -106,6 +85,7 @@ struct RoutingCanvasView: View {
       sessionID: sessionID,
       session: $session,
       configuration: FlowingGraphCanvasConfiguration(
+        renderingBackend: .metal,
         canvas: FlowingCanvasConfiguration(
           initialZoom: 1,
           focusedZoom: 1.12,
@@ -113,7 +93,10 @@ struct RoutingCanvasView: View {
         ),
         nodeDraggingMode: .single,
         nodeResizing: .disabled,
-        connectionEditing: .disabled,
+        connectionEditing: FlowingGraphCanvasConnectionEditingConfiguration(
+          isEnabled: true,
+          allowsReconnection: false
+        ),
         snapping: FlowingGraphCanvasSnappingConfiguration(
           isEnabled: true,
           grid: FlowingGraphCanvasGridConfiguration(
@@ -123,43 +106,156 @@ struct RoutingCanvasView: View {
         rendersDefaultGuides: false,
         allowsArrangementCommands: false
       ),
+      metalVisualAdapter: FlowingGraphCanvasMetalVisualAdapter { context in
+        RoutingMetalViewport(
+          context: context,
+          scene: metalScene(for: context.content),
+          inspector: AnyView(selectedNodeInspector)
+        )
+      },
       accessibilitySnapshot: workspace.accessibilitySnapshot,
-      command: command,
+      interactionPolicy: FlowingGraphCanvasInteractionPolicy(
+        connectionPolicy: FlowingGraphCanvasConnectionPolicy(
+          canBegin: workspace.canBeginConnection,
+          validate: workspace.validateConnection
+        )
+      ),
       onIntent: workspace.send,
       background: { RoutingCanvasGrid(context: $0) },
       node: { node, context in
-        ApplicationAudioNodeView(
-          node: node,
+        switch node.value {
+        case .applicationAudio:
+          ApplicationAudioNodeView(
+            node: node,
+            context: context,
+            applicationCatalog: applicationCatalog,
+            iconResolver: iconResolver
+          )
+          .zIndex(context.isSelected ? 2 : 1)
+        case .visualizer(let configuration):
+          VisualizerNodeView(
+            configuration: configuration,
+            snapshot: visualizerSnapshot(for: node),
+            context: context
+          )
+          .zIndex(context.isSelected ? 2 : 1)
+        }
+      },
+      edge: { _, context in
+        FlowingGraphCanvasDefaultEdge(
           context: context,
-          applicationCatalog: applicationCatalog,
-          iconResolver: iconResolver
+          style: FlowingGraphCanvasDefaultEdgeStyle(
+            color: FlowingAccent.fern.fill.opacity(0.62),
+            selectedColor: FlowingAccent.fern.foreground
+          )
         )
       },
-      edge: { _, _ in EmptyView() },
+      port: { RoutingAudioPortView(port: $0, context: $1) },
       decorations: { _ in EmptyView() },
       overlays: { _ in selectedNodeInspector }
     )
   }
 
+  private func metalScene(for content: RoutingCanvasContent) -> RoutingMetalScene {
+    var supplements: [UUID: RoutingMetalNodeSupplement] = [:]
+    for node in workspace.nodes {
+      switch node.value {
+      case .applicationAudio(let selection, _):
+        let state = captureController.state(for: node.id)
+        let isCapturing: Bool
+        switch state {
+        case .starting, .running:
+          isCapturing = true
+        case .idle, .failed:
+          isCapturing = false
+        }
+        supplements[node.id] = RoutingMetalNodeSupplement(
+          isRunning: isRunning(selection),
+          isCapturing: isCapturing,
+          visualizerSignal: nil
+        )
+      case .visualizer(let configuration):
+        supplements[node.id] = RoutingMetalNodeSupplement(
+          isRunning: false,
+          isCapturing: false,
+          visualizerSignal: RoutingVisualizerSignalBuilder.build(
+            configuration: configuration,
+            incomingEdges: workspace.incomingEdges(for: node.id),
+            snapshotForNode: captureController.snapshot
+          )
+        )
+      }
+    }
+    return RoutingMetalScene(content: content, supplements: supplements)
+  }
+
+  private func isRunning(_ selection: RoutingApplicationSelection?) -> Bool {
+    guard let selection else { return false }
+    return applicationCatalog.state.snapshot?.items.contains { item in
+      item.isRunning
+        && canonicalApplicationURL(item.application.bundleURL)
+          == canonicalApplicationURL(selection.applicationURL)
+    } == true
+  }
+
   @ViewBuilder
   private var selectedNodeInspector: some View {
-    if let nodeID = inspectedNodeID,
-      workspace.node(id: nodeID) != nil
+    if let nodeID = selectedWorkspaceNodeID,
+      let node = workspace.node(id: nodeID)
     {
       FlowingCanvasViewportOverlay(
         alignment: .topTrailing,
         insets: EdgeInsets(top: 18, leading: 0, bottom: 0, trailing: 18)
       ) {
-        SelectedApplicationInspector(
-          selection: workspace.node(id: nodeID)?.value.applicationSelection,
-          applicationCatalog: applicationCatalog,
-          selectApplication: { selection in
-            workspace.selectApplication(selection, for: nodeID)
-          }
-        )
-        .frame(width: 330)
+        selectedNodeInspectorContent(node: node)
+          .frame(width: 330)
       }
     }
+  }
+
+  @ViewBuilder
+  private func selectedNodeInspectorContent(node: RoutingWorkspaceNode) -> some View {
+    switch node.value {
+    case .applicationAudio(let selection, let channelPresentation):
+      SelectedApplicationInspector(
+        nodeID: node.id,
+        selection: selection,
+        channelPresentation: channelPresentation,
+        applicationCatalog: applicationCatalog,
+        captureController: captureController,
+        selectApplication: { selection in
+          workspace.selectApplication(selection, for: node.id)
+        },
+        setChannelPresentation: { presentation in
+          workspace.setApplicationChannelPresentation(presentation, for: node.id)
+        }
+      )
+    case .visualizer(let configuration):
+      SelectedVisualizerInspector(configuration: configuration) { updated in
+        workspace.configureVisualizer(updated, for: node.id)
+      }
+    }
+  }
+
+  private func visualizerSnapshot(
+    for node: FlowingGraphPresentationNode<RoutingCanvasSchema>
+  ) -> RoutingVisualizerSignal? {
+    guard case .node(let nodeID) = node.address.elementID,
+      case .visualizer(let configuration) = node.value
+    else {
+      return nil
+    }
+    return RoutingVisualizerSignalBuilder.build(
+      configuration: configuration,
+      incomingEdges: workspace.incomingEdges(for: nodeID),
+      snapshotForNode: captureController.snapshot
+    )
+  }
+
+  private func selectNode(_ nodeID: UUID) {
+    guard let elementID = workspace.elementID(for: nodeID) else { return }
+    session.selection = [elementID]
+    session.focusedElementID = elementID
   }
 
   private var selectedWorkspaceNodeID: UUID? {
@@ -197,26 +293,78 @@ struct RoutingCanvasView: View {
 }
 
 struct RoutingNodePaletteView: View {
+  private enum Metrics {
+    static let listHeight: CGFloat = 300
+  }
+
   let applicationCatalog: InstalledApplicationCatalogController
   let insertApplicationAudio: () -> Void
+  let insertVisualizer: () -> Void
 
   var body: some View {
-    VStack(alignment: .leading, spacing: 20) {
+    VStack(alignment: .leading, spacing: 0) {
       header
 
-      FlowingSection(
-        "Audio Nodes",
-        footer: "Drag a node onto the canvas, then choose the application it should follow."
-      ) {
-        applicationAudioItem
-      }
+      Divider()
+        .overlay(FlowingPalette.hairline)
+        .padding(.vertical, 14)
 
-      catalogStatus
-      Spacer(minLength: 0)
+      ScrollView {
+        RoutingPaletteSection(
+          "Audio Nodes",
+          footer:
+            "Drag a node onto the canvas, then choose the source or visualization it should use."
+        ) {
+          VStack(spacing: 10) {
+            applicationAudioItem
+            visualizerItem
+          }
+        }
+
+        catalogStatus
+          .padding(.top, 14)
+      }
+      .scrollContentBackground(.hidden)
+      .background(Color.clear)
+      .frame(height: Metrics.listHeight)
+
+      NativeWindowDragRegion()
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityHidden(true)
     }
-    .padding(18)
+    .padding(14)
+    .background {
+      ZStack {
+        RoundedRectangle(cornerRadius: 18, style: .continuous)
+          .fill(FlowingPalette.control.opacity(0.94))
+        NativeWindowDragRegion()
+          .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+          .accessibilityHidden(true)
+      }
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 18, style: .continuous)
+        .strokeBorder(FlowingPalette.hairline)
+    }
+    .shadow(color: .black.opacity(0.06), radius: 18, y: 8)
+    .padding(.leading, 12)
+    .padding(.trailing, 10)
+    .padding(.vertical, 12)
     .frame(width: 286)
-    .background(FlowingPalette.card)
+    .frame(maxHeight: .infinity, alignment: .top)
+    .background(Color.clear)
+  }
+
+  private var visualizerItem: some View {
+    RoutingPaletteNodeItem(
+      item: .visualizer,
+      title: "Visualizer",
+      subtitle: "Inspect routed channels",
+      systemImage: "waveform",
+      foreground: FlowingAccent.seafoam.foreground,
+      veil: FlowingAccent.seafoam.veil,
+      action: insertVisualizer
+    )
   }
 
   private var header: some View {
@@ -244,45 +392,19 @@ struct RoutingNodePaletteView: View {
         }
       }
     }
+    .background(NativeWindowDragRegion().accessibilityHidden(true))
   }
 
   private var applicationAudioItem: some View {
-    Button(action: insertApplicationAudio) {
-      FlowingCard(
-        spacing: 0,
-        contentInsets: EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12)
-      ) {
-        HStack(spacing: 11) {
-          Image(systemName: "macwindow.on.rectangle")
-            .font(.system(size: 15, weight: .semibold))
-            .foregroundStyle(FlowingAccent.fern.foreground)
-            .frame(width: 32, height: 32)
-            .background(
-              FlowingAccent.fern.veil,
-              in: RoundedRectangle(cornerRadius: 9, style: .continuous)
-            )
-
-          VStack(alignment: .leading, spacing: 2) {
-            Text("Application Audio")
-              .font(.callout.weight(.semibold))
-              .foregroundStyle(FlowingPalette.ink)
-            Text("Capture an app output")
-              .font(.caption)
-              .foregroundStyle(FlowingPalette.muted)
-          }
-
-          Spacer(minLength: 6)
-
-          Image(systemName: "line.3.horizontal")
-            .foregroundStyle(FlowingPalette.faint)
-            .accessibilityHidden(true)
-        }
-      }
-    }
-    .buttonStyle(.plain)
-    .draggable(RoutingPaletteItem.applicationAudio)
-    .help("Drag Application Audio onto the canvas")
-    .accessibilityHint("Drag to the canvas or press to add at the visible workspace center")
+    RoutingPaletteNodeItem(
+      item: .applicationAudio,
+      title: "Application Audio",
+      subtitle: "Capture an app output",
+      systemImage: "macwindow.on.rectangle",
+      foreground: FlowingAccent.fern.foreground,
+      veil: FlowingAccent.fern.veil,
+      action: insertApplicationAudio
+    )
   }
 
   @ViewBuilder
@@ -305,6 +427,104 @@ struct RoutingNodePaletteView: View {
         .foregroundStyle(FlowingPalette.faint)
         .padding(.horizontal, 4)
     }
+  }
+}
+
+private struct RoutingPaletteNodeItem: View {
+  let item: RoutingPaletteItem
+  let title: String
+  let subtitle: String
+  let systemImage: String
+  let foreground: Color
+  let veil: Color
+  let action: () -> Void
+
+  @State private var isHovering = false
+
+  var body: some View {
+    Button(action: action) {
+      FlowingCard(
+        spacing: 0,
+        contentInsets: EdgeInsets(top: 12, leading: 12, bottom: 12, trailing: 12)
+      ) {
+        HStack(spacing: 11) {
+          Image(systemName: systemImage)
+            .font(.system(size: 15, weight: .semibold))
+            .foregroundStyle(foreground)
+            .frame(width: 32, height: 32)
+            .background(
+              veil,
+              in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+            )
+
+          VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+              .font(.callout.weight(.semibold))
+              .foregroundStyle(FlowingPalette.ink)
+            Text(subtitle)
+              .font(.caption)
+              .foregroundStyle(FlowingPalette.muted)
+          }
+
+          Spacer(minLength: 6)
+
+          Image(systemName: "line.3.horizontal")
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(isHovering ? foreground : FlowingPalette.faint)
+            .accessibilityHidden(true)
+        }
+      }
+      .overlay {
+        RoundedRectangle(cornerRadius: 14, style: .continuous)
+          .strokeBorder(isHovering ? foreground.opacity(0.28) : Color.clear)
+      }
+      .contentShape(RoundedRectangle(cornerRadius: 14, style: .continuous))
+    }
+    .buttonStyle(.plain)
+    .draggable(item)
+    .onHover { isHovering = $0 }
+    .offset(x: isHovering ? 2 : 0)
+    .animation(.easeOut(duration: 0.14), value: isHovering)
+    .help("Drag \(title) onto the canvas")
+    .accessibilityHint("Drag to the canvas or press to add in the visible workspace")
+  }
+}
+
+private struct RoutingPaletteSection<Content: View>: View {
+  let title: String
+  let footer: String
+  let content: Content
+
+  init(
+    _ title: String,
+    footer: String,
+    @ViewBuilder content: () -> Content
+  ) {
+    self.title = title
+    self.footer = footer
+    self.content = content()
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 0) {
+      Text(title.uppercased())
+        .font(.caption.weight(.semibold))
+        .tracking(0.7)
+        .foregroundStyle(FlowingPalette.faint)
+        .padding(.leading, 4)
+        .padding(.bottom, 7)
+
+      content
+
+      Text(footer)
+        .font(.caption)
+        .foregroundStyle(FlowingPalette.faint)
+        .fixedSize(horizontal: false, vertical: true)
+        .padding(.horizontal, 12)
+        .padding(.top, 7)
+    }
+    .frame(maxWidth: .infinity, alignment: .leading)
+    .background(Color.clear)
   }
 }
 
@@ -381,14 +601,15 @@ private struct ApplicationAudioNodeView: View {
   }
 
   var body: some View {
+    let size = RoutingCanvasMetrics.nodeSize(for: node.value)
     nodeCard
       .frame(
-        width: RoutingCanvasMetrics.nodeSize.width, height: RoutingCanvasMetrics.nodeSize.height
+        width: size.width, height: size.height
       )
       .scaleEffect(context.renderScale, anchor: .topLeading)
       .frame(
-        width: RoutingCanvasMetrics.nodeSize.width * context.renderScale,
-        height: RoutingCanvasMetrics.nodeSize.height * context.renderScale,
+        width: size.width * context.renderScale,
+        height: size.height * context.renderScale,
         alignment: .topLeading
       )
   }
@@ -479,10 +700,197 @@ private struct ApplicationAudioNodeView: View {
   }
 }
 
+private struct VisualizerNodeView: View {
+  let configuration: RoutingVisualizerConfiguration
+  let snapshot: RoutingVisualizerSignal?
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  @Environment(\.flowingAccent) private var accent
+
+  var body: some View {
+    let size = RoutingCanvasMetrics.nodeSize(for: .visualizer(configuration: configuration))
+    FlowingCard(
+      spacing: 10,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      HStack(spacing: 9) {
+        Image(systemName: "waveform")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(accent.foreground)
+        VStack(alignment: .leading, spacing: 1) {
+          Text("Visualizer")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text(configuration.mode == .mixed ? "Mixed waveform" : channelSummary)
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+        Spacer(minLength: 0)
+      }
+
+      if let snapshot {
+        RoutingWaveformDisplay(signal: snapshot)
+          .frame(height: 42)
+      } else {
+        RoutingWaveformPlaceholder()
+          .frame(height: 42)
+      }
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(
+      width: size.width,
+      height: size.height
+    )
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: size.width * context.renderScale,
+      height: size.height * context.renderScale,
+      alignment: .topLeading
+    )
+  }
+
+  private var channelSummary: String {
+    let count = configuration.normalizedSelectedChannels.count
+    return "\(count) selected channel\(count == 1 ? "" : "s")"
+  }
+}
+
+private struct RoutingWaveformDisplay: View {
+  let signal: RoutingVisualizerSignal
+
+  @Environment(\.flowingAccent) private var accent
+
+  var body: some View {
+    Canvas { graphics, size in
+      let lanes = signal.waveforms
+      guard !lanes.isEmpty else { return }
+      let laneHeight = size.height / CGFloat(lanes.count)
+      for (laneIndex, samples) in lanes.enumerated() {
+        guard samples.count > 1 else { continue }
+        let middle = laneHeight * (CGFloat(laneIndex) + 0.5)
+        let amplitude = laneHeight * 0.4
+        var path = Path()
+        for (sampleIndex, sample) in samples.enumerated() {
+          let x = size.width * CGFloat(sampleIndex) / CGFloat(samples.count - 1)
+          let y = middle - CGFloat(sample) * amplitude
+          if sampleIndex == 0 {
+            path.move(to: CGPoint(x: x, y: y))
+          } else {
+            path.addLine(to: CGPoint(x: x, y: y))
+          }
+        }
+        graphics.stroke(
+          path,
+          with: .color(accent.fill.opacity(laneIndex == 0 ? 0.95 : 0.62)),
+          lineWidth: 1.25
+        )
+      }
+    }
+    .padding(.horizontal, 8)
+    .background(
+      FlowingPalette.field,
+      in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+    )
+    .accessibilityElement()
+    .accessibilityLabel("Waveform")
+    .accessibilityValue("Live audio")
+  }
+
+}
+
+private struct RoutingWaveformPlaceholder: View {
+  @Environment(\.flowingAccent) private var accent
+
+  var body: some View {
+    GeometryReader { geometry in
+      Path { path in
+        let middle = geometry.size.height / 2
+        path.move(to: CGPoint(x: 0, y: middle))
+        path.addLine(to: CGPoint(x: geometry.size.width, y: middle))
+      }
+      .stroke(accent.fill.opacity(0.45), style: StrokeStyle(lineWidth: 1, dash: [3, 3]))
+    }
+    .padding(.horizontal, 9)
+    .background(
+      FlowingPalette.field,
+      in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+    )
+    .overlay(alignment: .center) {
+      Text("Waiting for audio")
+        .font(.system(size: 9, weight: .medium))
+        .foregroundStyle(FlowingPalette.faint)
+        .padding(.horizontal, 6)
+        .background(FlowingPalette.field)
+    }
+    .accessibilityElement()
+    .accessibilityLabel("Waveform")
+    .accessibilityValue("Waiting for audio")
+  }
+}
+
+private struct RoutingAudioPortView: View {
+  let port: FlowingGraphPresentationPort<RoutingCanvasSchema>
+  let context: FlowingGraphCanvasPortContext<RoutingCanvasSchema>
+
+  @Environment(\.flowingAccent) private var accent
+
+  var body: some View {
+    Circle()
+      .fill(fillColor)
+      .overlay {
+        Circle().strokeBorder(strokeColor, lineWidth: 1.5)
+      }
+      .frame(width: 13 * context.renderScale, height: 13 * context.renderScale)
+      .help(port.value.label)
+      .accessibilityElement()
+      .accessibilityLabel(port.value.label)
+  }
+
+  private var fillColor: Color {
+    switch context.connectionState {
+    case .source:
+      accent.fill
+    case .target(.valid, let isCandidate):
+      isCandidate ? Color.green.opacity(0.35) : Color.green.opacity(0.14)
+    case .target(.invalid, let isCandidate):
+      isCandidate ? Color.red.opacity(0.3) : FlowingPalette.control
+    case .idle:
+      context.isSelected ? accent.fill : FlowingPalette.control
+    }
+  }
+
+  private var strokeColor: Color {
+    switch context.connectionState {
+    case .target(.valid, _):
+      return .green
+    case .target(.invalid, let isCandidate):
+      return isCandidate ? .red : accent.fill.opacity(0.5)
+    case .idle, .source:
+      return accent.fill
+    }
+  }
+}
+
+private enum RoutingPortDisplayMode: Hashable {
+  case aggregate
+  case separate
+}
+
 private struct SelectedApplicationInspector: View {
+  let nodeID: UUID
   let selection: RoutingApplicationSelection?
+  let channelPresentation: RoutingChannelPresentation
   let applicationCatalog: InstalledApplicationCatalogController
+  let captureController: RoutingCaptureController
   let selectApplication: (RoutingApplicationSelection?) -> Void
+  let setChannelPresentation: (RoutingChannelPresentation) -> Void
 
   private var catalogItems: [InstalledApplicationCatalogItem] {
     applicationCatalog.state.snapshot?.items ?? []
@@ -494,6 +902,13 @@ private struct SelectedApplicationInspector: View {
       canonicalApplicationURL($0.application.bundleURL)
         == canonicalApplicationURL(selection.applicationURL)
     }
+  }
+
+  private var runningProcessID: AudioProcessID? {
+    selectedCatalogItem?.runningApplications
+      .map(\.processIdentifier)
+      .min()
+      .flatMap(AudioProcessID.init(rawValue:))
   }
 
   var body: some View {
@@ -522,8 +937,167 @@ private struct SelectedApplicationInspector: View {
       }
 
       applicationPickerContent
+
+      captureContent
+
+      Divider()
+        .overlay(FlowingPalette.hairline)
+
+      VStack(alignment: .leading, spacing: 9) {
+        Text("Output Ports")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+
+        FlowingSegmentedControl(
+          label: "Output port presentation",
+          selection: portDisplayMode,
+          options: [
+            FlowingSegmentOption(.aggregate, label: "All Channels"),
+            FlowingSegmentOption(.separate, label: "Separate"),
+          ]
+        )
+
+        if case .separate = channelPresentation {
+          HStack {
+            Text("Channels")
+              .font(.caption)
+              .foregroundStyle(FlowingPalette.muted)
+            Spacer(minLength: 8)
+            FlowingStepper(
+              "Output channel count",
+              value: separateChannelCount,
+              in: 1...32,
+              step: 1
+            )
+          }
+        }
+
+        Text("The native channel count will replace this preview when capture starts.")
+          .font(.caption2)
+          .foregroundStyle(FlowingPalette.faint)
+      }
     }
     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+    .onChange(of: captureController.state(for: nodeID)) { _, state in
+      guard case .running(let format) = state,
+        case .separate = channelPresentation,
+        !format.channelIDs.isEmpty
+      else {
+        return
+      }
+      setChannelPresentation(.separate(channelCount: format.channelIDs.count))
+    }
+  }
+
+  @ViewBuilder
+  private var captureContent: some View {
+    switch captureController.state(for: nodeID) {
+    case .idle:
+      if let processID = runningProcessID {
+        HStack {
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Ready to Capture")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(FlowingPalette.ink)
+            Text("PID \(processID.rawValue) · normal playback stays audible")
+              .font(.caption2)
+              .foregroundStyle(FlowingPalette.muted)
+            if let runningApplicationCount, runningApplicationCount > 1 {
+              Text("\(runningApplicationCount) instances are running; using the lowest PID")
+                .font(.caption2)
+                .foregroundStyle(FlowingPalette.faint)
+            }
+          }
+          Spacer(minLength: 8)
+          Button("Start") {
+            captureController.start(nodeID: nodeID, processID: processID)
+          }
+          .buttonStyle(FlowingSoftButtonStyle(isProminent: true))
+        }
+      } else if selection != nil {
+        FlowingCallout(
+          "Launch the selected application before starting capture.",
+          title: "Application is not running",
+          systemImage: "play.circle",
+          tone: .neutral
+        )
+      }
+    case .starting:
+      HStack(spacing: 9) {
+        ProgressView()
+          .controlSize(.small)
+        Text("Creating the native audio tap…")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    case .running(let format):
+      HStack {
+        Circle()
+          .fill(Color(nsColor: .systemGreen))
+          .frame(width: 9, height: 9)
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Capturing \(format.channelIDs.count) channels")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text("\(format.sampleRate.formatted()) Hz")
+            .font(.caption2)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+        Spacer(minLength: 8)
+        Button("Stop") {
+          captureController.stop(nodeID: nodeID)
+        }
+        .buttonStyle(FlowingSoftButtonStyle())
+      }
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel("Capturing application audio")
+    case .failed(let message):
+      VStack(alignment: .leading, spacing: 8) {
+        FlowingCallout(
+          message,
+          title: "Capture failed",
+          systemImage: "exclamationmark.triangle",
+          tone: .warning
+        )
+        if let processID = runningProcessID {
+          Button("Try Again") {
+            captureController.start(nodeID: nodeID, processID: processID)
+          }
+          .buttonStyle(FlowingSoftButtonStyle())
+        }
+      }
+    }
+  }
+
+  private var runningApplicationCount: Int? {
+    selectedCatalogItem?.runningApplications.count
+  }
+
+  private var portDisplayMode: Binding<RoutingPortDisplayMode> {
+    Binding(
+      get: {
+        switch channelPresentation {
+        case .aggregate: .aggregate
+        case .separate: .separate
+        }
+      },
+      set: { mode in
+        switch mode {
+        case .aggregate:
+          setChannelPresentation(.aggregate)
+        case .separate:
+          setChannelPresentation(.separate(channelCount: channelPresentation.channelCount ?? 2))
+        }
+      }
+    )
+  }
+
+  private var separateChannelCount: Binding<Int> {
+    Binding(
+      get: { channelPresentation.channelCount ?? 2 },
+      set: { setChannelPresentation(.separate(channelCount: $0)) }
+    )
   }
 
   @ViewBuilder
@@ -556,6 +1130,7 @@ private struct SelectedApplicationInspector: View {
     Binding(
       get: { selectedCatalogItem?.application.bundleURL.absoluteString ?? "" },
       set: { selectedID in
+        captureController.stop(nodeID: nodeID)
         selectApplication(selection(for: selectedID))
       }
     )
@@ -585,5 +1160,106 @@ private struct SelectedApplicationInspector: View {
       bundleIdentifier: application.bundleIdentifier,
       displayName: application.displayName
     )
+  }
+}
+
+private struct SelectedVisualizerInspector: View {
+  let configuration: RoutingVisualizerConfiguration
+  let updateConfiguration: (RoutingVisualizerConfiguration) -> Void
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Visualizer")
+          .font(.headline)
+          .foregroundStyle(FlowingPalette.ink)
+        Text("Choose how routed channels appear.")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      FlowingSegmentedControl(
+        label: "Waveform presentation",
+        selection: mode,
+        options: [
+          FlowingSegmentOption(.mixed, label: "Mixed"),
+          FlowingSegmentOption(.separate, label: "Separate"),
+        ]
+      )
+
+      if configuration.mode == .separate {
+        HStack {
+          Text("Available Channels")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(FlowingPalette.muted)
+          Spacer(minLength: 8)
+          FlowingStepper(
+            "Available channel count",
+            value: availableChannelCount,
+            in: 1...32,
+            step: 1
+          )
+        }
+
+        ScrollView {
+          FlowingMultiSelect(
+            axis: .vertical,
+            itemWidthPolicy: .fitContent(),
+            contentAlignment: .leading,
+            options: channelOptions
+          )
+          .frame(maxWidth: .infinity, alignment: .leading)
+        }
+        .frame(maxHeight: 220)
+      }
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  private var mode: Binding<RoutingVisualizerMode> {
+    Binding(
+      get: { configuration.mode },
+      set: { newMode in
+        var updated = configuration
+        updated.mode = newMode
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var availableChannelCount: Binding<Int> {
+    Binding(
+      get: { configuration.availableChannelCount },
+      set: { count in
+        var updated = configuration
+        updated.availableChannelCount = count
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var channelOptions: [FlowingMultiSelectOption] {
+    (0..<configuration.availableChannelCount).map { channel in
+      FlowingMultiSelectOption(
+        "Channel \(channel + 1)",
+        id: "visualizer-channel-\(channel)",
+        isOn: Binding(
+          get: { configuration.selectedChannels.contains(channel) },
+          set: { isSelected in
+            var updated = configuration
+            if isSelected {
+              updated.selectedChannels.insert(channel)
+            } else {
+              updated.selectedChannels.remove(channel)
+            }
+            updateConfiguration(updated)
+          }
+        )
+      )
+    }
   }
 }

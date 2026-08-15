@@ -11,11 +11,53 @@ struct RoutingCanvasBuild {
 
 enum RoutingCanvasContentBuilder {
   @MainActor
-  static func build(nodes: [RoutingWorkspaceNode]) throws -> RoutingCanvasBuild {
+  static func build(
+    nodes: [RoutingWorkspaceNode],
+    edges: [RoutingWorkspaceEdge]
+  ) throws -> RoutingCanvasBuild {
     var graph = FlowingGraph<RoutingGraphSchema>()
+    var portPlacements: [RoutingWorkspacePortAddress: RoutingPortPlacement] = [:]
     let update = graph.update { transaction in
       for node in nodes {
         transaction.insert(FlowingGraphNode(id: node.id, value: node.value))
+        let ports = RoutingGraphPorts.values(for: node)
+        for value in ports {
+          let portID = RoutingGraphPorts.portID(for: value)
+          transaction.insert(
+            FlowingGraphPort(
+              key: FlowingGraphPortKey(
+                nodeID: node.id,
+                portID: portID
+              ),
+              value: value
+            )
+          )
+          portPlacements[
+            RoutingWorkspacePortAddress(nodeID: node.id, portID: portID)
+          ] = RoutingPortPlacement(ordinal: value.ordinal, total: value.total)
+        }
+      }
+      for edge in edges {
+        transaction.insert(
+          FlowingGraphEdge(
+            id: edge.id,
+            endpoints: .directed(
+              source: .port(
+                FlowingGraphPortKey(
+                  nodeID: edge.source.nodeID,
+                  portID: edge.source.portID
+                )
+              ),
+              target: .port(
+                FlowingGraphPortKey(
+                  nodeID: edge.target.nodeID,
+                  portID: edge.target.portID
+                )
+              )
+            ),
+            value: .audio
+          )
+        )
       }
     }
     guard case .committed = update else {
@@ -32,20 +74,26 @@ enum RoutingCanvasContentBuilder {
       subgraphLinks: []
     )
     let presentation = try FlowingGraphProjector(document: document).projectDefault()
+    let frameByNodeID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0.frame) })
+    let sizeByLocalNodeID = Dictionary(
+      uniqueKeysWithValues: try presentation.nodes.map { node in
+        guard case .node(let nodeID) = node.address.elementID,
+          let frame = frameByNodeID[nodeID]
+        else {
+          throw RoutingCanvasBuildIssue.unmappedPresentationNode
+        }
+        return (node.localID, frame.size)
+      }
+    )
     let topology = try FlowingGraphCanvasLayoutAdapter.topology(for: presentation)
     let input = try FlowingGraphLayoutResolution.input(
       topology: topology,
-      nodeSizeResolver: FlowingFixedNodeSizeResolver<
-        FlowingGraphCanvasLayoutSchema<RoutingCanvasSchema>
-      >(size: RoutingCanvasMetrics.nodeSize),
-      portAnchorResolver: FlowingCenteredPortAnchorResolver<
-        FlowingGraphCanvasLayoutSchema<RoutingCanvasSchema>
-      >(),
+      nodeSizeResolver: RoutingNodeSizeResolver(sizes: sizeByLocalNodeID),
+      portAnchorResolver: RoutingPortAnchorResolver(placements: portPlacements),
       pipelineIdentity: FlowingLayoutPipelineIdentity(
         component: FlowingLayoutComponentIdentity()
       )
     )
-    let frameByNodeID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0.frame) })
     let nodeFrames: [FlowingGraphNodeFrame<FlowingGraphCanvasLayoutSchema<RoutingCanvasSchema>>] =
       try presentation.nodes.map { node in
         guard case .node(let nodeID) = node.address.elementID,
@@ -63,10 +111,13 @@ enum RoutingCanvasContentBuilder {
       nodeFrames: nodeFrames,
       contentBounds: RoutingCanvasMetrics.contentBounds
     )
+    let edgeRoutes = try FlowingCubicEdgeRouter<
+      FlowingGraphCanvasLayoutSchema<RoutingCanvasSchema>
+    >().routes(for: input, placement: placement)
     let layoutResult = try FlowingGraphLayoutResult(
       input: input,
       placement: placement,
-      edgeRoutes: []
+      edgeRoutes: edgeRoutes
     )
     let content = try RoutingCanvasContent(
       presentation: presentation,
@@ -79,7 +130,15 @@ enum RoutingCanvasContentBuilder {
         hint: "Add and arrange audio routing nodes."
       ),
       node: accessibilityRepresentation,
-      port: { _ -> FlowingGraphCanvasAccessibilityRepresentation in .hidden },
+      port: { port in
+        .element(
+          FlowingGraphCanvasAccessibilityDescription(
+            label: port.value.label,
+            hint: "Drag to connect this audio port.",
+            roleDescription: "audio port"
+          )
+        )
+      },
       edge: { _ -> FlowingGraphCanvasAccessibilityRepresentation in .hidden }
     )
     return RoutingCanvasBuild(
@@ -91,8 +150,19 @@ enum RoutingCanvasContentBuilder {
   private static func accessibilityRepresentation(
     for node: FlowingGraphPresentationNode<RoutingCanvasSchema>
   ) -> FlowingGraphCanvasAccessibilityRepresentation {
-    let selectedApplication = node.value.applicationSelection
-    let value = selectedApplication?.displayName ?? "No application selected"
+    let value: String
+    let hint: String
+    switch node.value {
+    case .applicationAudio(let selection, _):
+      value = selection?.displayName ?? "No application selected"
+      hint = "Select an installed application whose audio will be routed."
+    case .visualizer(let configuration):
+      value =
+        configuration.mode == .mixed
+        ? "Mixed waveform"
+        : "\(configuration.normalizedSelectedChannels.count) selected channels"
+      hint = "Select to configure the routed channels shown by this visualizer."
+    }
     let identifier: String?
     if case .node(let nodeID) = node.address.elementID {
       identifier = "routing-node-\(nodeID.uuidString.lowercased())"
@@ -101,12 +171,62 @@ enum RoutingCanvasContentBuilder {
     }
     return .element(
       FlowingGraphCanvasAccessibilityDescription(
-        label: "Application Audio",
+        label: node.value.title,
         value: value,
-        hint: "Select an installed application whose audio will be routed.",
+        hint: hint,
         roleDescription: "audio routing node",
         identifier: identifier
       )
+    )
+  }
+}
+
+private struct RoutingNodeSizeResolver: FlowingGraphNodeSizeResolver {
+  typealias Schema = FlowingGraphCanvasLayoutSchema<RoutingCanvasSchema>
+  typealias NodeID = FlowingGraphPresentationLocalElementID<RoutingCanvasSchema>
+
+  let identity = FlowingLayoutComponentIdentity()
+  let sizes: [NodeID: CGSize]
+
+  func size(for nodeID: NodeID) throws -> CGSize {
+    sizes[nodeID] ?? RoutingCanvasMetrics.baseNodeSize
+  }
+}
+
+private struct RoutingPortPlacement: Sendable {
+  let ordinal: Int
+  let total: Int
+}
+
+private struct RoutingPortAnchorResolver: FlowingGraphPortAnchorResolver {
+  typealias Schema = FlowingGraphCanvasLayoutSchema<RoutingCanvasSchema>
+
+  let identity = FlowingLayoutComponentIdentity()
+  let placements: [RoutingWorkspacePortAddress: RoutingPortPlacement]
+
+  func anchor(
+    for port: FlowingGraphLayoutPort<Schema>,
+    nodeSize: CGSize
+  ) throws -> FlowingGraphPortAnchor<Schema> {
+    guard case .source(_, .port(let key), _) = port.id else {
+      return FlowingGraphPortAnchor(
+        key: port.key,
+        position: CGPoint(x: nodeSize.width / 2, y: nodeSize.height / 2),
+        normal: .zero
+      )
+    }
+    let id = key.portID
+    let placement =
+      placements[
+        RoutingWorkspacePortAddress(nodeID: key.nodeID, portID: key.portID)
+      ] ?? RoutingPortPlacement(ordinal: 0, total: 1)
+    let verticalPosition =
+      nodeSize.height * CGFloat(placement.ordinal + 1) / CGFloat(placement.total + 1)
+    let isInput = id.direction == .input
+    return FlowingGraphPortAnchor(
+      key: port.key,
+      position: CGPoint(x: isInput ? -8 : nodeSize.width + 8, y: verticalPosition),
+      normal: CGVector(dx: isInput ? -1 : 1, dy: 0)
     )
   }
 }

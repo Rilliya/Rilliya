@@ -7,6 +7,7 @@ import Observation
 @Observable
 final class RoutingWorkspaceModel {
   private(set) var nodes: [RoutingWorkspaceNode] = []
+  private(set) var edges: [RoutingWorkspaceEdge] = []
   private(set) var canvasContent: RoutingCanvasContent?
   private(set) var accessibilitySnapshot: RoutingCanvasAccessibilitySnapshot?
   private(set) var buildFailureDescription: String?
@@ -22,11 +23,40 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    let size = RoutingCanvasMetrics.nodeSize
+    let value = RoutingNodeValue.applicationAudio(
+      selection: nil,
+      channelPresentation: .aggregate
+    )
+    let size = RoutingCanvasMetrics.nodeSize(for: value)
     nodes.append(
       RoutingWorkspaceNode(
         id: id,
-        value: .applicationAudio(selection: nil),
+        value: value,
+        frame: CGRect(
+          x: worldPoint.x - size.width / 2,
+          y: worldPoint.y - size.height / 2,
+          width: size.width,
+          height: size.height
+        )
+      )
+    )
+    rebuildCanvas()
+    return id
+  }
+
+  @discardableResult
+  func addVisualizerNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    let value = RoutingNodeValue.visualizer(configuration: .initial)
+    let size = RoutingCanvasMetrics.nodeSize(for: value)
+    nodes.append(
+      RoutingWorkspaceNode(
+        id: id,
+        value: value,
         frame: CGRect(
           x: worldPoint.x - size.width / 2,
           y: worldPoint.y - size.height / 2,
@@ -44,8 +74,55 @@ final class RoutingWorkspaceModel {
     for nodeID: UUID
   ) {
     guard let index = nodes.firstIndex(where: { $0.id == nodeID }) else { return }
-    guard case .applicationAudio = nodes[index].value else { return }
-    nodes[index].value = .applicationAudio(selection: selection)
+    guard case .applicationAudio(_, let channelPresentation) = nodes[index].value else { return }
+    nodes[index].value = .applicationAudio(
+      selection: selection,
+      channelPresentation: channelPresentation
+    )
+    rebuildCanvas()
+  }
+
+  func setApplicationChannelPresentation(
+    _ presentation: RoutingChannelPresentation,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      case .applicationAudio(let selection, _) = nodes[index].value
+    else {
+      return
+    }
+    let normalized: RoutingChannelPresentation
+    switch presentation {
+    case .aggregate:
+      normalized = .aggregate
+    case .separate(let channelCount):
+      normalized = .separate(channelCount: max(1, min(32, channelCount)))
+    }
+    nodes[index].value = .applicationAudio(
+      selection: selection,
+      channelPresentation: normalized
+    )
+    resizeNode(at: index)
+    rebuildCanvas()
+  }
+
+  func configureVisualizer(
+    _ configuration: RoutingVisualizerConfiguration,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      case .visualizer = nodes[index].value
+    else {
+      return
+    }
+    var normalized = configuration
+    normalized.availableChannelCount = max(1, min(32, configuration.availableChannelCount))
+    normalized.selectedChannels = Set(normalized.normalizedSelectedChannels)
+    if normalized.selectedChannels.isEmpty {
+      normalized.selectedChannels = [0]
+    }
+    nodes[index].value = .visualizer(configuration: normalized)
+    resizeNode(at: index)
     rebuildCanvas()
   }
 
@@ -62,16 +139,68 @@ final class RoutingWorkspaceModel {
     }?.id
   }
 
+  func sourceNodeIDs(feeding nodeID: UUID) -> [UUID] {
+    var seen = Set<UUID>()
+    return
+      edges
+      .filter { $0.target.nodeID == nodeID }
+      .map(\.source.nodeID)
+      .filter { seen.insert($0).inserted }
+  }
+
+  func incomingEdges(for nodeID: UUID) -> [RoutingWorkspaceEdge] {
+    edges.filter { $0.target.nodeID == nodeID }
+  }
+
   func send(_ intent: FlowingGraphCanvasInteractionIntent<RoutingCanvasSchema>) {
     switch intent {
     case .nodeDragCompleted(let drag):
       apply(drag)
+    case .connectionCompleted(let connection):
+      apply(connection)
     case .nodeResizeCompleted,
       .nodeArrangementRequested,
-      .connectionCompleted,
       .connectionCancelled,
       .elementAction:
       break
+    }
+  }
+
+  func canBeginConnection(
+    _ origin: FlowingGraphCanvasConnectionOrigin<RoutingCanvasSchema>
+  ) -> Bool {
+    portAddress(for: origin.fixedElementID)?.portID.direction == .output
+  }
+
+  func validateConnection(
+    _ request: FlowingGraphCanvasConnectionValidationRequest<RoutingCanvasSchema>
+  ) -> FlowingGraphCanvasConnectionValidation {
+    guard request.basePresentationSnapshotID == canvasContent?.presentation.snapshotID,
+      request.baseLayoutInputID == canvasContent?.id,
+      let source = portAddress(for: request.origin.fixedElementID),
+      let target = portAddress(for: request.targetPortID),
+      source.nodeID != target.nodeID,
+      source.portID.direction == .output,
+      target.portID.direction == .input
+    else {
+      return .invalid(.init(message: "Connect an output to an input on another node"))
+    }
+    return connectionValidation(source: source, target: target)
+  }
+
+  private func connectionValidation(
+    source: RoutingWorkspacePortAddress,
+    target: RoutingWorkspacePortAddress
+  ) -> FlowingGraphCanvasConnectionValidation {
+    switch (source.portID.channel, target.portID.channel) {
+    case (.all, .all), (.channel, .all):
+      return .valid
+    case (.channel(let sourceIndex), .channel(let targetIndex)) where sourceIndex == targetIndex:
+      return .valid
+    case (.all, .channel):
+      return .invalid(.init(message: "Separate the source channels before connecting"))
+    case (.channel, .channel):
+      return .invalid(.init(message: "Connect matching channel numbers"))
     }
   }
 
@@ -98,6 +227,40 @@ final class RoutingWorkspaceModel {
     rebuildCanvas()
   }
 
+  private func apply(
+    _ connection: FlowingGraphCanvasConnectionCompletionIntent<RoutingCanvasSchema>
+  ) {
+    guard connection.basePresentationSnapshotID == canvasContent?.presentation.snapshotID,
+      connection.baseLayoutInputID == canvasContent?.id
+    else {
+      return
+    }
+    guard case .create(let sourceElementID, let targetElementID) = connection.operation,
+      let source = portAddress(for: sourceElementID),
+      let target = portAddress(for: targetElementID),
+      source.portID.direction == .output,
+      target.portID.direction == .input,
+      source.nodeID != target.nodeID,
+      case .valid = connectionValidation(source: source, target: target)
+    else {
+      return
+    }
+    guard !edges.contains(where: { $0.source == source && $0.target == target }) else { return }
+    edges.append(RoutingWorkspaceEdge(id: UUID(), source: source, target: target))
+    rebuildCanvas()
+  }
+
+  private func portAddress(
+    for elementID: RoutingCanvasElementID
+  ) -> RoutingWorkspacePortAddress? {
+    guard case .source(let address, _) = elementID,
+      case .port(let key) = address.elementID
+    else {
+      return nil
+    }
+    return RoutingWorkspacePortAddress(nodeID: key.nodeID, portID: key.portID)
+  }
+
   private func workspaceNodeID(for elementID: RoutingCanvasElementID) -> UUID? {
     guard
       let presentationNode = canvasContent?.presentation.nodes.first(where: {
@@ -112,12 +275,42 @@ final class RoutingWorkspaceModel {
 
   private func rebuildCanvas() {
     do {
-      let build = try RoutingCanvasContentBuilder.build(nodes: nodes)
+      pruneEdgesWithMissingPorts()
+      let build = try RoutingCanvasContentBuilder.build(nodes: nodes, edges: edges)
       canvasContent = build.content
       accessibilitySnapshot = build.accessibilitySnapshot
       buildFailureDescription = nil
     } catch {
       buildFailureDescription = String(describing: error)
     }
+  }
+
+  private func pruneEdgesWithMissingPorts() {
+    let availablePorts = Set(
+      nodes.flatMap { node in
+        let values = RoutingGraphPorts.values(for: node)
+        return values.map { value in
+          RoutingWorkspacePortAddress(
+            nodeID: node.id,
+            portID: RoutingGraphPorts.portID(for: value)
+          )
+        }
+      }
+    )
+    edges.removeAll {
+      !availablePorts.contains($0.source) || !availablePorts.contains($0.target)
+    }
+  }
+
+  private func resizeNode(at index: Int) {
+    let size = RoutingCanvasMetrics.nodeSize(for: nodes[index].value)
+    guard nodes[index].frame.size != size else { return }
+    let center = CGPoint(x: nodes[index].frame.midX, y: nodes[index].frame.midY)
+    nodes[index].frame = CGRect(
+      x: center.x - size.width / 2,
+      y: center.y - size.height / 2,
+      width: size.width,
+      height: size.height
+    )
   }
 }

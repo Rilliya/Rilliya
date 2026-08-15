@@ -27,13 +27,36 @@ struct RoutingWorkspaceTests {
       in: visibleWorldRect,
       existingNodeCount: 0
     )
-    let secondPoint = RoutingNodeInsertion.point(
-      in: visibleWorldRect,
-      existingNodeCount: 1
-    )
+    let subsequentPoints = (1...5).map {
+      RoutingNodeInsertion.point(in: visibleWorldRect, existingNodeCount: $0)
+    }
 
     #expect(firstPoint == CGPoint(x: 1_650, y: -380))
-    #expect(secondPoint == CGPoint(x: 1_678, y: -352))
+    #expect(
+      subsequentPoints == [
+        CGPoint(x: 1_370, y: -380),
+        CGPoint(x: 1_930, y: -380),
+        CGPoint(x: 1_650, y: -224),
+        CGPoint(x: 1_370, y: -224),
+        CGPoint(x: 1_930, y: -224),
+      ])
+    let allPoints = [firstPoint] + subsequentPoints
+    for firstIndex in allPoints.indices {
+      for secondIndex in allPoints.indices where firstIndex < secondIndex {
+        let firstFrame = nodeFrame(centeredAt: allPoints[firstIndex])
+        let secondFrame = nodeFrame(centeredAt: allPoints[secondIndex])
+        #expect(!firstFrame.intersects(secondFrame))
+      }
+    }
+  }
+
+  private func nodeFrame(centeredAt point: CGPoint) -> CGRect {
+    CGRect(
+      x: point.x - RoutingCanvasMetrics.baseNodeSize.width / 2,
+      y: point.y - RoutingCanvasMetrics.baseNodeSize.height / 2,
+      width: RoutingCanvasMetrics.baseNodeSize.width,
+      height: RoutingCanvasMetrics.baseNodeSize.height
+    )
   }
 
   @Test @MainActor
@@ -44,7 +67,7 @@ struct RoutingWorkspaceTests {
     let nodeID = model.addApplicationAudioNode(centeredAt: dropPoint)
 
     let node = try #require(model.node(id: nodeID))
-    #expect(node.frame.size == RoutingCanvasMetrics.nodeSize)
+    #expect(node.frame.size == RoutingCanvasMetrics.baseNodeSize)
     #expect(CGPoint(x: node.frame.midX, y: node.frame.midY) == dropPoint)
     #expect(node.value.applicationSelection == nil)
     #expect(model.canvasContent?.presentation.nodes.count == 1)
@@ -64,6 +87,189 @@ struct RoutingWorkspaceTests {
     #expect(model.node(id: firstID)?.value.applicationSelection == selection)
     #expect(model.node(id: secondID)?.value.applicationSelection == nil)
     #expect(model.nodes.count == 2)
+  }
+
+  @Test @MainActor
+  func sequentialSelectionsRemainIndependentAcrossCanvasRebuilds() throws {
+    let model = RoutingWorkspaceModel()
+    let firstID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    let secondID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 500, y: 300))
+    let firstElementID = try #require(model.elementID(for: firstID))
+    let firstSelection = makeSelection(name: "Calculator", identifier: "com.apple.calculator")
+    let secondSelection = makeSelection(name: "Music", identifier: "com.apple.Music")
+
+    model.selectApplication(firstSelection, for: firstID)
+    model.selectApplication(secondSelection, for: secondID)
+
+    #expect(model.node(id: firstID)?.value.applicationSelection == firstSelection)
+    #expect(model.node(id: secondID)?.value.applicationSelection == secondSelection)
+    #expect(model.elementID(for: firstID) == firstElementID)
+    let presentedValues: [UUID: String] = Dictionary(
+      uniqueKeysWithValues: try #require(model.canvasContent).presentation.nodes.compactMap {
+        node in
+        guard case .node(let nodeID) = node.address.elementID,
+          let name = node.value.applicationSelection?.displayName
+        else {
+          return nil
+        }
+        return (nodeID, name)
+      }
+    )
+    #expect(presentedValues[firstID] == "Calculator")
+    #expect(presentedValues[secondID] == "Music")
+  }
+
+  @Test @MainActor
+  func applicationAndVisualizerExposeAggregatePortsByDefault() throws {
+    let model = RoutingWorkspaceModel()
+    _ = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    _ = model.addVisualizerNode(centeredAt: CGPoint(x: 500, y: 100))
+
+    let ports = try #require(model.canvasContent).presentation.ports
+
+    #expect(ports.count == 2)
+    #expect(ports.contains { $0.value.direction == .output && $0.value.channel == .all })
+    #expect(ports.contains { $0.value.direction == .input && $0.value.channel == .all })
+  }
+
+  @Test @MainActor
+  func separateChannelPresentationCreatesOnePortPerChannel() throws {
+    let model = RoutingWorkspaceModel()
+    let applicationID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    let visualizerID = model.addVisualizerNode(centeredAt: CGPoint(x: 500, y: 100))
+
+    model.setApplicationChannelPresentation(.separate(channelCount: 3), for: applicationID)
+    model.configureVisualizer(
+      RoutingVisualizerConfiguration(
+        mode: .separate,
+        availableChannelCount: 5,
+        selectedChannels: [1, 4]
+      ),
+      for: visualizerID
+    )
+
+    let ports = try #require(model.canvasContent).presentation.ports
+    let outputChannels = ports.compactMap { port -> Int? in
+      guard port.value.direction == .output, case .channel(let index) = port.value.channel else {
+        return nil
+      }
+      return index
+    }
+    let inputChannels = ports.compactMap { port -> Int? in
+      guard port.value.direction == .input, case .channel(let index) = port.value.channel else {
+        return nil
+      }
+      return index
+    }
+
+    #expect(outputChannels.sorted() == [0, 1, 2])
+    #expect(inputChannels.sorted() == [1, 4])
+  }
+
+  @Test @MainActor
+  func completedConnectionCreatesRoutedCanvasEdge() throws {
+    let model = RoutingWorkspaceModel()
+    _ = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    _ = model.addVisualizerNode(centeredAt: CGPoint(x: 500, y: 100))
+    let content = try #require(model.canvasContent)
+    let source = try #require(
+      content.presentation.ports.first { $0.value.direction == .output }
+    )
+    let target = try #require(
+      content.presentation.ports.first { $0.value.direction == .input }
+    )
+    let intent = FlowingGraphCanvasConnectionCompletionIntent<RoutingCanvasSchema>(
+      operation: .create(sourcePortID: source.id, targetPortID: target.id),
+      basePresentationSnapshotID: content.presentation.snapshotID,
+      baseLayoutInputID: content.id
+    )
+
+    model.send(.connectionCompleted(intent))
+
+    #expect(model.edges.count == 1)
+    #expect(model.canvasContent?.presentation.edges.count == 1)
+  }
+
+  @Test @MainActor
+  func existingChannelRouteSurvivesAChannelCountIncrease() throws {
+    let model = RoutingWorkspaceModel()
+    let applicationID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    _ = model.addVisualizerNode(centeredAt: CGPoint(x: 500, y: 100))
+    model.setApplicationChannelPresentation(.separate(channelCount: 2), for: applicationID)
+    let content = try #require(model.canvasContent)
+    let source = try #require(
+      content.presentation.ports.first {
+        $0.value.direction == .output && $0.value.channel == .channel(0)
+      }
+    )
+    let target = try #require(
+      content.presentation.ports.first { $0.value.direction == .input }
+    )
+    model.send(
+      .connectionCompleted(
+        FlowingGraphCanvasConnectionCompletionIntent(
+          operation: .create(sourcePortID: source.id, targetPortID: target.id),
+          basePresentationSnapshotID: content.presentation.snapshotID,
+          baseLayoutInputID: content.id
+        )
+      )
+    )
+
+    model.setApplicationChannelPresentation(.separate(channelCount: 3), for: applicationID)
+
+    #expect(model.edges.count == 1)
+    #expect(model.canvasContent?.presentation.edges.count == 1)
+  }
+
+  @Test @MainActor
+  func reducerRejectsAProgrammaticMismatchedChannelConnection() throws {
+    let model = RoutingWorkspaceModel()
+    let applicationID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    let visualizerID = model.addVisualizerNode(centeredAt: CGPoint(x: 500, y: 100))
+    model.setApplicationChannelPresentation(.separate(channelCount: 2), for: applicationID)
+    model.configureVisualizer(
+      RoutingVisualizerConfiguration(
+        mode: .separate,
+        availableChannelCount: 2,
+        selectedChannels: [1]
+      ),
+      for: visualizerID
+    )
+    let content = try #require(model.canvasContent)
+    let source = try #require(
+      content.presentation.ports.first {
+        $0.value.direction == .output && $0.value.channel == .channel(0)
+      }
+    )
+    let target = try #require(
+      content.presentation.ports.first {
+        $0.value.direction == .input && $0.value.channel == .channel(1)
+      }
+    )
+
+    model.send(
+      .connectionCompleted(
+        FlowingGraphCanvasConnectionCompletionIntent(
+          operation: .create(sourcePortID: source.id, targetPortID: target.id),
+          basePresentationSnapshotID: content.presentation.snapshotID,
+          baseLayoutInputID: content.id
+        )
+      )
+    )
+
+    #expect(model.edges.isEmpty)
+  }
+
+  @Test @MainActor
+  func nodeHeightKeepsDenseChannelPortsSeparated() throws {
+    let model = RoutingWorkspaceModel()
+    let applicationID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+
+    model.setApplicationChannelPresentation(.separate(channelCount: 32), for: applicationID)
+
+    let node = try #require(model.node(id: applicationID))
+    #expect(node.frame.height >= 32 * 18)
+    #expect(node.frame.width == RoutingCanvasMetrics.baseNodeSize.width)
   }
 
   @Test @MainActor
