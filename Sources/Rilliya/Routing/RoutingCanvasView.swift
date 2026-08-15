@@ -2803,6 +2803,7 @@ private struct SelectedAudioMixerInspector: View {
           ],
           minimumWidth: 164
         )
+        .fixedSize(horizontal: false, vertical: true)
       }
 
       Divider()
@@ -2918,6 +2919,7 @@ private struct SelectedSignalGeneratorInspector: View {
           },
           minimumWidth: 164
         )
+        .fixedSize(horizontal: false, vertical: true)
       }
 
       if configuration.waveform.usesFrequency {
@@ -3055,6 +3057,7 @@ private struct SelectedVisualizerInspector: View {
             options: channelSelectionOptions,
             minimumWidth: 164
           )
+          .fixedSize(horizontal: false, vertical: true)
 
           if case .custom = configuration.channelSelection {
             HStack {
