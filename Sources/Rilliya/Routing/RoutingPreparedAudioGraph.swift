@@ -112,6 +112,20 @@ final class RoutingPreparedAudioGraphSource: PreparedAudioSource, @unchecked Sen
     }
     return finalMix.render(outputChannels: outputChannels, frameCount: frameCount)
   }
+
+  /// Publishes control-only graph changes without rebuilding the realtime render plan.
+  ///
+  /// The prepared operations use lock-free control banks, so this method may run concurrently with
+  /// the output render thread. Node topology and formats must remain unchanged.
+  func updateControls(nodes: [RoutingWorkspaceNode]) throws {
+    let nodesByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+    for operation in gainOperations {
+      try operation.updateControls(nodesByID: nodesByID)
+    }
+    for operation in mixOperations {
+      try operation.updateControls(nodesByID: nodesByID)
+    }
+  }
 }
 
 private struct RoutingCompiledAudioChannel: Hashable {
@@ -124,10 +138,16 @@ private struct RoutingCaptureReadPlan {
   let outputBufferIndices: [Int]
 }
 
+private struct RoutingPreparedControlAddress {
+  let nodeID: UUID
+  let channelIndex: Int
+}
+
 private struct RoutingGainPlan {
   let inputBufferIndices: [Int]
   let outputBufferIndices: [Int]
   let controls: [RoutingAudioChannelControl]
+  let controlAddresses: [RoutingPreparedControlAddress]
 }
 
 private struct RoutingMixPlan {
@@ -135,6 +155,7 @@ private struct RoutingMixPlan {
   let routes: [(inputIndex: Int, destinationChannel: Int, gain: Float)]
   let outputBufferIndices: [Int]
   let outputControls: [RoutingAudioChannelControl]
+  let outputControlAddresses: [RoutingPreparedControlAddress?]
 }
 
 private struct RoutingPreparedAudioGraphPlan {
@@ -206,7 +227,8 @@ private struct RoutingPreparedAudioGraphCompiler {
         (inputIndex, contribution.destinationChannel, 1)
       },
       outputBufferIndices: [],
-      outputControls: (0..<preparation.format.channelCount).map { _ in .unity }
+      outputControls: (0..<preparation.format.channelCount).map { _ in .unity },
+      outputControlAddresses: (0..<preparation.format.channelCount).map { _ in nil }
     )
     return RoutingPreparedAudioGraphPlan(
       bufferCount: nextBufferIndex,
@@ -287,7 +309,10 @@ private struct RoutingPreparedAudioGraphCompiler {
         RoutingGainPlan(
           inputBufferIndices: raw.map(\.bufferIndex),
           outputBufferIndices: outputIndices,
-          controls: raw.map { node.audioChannelControl(at: $0.channelIndex) }
+          controls: raw.map { node.audioChannelControl(at: $0.channelIndex) },
+          controlAddresses: raw.map {
+            RoutingPreparedControlAddress(nodeID: node.id, channelIndex: $0.channelIndex)
+          }
         )
       )
       processed = zip(raw, outputIndices).map {
@@ -339,7 +364,13 @@ private struct RoutingPreparedAudioGraphCompiler {
         else { return [] }
         return try resolveOutput(edge.source, visited: visited)
       }
-      return try makeMixSignal(inputs, destinationChannel: 0, normalized: true, control: .unity)
+      return try makeMixSignal(
+        inputs,
+        destinationChannel: 0,
+        normalized: true,
+        control: .unity,
+        controlAddress: nil
+      )
     default:
       return []
     }
@@ -362,7 +393,11 @@ private struct RoutingPreparedAudioGraphCompiler {
       inputs,
       destinationChannel: channelIndex,
       normalized: false,
-      control: node.audioChannelControl(at: channelIndex)
+      control: node.audioChannelControl(at: channelIndex),
+      controlAddress: RoutingPreparedControlAddress(
+        nodeID: node.id,
+        channelIndex: channelIndex
+      )
     )
   }
 
@@ -370,7 +405,8 @@ private struct RoutingPreparedAudioGraphCompiler {
     _ inputs: [RoutingCompiledAudioChannel],
     destinationChannel: Int,
     normalized: Bool,
-    control: RoutingAudioChannelControl
+    control: RoutingAudioChannelControl,
+    controlAddress: RoutingPreparedControlAddress?
   ) throws -> [RoutingCompiledAudioChannel] {
     guard !inputs.isEmpty else { return [] }
     let outputIndex = allocateBuffers(count: 1)[0]
@@ -380,7 +416,8 @@ private struct RoutingPreparedAudioGraphCompiler {
         inputBufferIndices: inputs.map(\.bufferIndex),
         routes: inputs.indices.map { ($0, 0, routeGain) },
         outputBufferIndices: [outputIndex],
-        outputControls: [control]
+        outputControls: [control],
+        outputControlAddresses: [controlAddress]
       )
     )
     return [
@@ -501,6 +538,7 @@ private final class RoutingPreparedCaptureRead {
 
 private final class RoutingPreparedGainOperation {
   private let processor: PreparedAudioChannelGainProcessor
+  private let controlAddresses: [RoutingPreparedControlAddress]
   private let inputs: RoutingPreparedPointerList
   private let outputs: RoutingPreparedPointerList
 
@@ -509,6 +547,7 @@ private final class RoutingPreparedGainOperation {
     preparation: AudioRenderPreparation,
     storage: RoutingPreparedAudioStorage
   ) throws {
+    precondition(plan.controls.count == plan.controlAddresses.count)
     let controls = try AudioChannelGainControlBank(channelCount: plan.controls.count)
     for (channel, control) in plan.controls.enumerated() {
       try controls.setControl(
@@ -527,9 +566,9 @@ private final class RoutingPreparedGainOperation {
         ),
         maximumFrameCount: preparation.maximumFrameCount
       ),
-      controls: controls,
-      rampDurationSeconds: 0
+      controls: controls
     )
+    controlAddresses = plan.controlAddresses
     inputs = RoutingPreparedPointerList(bufferIndices: plan.inputBufferIndices, storage: storage)
     outputs = RoutingPreparedPointerList(bufferIndices: plan.outputBufferIndices, storage: storage)
   }
@@ -541,10 +580,25 @@ private final class RoutingPreparedGainOperation {
       frameCount: frameCount
     )
   }
+
+  func updateControls(nodesByID: [UUID: RoutingWorkspaceNode]) throws {
+    for (channel, address) in controlAddresses.enumerated() {
+      let control =
+        nodesByID[address.nodeID]?.audioChannelControl(at: address.channelIndex) ?? .unity
+      try processor.controls.setControl(
+        AudioChannelGainControl(
+          linearGain: control.linearGain,
+          isMuted: control.isMuted
+        ),
+        at: channel
+      )
+    }
+  }
 }
 
 private final class RoutingPreparedMixOperation {
   private let processor: PreparedAudioMixerProcessor
+  private let outputControlAddresses: [RoutingPreparedControlAddress?]
   private let inputs: RoutingPreparedPointerList
   private let preparedOutputs: RoutingPreparedPointerList?
 
@@ -554,6 +608,7 @@ private final class RoutingPreparedMixOperation {
     preparation: AudioRenderPreparation,
     storage: RoutingPreparedAudioStorage
   ) throws {
+    precondition(plan.outputControls.count == plan.outputControlAddresses.count)
     let controls = try AudioChannelGainControlBank(channelCount: outputChannelCount)
     for (channel, control) in plan.outputControls.enumerated()
     where channel < outputChannelCount {
@@ -587,9 +642,9 @@ private final class RoutingPreparedMixOperation {
           gain: $0.gain
         )
       },
-      outputControls: controls,
-      rampDurationSeconds: 0
+      outputControls: controls
     )
+    outputControlAddresses = plan.outputControlAddresses
     inputs = RoutingPreparedPointerList(bufferIndices: plan.inputBufferIndices, storage: storage)
     preparedOutputs =
       plan.outputBufferIndices.isEmpty
@@ -611,5 +666,20 @@ private final class RoutingPreparedMixOperation {
       outputChannels: outputChannels,
       frameCount: frameCount
     )
+  }
+
+  func updateControls(nodesByID: [UUID: RoutingWorkspaceNode]) throws {
+    for (channel, address) in outputControlAddresses.enumerated() {
+      guard let address else { continue }
+      let control =
+        nodesByID[address.nodeID]?.audioChannelControl(at: address.channelIndex) ?? .unity
+      try processor.outputControls.setControl(
+        AudioChannelGainControl(
+          linearGain: control.linearGain,
+          isMuted: control.isMuted
+        ),
+        at: channel
+      )
+    }
   }
 }

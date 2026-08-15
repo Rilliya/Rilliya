@@ -8,7 +8,7 @@ import Testing
 
 struct RoutingAudioOutputControllerTests {
   @Test @MainActor
-  func graphReplacementWaitsForOldOutputToStopAndIdenticalReconciliationIsFree() async throws {
+  func controlUpdatesKeepOutputRunningAndTopologyReplacementWaitsForStop() async throws {
     let processID = try #require(AudioProcessID(rawValue: 141))
     let sourceID = UUID()
     let outputID = UUID()
@@ -40,6 +40,19 @@ struct RoutingAudioOutputControllerTests {
     #expect(await outputStarter.stopCount == 0)
 
     workflow.workspace.setAudioChannelGain(-6, nodeID: sourceID, channelIndex: 0)
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: captureController,
+      inputCaptureController: inputController
+    )
+    await Task.yield()
+    #expect(await outputStarter.startCount == 1)
+    #expect(await outputStarter.stopCount == 0)
+
+    workflow.workspace.setApplicationChannelPresentation(
+      .separate(channelCount: 1),
+      for: sourceID
+    )
     outputController.reconcile(
       workflows: [workflow],
       captureController: captureController,

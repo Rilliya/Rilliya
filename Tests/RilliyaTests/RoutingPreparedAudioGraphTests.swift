@@ -55,6 +55,35 @@ struct RoutingPreparedAudioGraphTests {
   }
 
   @Test
+  func sourceControlUpdatesRampWithoutRebuildingThePreparedGraph() throws {
+    let sourceID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(channelCount: 1)
+    try write([[1, 1, 1, 1]], to: buffer)
+    let renderer = try makeRenderer(
+      nodes: [sourceNode(id: sourceID, channelCount: 1), outputNode(id: outputID)],
+      edges: [edge(from: sourceID, .all, to: outputID, .all)],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer],
+      outputChannelCount: 1
+    )
+    let mutedSource = sourceNode(
+      id: sourceID,
+      channelCount: 1,
+      controls: [0: RoutingAudioChannelControl(gainDecibels: 0, isMuted: true)]
+    )
+
+    try renderer.updateControls(nodes: [mutedSource, outputNode(id: outputID)])
+    let rendered = render(renderer, channelCount: 1, frameCount: 4)
+
+    #expect(rendered.result == .rendered)
+    #expect(rendered.channels[0][0] == 1)
+    #expect(rendered.channels[0][1] < rendered.channels[0][0])
+    #expect(rendered.channels[0][2] < rendered.channels[0][1])
+    #expect(rendered.channels[0][3] < rendered.channels[0][2])
+  }
+
+  @Test
   func sharedCaptureIsReadOnceAndCanFanOutInsideOneRenderPlan() throws {
     let firstSourceID = UUID()
     let secondSourceID = UUID()

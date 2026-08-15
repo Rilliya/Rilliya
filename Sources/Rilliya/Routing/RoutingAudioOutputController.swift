@@ -66,10 +66,22 @@ private final class SystemRoutingOutputPlaybackSession: RoutingOutputPlaybackSes
   }
 }
 
+private final class RoutingPreparedAudioGraphHolder: @unchecked Sendable {
+  private let lock = NSLock()
+  private var storedRenderer: RoutingPreparedAudioGraphSource?
+
+  var renderer: RoutingPreparedAudioGraphSource? {
+    lock.withLock { storedRenderer }
+  }
+
+  func store(_ renderer: RoutingPreparedAudioGraphSource) {
+    lock.withLock { storedRenderer = renderer }
+  }
+}
+
 private struct RoutingAudioOutputNodeConfiguration: Equatable, Sendable {
   let id: UUID
   let value: RoutingNodeValue
-  let audioChannelControls: [Int: RoutingAudioChannelControl]
 }
 
 private struct RoutingAudioOutputBufferIdentity: Equatable, Sendable {
@@ -123,6 +135,7 @@ final class RoutingAudioOutputController {
   private struct RunningSession {
     let signature: RoutingAudioOutputRequestSignature
     let session: any RoutingOutputPlaybackSession
+    let renderer: RoutingPreparedAudioGraphSource
   }
 
   private(set) var states: [UUID: RoutingAudioOutputState] = [:]
@@ -132,6 +145,7 @@ final class RoutingAudioOutputController {
   @ObservationIgnored private var lifecycleTasks: [UUID: Task<Void, Never>] = [:]
   @ObservationIgnored private var generations: [UUID: UInt64] = [:]
   @ObservationIgnored private var desiredStates: [UUID: RoutingAudioOutputDesiredState] = [:]
+  @ObservationIgnored private var latestRequests: [UUID: RoutingAudioOutputRequest] = [:]
 
   init(
     playbackStarter: any RoutingOutputPlaybackStarting = SystemRoutingOutputPlaybackStarter()
@@ -173,16 +187,26 @@ final class RoutingAudioOutputController {
 
   private func apply(_ plan: RoutingAudioOutputPlan, to nodeID: UUID) {
     let desiredState = plan.desiredState
+    if case .ready(let request) = plan {
+      latestRequests[nodeID] = request
+      if let runningSession = runningSessions[nodeID],
+        runningSession.signature == request.signature,
+        lifecycleTasks[nodeID] == nil
+      {
+        do {
+          try runningSession.renderer.updateControls(nodes: request.nodes)
+          desiredStates[nodeID] = desiredState
+          states[nodeID] = .running(runningSession.session.format)
+        } catch {
+          apply(.blocked(error.localizedDescription), to: nodeID)
+        }
+        return
+      }
+    } else {
+      latestRequests[nodeID] = nil
+    }
     guard desiredStates[nodeID] != desiredState else { return }
     desiredStates[nodeID] = desiredState
-    if case .ready(let request) = plan,
-      let runningSession = runningSessions[nodeID],
-      runningSession.signature == request.signature,
-      lifecycleTasks[nodeID] == nil
-    {
-      states[nodeID] = .running(runningSession.session.format)
-      return
-    }
     if runningSessions[nodeID] == nil, lifecycleTasks[nodeID] == nil {
       switch plan {
       case .idle where states[nodeID] == nil || states[nodeID] == .idle:
@@ -231,14 +255,17 @@ final class RoutingAudioOutputController {
       states[nodeID] = .starting
       let playbackStarter = playbackStarter
       let outputNodeID = request.signature.outputNodeID
+      let rendererHolder = RoutingPreparedAudioGraphHolder()
       let rendererFactory: DeviceOutputPlayback.RendererFactory = { preparation in
-        try RoutingPreparedAudioGraphSource(
+        let renderer = try RoutingPreparedAudioGraphSource(
           preparation: preparation,
           nodes: request.nodes,
           edges: request.edges,
           outputNodeID: outputNodeID,
           frameBuffers: request.frameBuffers
         )
+        rendererHolder.store(renderer)
+        return renderer
       }
       let failureHandler: DeviceOutputPlayback.FailureHandler = { [weak self] error in
         Task { @MainActor [weak self] in
@@ -255,9 +282,19 @@ final class RoutingAudioOutputController {
           await session.stop()
           return
         }
+        guard let renderer = rendererHolder.renderer else {
+          await session.stop()
+          throw RoutingPreparedAudioGraphError.invalidRoute
+        }
+        if let latestRequest = latestRequests[nodeID],
+          latestRequest.signature == request.signature
+        {
+          try renderer.updateControls(nodes: latestRequest.nodes)
+        }
         runningSessions[nodeID] = RunningSession(
           signature: request.signature,
-          session: session
+          session: session,
+          renderer: renderer
         )
         states[nodeID] = .running(session.format)
       } catch {
@@ -350,8 +387,7 @@ final class RoutingAudioOutputController {
           nodes: sortedNodes.map {
             RoutingAudioOutputNodeConfiguration(
               id: $0.id,
-              value: $0.value,
-              audioChannelControls: $0.audioChannelControls
+              value: $0.value
             )
           },
           edges: sortedEdges,
