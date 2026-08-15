@@ -171,7 +171,11 @@ private struct RoutingWorkflowCanvas: View {
       iconResolver: iconResolver,
       captureController: captureController,
       sessionID: workflow.canvasSessionID,
-      session: $workflow.canvasSession
+      session: $workflow.canvasSession,
+      isMiniMapVisible: workflow.showsMiniMap(
+        globalDefault: settings.showsMiniMapByDefault
+      ),
+      setMiniMapVisible: workflow.setMiniMapVisible
     )
   }
 }

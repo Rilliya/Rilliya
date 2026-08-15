@@ -10,6 +10,8 @@ struct RoutingMetalViewport: View {
   let inspector: AnyView
   let removeEdges: (Set<UUID>) -> Void
   let toggleEdgeEnabled: (UUID) -> Void
+  let isMiniMapVisible: Bool
+  let setMiniMapVisible: (Bool) -> Void
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @StateObject private var controller: RoutingMetalCanvasController
@@ -20,7 +22,9 @@ struct RoutingMetalViewport: View {
     inspectorID: UUID?,
     inspector: AnyView,
     removeEdges: @escaping (Set<UUID>) -> Void,
-    toggleEdgeEnabled: @escaping (UUID) -> Void
+    toggleEdgeEnabled: @escaping (UUID) -> Void,
+    isMiniMapVisible: Bool,
+    setMiniMapVisible: @escaping (Bool) -> Void
   ) {
     self.context = context
     self.scene = scene
@@ -28,6 +32,8 @@ struct RoutingMetalViewport: View {
     self.inspector = inspector
     self.removeEdges = removeEdges
     self.toggleEdgeEnabled = toggleEdgeEnabled
+    self.isMiniMapVisible = isMiniMapVisible
+    self.setMiniMapVisible = setMiniMapVisible
     _controller = StateObject(
       wrappedValue: RoutingMetalCanvasController(
         initialZoom: context.configuration.canvas.initialZoom
@@ -58,8 +64,9 @@ struct RoutingMetalViewport: View {
           insets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
         ) {
           VStack(alignment: .trailing, spacing: 12) {
-            if !scene.nodes.isEmpty {
+            if isMiniMapVisible, !scene.nodes.isEmpty {
               miniMap
+                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topTrailing)))
             }
             ZStack(alignment: .topTrailing) {
               if let inspectorID {
@@ -72,6 +79,7 @@ struct RoutingMetalViewport: View {
           }
         }
         .animation(inspectorAnimation, value: inspectorID)
+        .animation(inspectorAnimation, value: isMiniMapVisible)
 
         FlowingCanvasViewportOverlay(
           alignment: .bottomTrailing,
@@ -171,6 +179,19 @@ struct RoutingMetalViewport: View {
       ) {
         controller.fit()
       }
+
+      Rectangle()
+        .fill(FlowingPalette.hairline)
+        .frame(width: 1, height: 18)
+        .padding(.horizontal, 3)
+
+      RoutingViewportControlButton(
+        systemImage: isMiniMapVisible ? "map.fill" : "map",
+        accessibilityLabel: isMiniMapVisible ? "Hide overview" : "Show overview",
+        isActive: isMiniMapVisible
+      ) {
+        setMiniMapVisible(!isMiniMapVisible)
+      }
     }
     .padding(4)
     .background(
@@ -230,13 +251,14 @@ struct RoutingMetalViewport: View {
 private struct RoutingViewportControlButton: View {
   let systemImage: String
   let accessibilityLabel: String
+  var isActive = false
   let action: () -> Void
 
   var body: some View {
     Button(action: action) {
       Image(systemName: systemImage)
         .font(.system(size: 9.5, weight: .bold))
-        .foregroundStyle(FlowingPalette.muted)
+        .foregroundStyle(isActive ? FlowingAccent.fern.foreground : FlowingPalette.muted)
         .frame(width: 28, height: 28)
         .contentShape(Rectangle())
     }

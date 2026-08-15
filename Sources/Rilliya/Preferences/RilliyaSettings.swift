@@ -53,6 +53,12 @@ final class RilliyaSettings {
     }
   }
 
+  var showsMiniMapByDefault: Bool {
+    didSet {
+      defaults.set(showsMiniMapByDefault, forKey: Keys.showsMiniMapByDefault)
+    }
+  }
+
   @ObservationIgnored private let defaults: UserDefaults
 
   init(defaults: UserDefaults = .standard) {
@@ -65,6 +71,9 @@ final class RilliyaSettings {
       defaults.string(forKey: Keys.defaultSeparateChannelLayout)
       .flatMap(RoutingSeparateChannelLayout.init(rawValue:))
       ?? .stereo
+    showsMiniMapByDefault =
+      defaults.object(forKey: Keys.showsMiniMapByDefault) as? Bool
+      ?? true
   }
 
   private enum Keys {
@@ -72,5 +81,7 @@ final class RilliyaSettings {
       "moe.uwucocoa.rilliya.connection-information-level"
     static let defaultSeparateChannelLayout =
       "moe.uwucocoa.rilliya.default-separate-channel-layout"
+    static let showsMiniMapByDefault =
+      "moe.uwucocoa.rilliya.shows-minimap-by-default"
   }
 }

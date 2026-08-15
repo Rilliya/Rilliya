@@ -14,13 +14,16 @@ struct RilliyaSettingsTests {
     let first = RilliyaSettings(defaults: defaults)
     #expect(first.connectionInformationLevel == .format)
     #expect(first.defaultSeparateChannelLayout == .stereo)
+    #expect(first.showsMiniMapByDefault)
 
     first.connectionInformationLevel = .channels
     first.defaultSeparateChannelLayout = .surround71
+    first.showsMiniMapByDefault = false
     let restored = RilliyaSettings(defaults: defaults)
 
     #expect(restored.connectionInformationLevel == .channels)
     #expect(restored.defaultSeparateChannelLayout == .surround71)
+    #expect(!restored.showsMiniMapByDefault)
     #expect(!RoutingConnectionInformationLevel.allCases.map(\.rawValue).contains("debug"))
   }
 }

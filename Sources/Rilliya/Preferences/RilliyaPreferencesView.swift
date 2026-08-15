@@ -43,6 +43,19 @@ private struct RilliyaCanvasPreferencesPane: View {
   var body: some View {
     PreferencesPaneStack {
       PreferencesSection(
+        "Canvas Overview",
+        footer:
+          "Workflows inherit this setting until the overview button on that canvas creates a workflow-specific override."
+      ) {
+        PreferencesSwitchRow(
+          symbol: "map",
+          title: "Show overview by default",
+          caption: "Display the minimap when a workflow has nodes.",
+          isOn: $settings.showsMiniMapByDefault
+        )
+      }
+
+      PreferencesSection(
         "Connection Information",
         footer:
           "Format details appear only after Rilliya has learned the source's live audio format."

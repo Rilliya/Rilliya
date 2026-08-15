@@ -63,4 +63,26 @@ struct RoutingWorkflowModelTests {
 
     #expect(library.selectedWorkflowID == originalID)
   }
+
+  @Test @MainActor
+  func miniMapOverrideStaysLocalToItsWorkflowAndCanReturnToTheGlobalDefault() {
+    let library = RoutingWorkflowLibrary()
+    let first = library.selectedWorkflow
+    let second = library.addWorkflow()
+
+    #expect(first.showsMiniMap(globalDefault: true))
+    #expect(!first.showsMiniMap(globalDefault: false))
+
+    first.setMiniMapVisible(false)
+    second.setMiniMapVisible(true)
+
+    #expect(!first.showsMiniMap(globalDefault: true))
+    #expect(second.showsMiniMap(globalDefault: false))
+
+    first.useGlobalMiniMapDefault()
+
+    #expect(first.showsMiniMap(globalDefault: true))
+    #expect(!first.showsMiniMap(globalDefault: false))
+    #expect(second.showsMiniMap(globalDefault: false))
+  }
 }

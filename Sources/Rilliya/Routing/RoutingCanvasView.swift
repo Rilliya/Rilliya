@@ -32,6 +32,8 @@ struct RoutingCanvasView: View {
   let sessionID: FlowingGraphCanvasSessionID
 
   @Binding var session: FlowingGraphCanvasSessionState<RoutingCanvasSchema>
+  let isMiniMapVisible: Bool
+  let setMiniMapVisible: (Bool) -> Void
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var isDropTargeted = false
@@ -130,7 +132,9 @@ struct RoutingCanvasView: View {
           inspectorID: selectedWorkspaceNodeID,
           inspector: AnyView(selectedNodeInspector),
           removeEdges: workspace.removeEdges,
-          toggleEdgeEnabled: workspace.toggleEdgeEnabled
+          toggleEdgeEnabled: workspace.toggleEdgeEnabled,
+          isMiniMapVisible: isMiniMapVisible,
+          setMiniMapVisible: setMiniMapVisible
         )
       },
       accessibilitySnapshot: workspace.accessibilitySnapshot,

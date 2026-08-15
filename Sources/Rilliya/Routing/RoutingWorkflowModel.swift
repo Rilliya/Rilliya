@@ -7,6 +7,7 @@ import Observation
 final class RoutingWorkflowModel: Identifiable {
   let id: UUID
   private(set) var name: String
+  private(set) var miniMapVisibilityOverride: Bool?
   let workspace: RoutingWorkspaceModel
   var canvasSession: FlowingGraphCanvasSessionState<RoutingCanvasSchema>
 
@@ -16,6 +17,7 @@ final class RoutingWorkflowModel: Identifiable {
     id: UUID = UUID(),
     name: String,
     workspace: RoutingWorkspaceModel? = nil,
+    miniMapVisibilityOverride: Bool? = nil,
     canvasSession: FlowingGraphCanvasSessionState<RoutingCanvasSchema> =
       FlowingGraphCanvasSessionState()
   ) {
@@ -23,6 +25,7 @@ final class RoutingWorkflowModel: Identifiable {
     self.id = id
     self.name = name
     self.workspace = workspace ?? RoutingWorkspaceModel(id: id)
+    self.miniMapVisibilityOverride = miniMapVisibilityOverride
     self.canvasSession = canvasSession
     canvasSessionID = FlowingGraphCanvasSessionID()
   }
@@ -31,6 +34,18 @@ final class RoutingWorkflowModel: Identifiable {
     let normalized = name.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !normalized.isEmpty else { return }
     self.name = normalized
+  }
+
+  func showsMiniMap(globalDefault: Bool) -> Bool {
+    miniMapVisibilityOverride ?? globalDefault
+  }
+
+  func setMiniMapVisible(_ isVisible: Bool) {
+    miniMapVisibilityOverride = isVisible
+  }
+
+  func useGlobalMiniMapDefault() {
+    miniMapVisibilityOverride = nil
   }
 }
 
