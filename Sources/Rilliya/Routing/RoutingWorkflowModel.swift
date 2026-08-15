@@ -106,6 +106,82 @@ final class RoutingWorkflowLibrary {
     return workflow
   }
 
+  @discardableResult
+  func duplicateWorkflow(id: UUID) -> RoutingWorkflowModel? {
+    guard let sourceIndex = workflows.firstIndex(where: { $0.id == id }) else {
+      return nil
+    }
+    let source = workflows[sourceIndex]
+    let nodeIDMap = Dictionary(
+      uniqueKeysWithValues: source.workspace.nodes.map { ($0.id, UUID()) }
+    )
+    let nodes = source.workspace.nodes.compactMap { sourceNode -> RoutingWorkspaceNode? in
+      guard let nodeID = nodeIDMap[sourceNode.id] else { return nil }
+      return RoutingWorkspaceNode(
+        id: nodeID,
+        value: sourceNode.value,
+        frame: sourceNode.frame,
+        disabledPortIDs: sourceNode.disabledPortIDs,
+        audioChannelControls: sourceNode.audioChannelControls,
+        accentOverride: sourceNode.accentOverride
+      )
+    }
+    let edges = source.workspace.edges.compactMap { sourceEdge -> RoutingWorkspaceEdge? in
+      guard let sourceNodeID = nodeIDMap[sourceEdge.source.nodeID],
+        let targetNodeID = nodeIDMap[sourceEdge.target.nodeID]
+      else {
+        return nil
+      }
+      return RoutingWorkspaceEdge(
+        id: UUID(),
+        source: RoutingWorkspacePortAddress(
+          nodeID: sourceNodeID,
+          portID: sourceEdge.source.portID
+        ),
+        target: RoutingWorkspacePortAddress(
+          nodeID: targetNodeID,
+          portID: sourceEdge.target.portID
+        ),
+        isEnabled: sourceEdge.isEnabled
+      )
+    }
+    guard nodes.count == source.workspace.nodes.count,
+      edges.count == source.workspace.edges.count,
+      let workspace = try? RoutingWorkspaceModel(
+        restoringID: UUID(),
+        nodes: nodes,
+        edges: edges
+      )
+    else {
+      return nil
+    }
+
+    let workflow = RoutingWorkflowModel(
+      id: workspace.id,
+      name: uniqueCopyName(for: source.name),
+      workspace: workspace,
+      miniMapVisibilityOverride: source.miniMapVisibilityOverride,
+      canvasSession: FlowingGraphCanvasSessionState(viewport: source.canvasSession.viewport)
+    )
+    workflows.insert(workflow, at: sourceIndex + 1)
+    selectedWorkflowID = workflow.id
+    return workflow
+  }
+
+  @discardableResult
+  func removeWorkflow(id: UUID) -> Bool {
+    guard workflows.count > 1,
+      let removedIndex = workflows.firstIndex(where: { $0.id == id })
+    else {
+      return false
+    }
+    workflows.remove(at: removedIndex)
+    if selectedWorkflowID == id {
+      selectedWorkflowID = workflows[min(removedIndex, workflows.count - 1)].id
+    }
+    return true
+  }
+
   func selectWorkflow(id: UUID) {
     guard workflows.contains(where: { $0.id == id }) else { return }
     selectedWorkflowID = id
@@ -118,6 +194,17 @@ final class RoutingWorkflowLibrary {
       ordinal += 1
     }
     return "Flow \(ordinal)"
+  }
+
+  private func uniqueCopyName(for sourceName: String) -> String {
+    let existingNames = Set(workflows.map(\.name))
+    let baseName = "\(sourceName) Copy"
+    guard existingNames.contains(baseName) else { return baseName }
+    var ordinal = 2
+    while existingNames.contains("\(baseName) \(ordinal)") {
+      ordinal += 1
+    }
+    return "\(baseName) \(ordinal)"
   }
 
   static func launchConfigured() -> RoutingWorkflowLibrary {

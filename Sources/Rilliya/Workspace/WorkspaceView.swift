@@ -464,9 +464,18 @@ private struct RoutingWorkflowCanvas: View {
 }
 
 private struct RoutingWorkflowSwitcher: View {
+  private enum WorkflowDialog {
+    case rename
+    case delete
+  }
+
   let library: RoutingWorkflowLibrary
   let captureController: RoutingCaptureController
   let inputCaptureController: RoutingInputCaptureController
+
+  @State private var workflowDialog: WorkflowDialog?
+  @State private var pendingWorkflowID: UUID?
+  @State private var proposedWorkflowName = ""
 
   var body: some View {
     HStack(spacing: 6) {
@@ -502,6 +511,33 @@ private struct RoutingWorkflowSwitcher: View {
         Divider()
 
         Button {
+          library.addWorkflow()
+        } label: {
+          Label("New Workflow", systemImage: "plus")
+        }
+
+        Button {
+          beginRenaming(library.selectedWorkflow)
+        } label: {
+          Label("Rename Workflow…", systemImage: "pencil")
+        }
+
+        Button {
+          library.duplicateWorkflow(id: library.selectedWorkflowID)
+        } label: {
+          Label("Duplicate Workflow", systemImage: "plus.square.on.square")
+        }
+
+        Button(role: .destructive) {
+          beginDeleting(library.selectedWorkflow)
+        } label: {
+          Label("Delete Workflow…", systemImage: "trash")
+        }
+        .disabled(library.workflows.count == 1)
+
+        Divider()
+
+        Button {
           let workflow = library.selectedWorkflow
           workflow.setRunsAutomaticallyOnLaunch(!workflow.runsAutomaticallyOnLaunch)
         } label: {
@@ -522,14 +558,76 @@ private struct RoutingWorkflowSwitcher: View {
         library.selectedWorkflow.toggleRunning()
       }
       .accessibilityValue(library.selectedWorkflow.isRunning ? "Running" : "Paused")
-
-      FlowingIconButton("New Workflow", systemImage: "plus") {
-        library.addWorkflow()
-      }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .contain)
     .accessibilityLabel("Workflows")
+    .alert(workflowDialogTitle, isPresented: workflowDialogIsPresented) {
+      switch workflowDialog {
+      case .rename:
+        TextField("Workflow name", text: $proposedWorkflowName)
+        Button("Cancel", role: .cancel) {}
+        Button("Rename") {
+          guard let pendingWorkflowID,
+            let workflow = library.workflows.first(where: { $0.id == pendingWorkflowID })
+          else { return }
+          workflow.rename(to: proposedWorkflowName)
+        }
+        .disabled(proposedWorkflowName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+      case .delete:
+        Button("Cancel", role: .cancel) {}
+        Button("Delete", role: .destructive) {
+          guard let pendingWorkflowID else { return }
+          library.removeWorkflow(id: pendingWorkflowID)
+        }
+      case nil:
+        Button("Cancel", role: .cancel) {}
+      }
+    } message: {
+      Text(workflowDialogMessage)
+    }
+  }
+
+  private var workflowDialogIsPresented: Binding<Bool> {
+    Binding(
+      get: { workflowDialog != nil },
+      set: { isPresented in
+        if !isPresented { workflowDialog = nil }
+      }
+    )
+  }
+
+  private var workflowDialogTitle: String {
+    switch workflowDialog {
+    case .rename:
+      "Rename Workflow"
+    case .delete:
+      "Delete Workflow?"
+    case nil:
+      "Workflow"
+    }
+  }
+
+  private var workflowDialogMessage: String {
+    switch workflowDialog {
+    case .rename:
+      "Use a name that makes this audio flow easy to recognize."
+    case .delete:
+      "This removes the workflow and all of its nodes and connections."
+    case nil:
+      ""
+    }
+  }
+
+  private func beginRenaming(_ workflow: RoutingWorkflowModel) {
+    pendingWorkflowID = workflow.id
+    proposedWorkflowName = workflow.name
+    workflowDialog = .rename
+  }
+
+  private func beginDeleting(_ workflow: RoutingWorkflowModel) {
+    pendingWorkflowID = workflow.id
+    workflowDialog = .delete
   }
 
   private func isCapturing(_ workflow: RoutingWorkflowModel) -> Bool {
