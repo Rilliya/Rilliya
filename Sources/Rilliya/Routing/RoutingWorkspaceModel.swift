@@ -241,6 +241,31 @@ final class RoutingWorkspaceModel {
     return id
   }
 
+  @discardableResult
+  func addSignalGeneratorNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    let value = RoutingNodeValue.signalGenerator(configuration: .initial)
+    let size = RoutingCanvasMetrics.nodeSize(for: value)
+    nodes.append(
+      RoutingWorkspaceNode(
+        id: id,
+        value: value,
+        frame: CGRect(
+          x: worldPoint.x - size.width / 2,
+          y: worldPoint.y - size.height / 2,
+          width: size.width,
+          height: size.height
+        )
+      )
+    )
+    rebuildCanvas()
+    return id
+  }
+
   func selectApplication(
     _ selection: RoutingApplicationSelection?,
     for nodeID: UUID
@@ -443,6 +468,20 @@ final class RoutingWorkspaceModel {
     let availablePortIDs = Set(RoutingGraphPorts.values(for: nodes[index].value).map(\.id))
     nodes[index].disabledPortIDs.formIntersection(availablePortIDs)
     resizeNode(at: index)
+    rebuildCanvas()
+  }
+
+  func configureSignalGenerator(
+    _ configuration: RoutingSignalGeneratorConfiguration,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      case .signalGenerator(let previous) = nodes[index].value,
+      previous != configuration
+    else {
+      return
+    }
+    nodes[index].value = .signalGenerator(configuration: configuration)
     rebuildCanvas()
   }
 

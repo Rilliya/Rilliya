@@ -887,6 +887,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       appendAudioMixer(node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
     case .peakLevel:
       appendPeakLevel(node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
+    case .signalGenerator:
+      appendSignalGenerator(
+        node: node,
+        frame: frame,
+        accent: accent,
+        palette: palette,
+        to: &geometry
+      )
     }
 
     for port in node.ports {
@@ -1309,6 +1317,40 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         x: valueFrame.maxX - 12 - decibelSize.width,
         y: valueFrame.midY - decibelSize.height / 2
       ),
+      color: palette.muted,
+      to: &geometry
+    )
+  }
+
+  private func appendSignalGenerator(
+    node: RoutingMetalScene.Node,
+    frame: CGRect,
+    accent: SIMD4<Float>,
+    palette: RoutingMetalPalette,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
+    guard case .signalGenerator(let configuration) = node.value else { return }
+    let valueFrame = CGRect(
+      x: frame.minX + RoutingVisualizerLayout.horizontalInset,
+      y: frame.maxY - 48,
+      width: frame.width - 2 * RoutingVisualizerLayout.horizontalInset
+        - RoutingVisualizerLayout.portLabelGutter,
+      height: 34
+    )
+    geometry.shapes.append(
+      RoutingMetalShapeInstance(
+        rect: valueFrame,
+        fill: accent.withAlpha(0.09),
+        border: .zero,
+        cornerRadius: 8,
+        borderWidth: 0,
+        opacity: 1
+      )
+    )
+    let amplitude = Int((configuration.amplitude * 100).rounded())
+    append(
+      atlas: textAtlas.text("\(amplitude)% amplitude", size: 10, weight: .medium),
+      origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
       color: palette.muted,
       to: &geometry
     )

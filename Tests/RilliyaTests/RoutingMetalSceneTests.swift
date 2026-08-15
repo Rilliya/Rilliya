@@ -201,6 +201,31 @@ struct RoutingMetalSceneTests {
   }
 
   @Test @MainActor
+  func signalGeneratorCarriesItsConfigurationIntoTheGpuScene() throws {
+    let model = RoutingWorkspaceModel()
+    let nodeID = model.addSignalGeneratorNode(centeredAt: CGPoint(x: 100, y: 100))
+    let configuration = RoutingSignalGeneratorConfiguration(
+      waveform: .triangle,
+      frequency: 880,
+      amplitude: 0.5
+    )
+    model.configureSignalGenerator(configuration, for: nodeID)
+    let scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [:]
+    )
+    let node = try #require(scene.nodes.first)
+
+    #expect(node.title == "Signal Generator")
+    #expect(node.subtitle == "Triangle · 880 Hz")
+    #expect(node.status == "Ready to route")
+    #expect(node.symbolName == "waveform.path")
+    #expect(node.miniMapStyleIndex == 6)
+    #expect(node.ports.count == 1)
+    #expect(node.ports.first?.value.audioChannel == .channel(0))
+  }
+
+  @Test @MainActor
   func sharedApplicationCaptureIsVisibleInTheGpuNodeStatus() throws {
     let model = RoutingWorkspaceModel()
     let nodeID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))

@@ -353,7 +353,7 @@ final class RoutingAudioOutputController {
             buffer = captureController.frameBuffer(for: node.id)
           case .inputAudio:
             buffer = inputCaptureController.frameBuffer(for: node.id)
-          case .outputAudio, .visualizer, .audioMixer, .peakLevel:
+          case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator:
             continue
           }
           guard let buffer else {

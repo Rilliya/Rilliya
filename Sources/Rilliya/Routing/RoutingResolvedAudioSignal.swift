@@ -56,7 +56,7 @@ struct RoutingAudioSignalResolver {
       )
     case .audioMixer:
       return audioMixerSignals(for: address, node: node, visited: visited)
-    case .peakLevel:
+    case .peakLevel, .signalGenerator:
       return []
     }
   }

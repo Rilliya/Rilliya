@@ -90,6 +90,28 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func signalGeneratorInsertionBuildsOneConfigurableMonoOutput() throws {
+    let model = RoutingWorkspaceModel()
+    let center = CGPoint(x: 420, y: 260)
+
+    let nodeID = model.addSignalGeneratorNode(centeredAt: center)
+    var configuration = RoutingSignalGeneratorConfiguration.initial
+    configuration.waveform = .pinkNoise
+    configuration.amplitude = 0.4
+    model.configureSignalGenerator(configuration, for: nodeID)
+
+    let node = try #require(model.node(id: nodeID))
+    #expect(node.value == .signalGenerator(configuration: configuration))
+    #expect(CGPoint(x: node.frame.midX, y: node.frame.midY) == center)
+    let ports = RoutingGraphPorts.values(for: node)
+    #expect(ports.count == 1)
+    let port = try #require(ports.first)
+    #expect(port.direction == .output)
+    #expect(port.audioChannel == .channel(0))
+    #expect(port.signalType == .audio)
+  }
+
+  @Test @MainActor
   func inputAudioUsesPersistentDeviceIdentityAndRuntimeChannels() throws {
     let model = RoutingWorkspaceModel()
     let center = CGPoint(x: 420, y: 260)

@@ -35,7 +35,8 @@ struct WorkspaceView: View {
         insertOutputAudio: insertOutputAudio,
         insertVisualizer: insertVisualizer,
         insertAudioMixer: insertAudioMixer,
-        insertPeakLevel: insertPeakLevel
+        insertPeakLevel: insertPeakLevel,
+        insertSignalGenerator: insertSignalGenerator
       ) {
         RoutingWorkflowSwitcher(
           library: workflowLibrary,
@@ -348,6 +349,17 @@ struct WorkspaceView: View {
   private func insertPeakLevel() {
     let workflow = workflowLibrary.selectedWorkflow
     let nodeID = workflow.workspace.addPeakLevelNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
+      )
+    )
+    selectNode(nodeID, in: workflow)
+  }
+
+  private func insertSignalGenerator() {
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addSignalGeneratorNode(
       centeredAt: RoutingNodeInsertion.point(
         in: workflow.canvasSession.viewport.visibleWorldRect,
         existingNodeCount: workflow.workspace.nodes.count

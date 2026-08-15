@@ -91,6 +91,8 @@ struct RoutingMetalScene {
         return "Audio Mixer"
       case .peakLevel:
         return "Peak Level"
+      case .signalGenerator:
+        return "Signal Generator"
       }
     }
 
@@ -110,6 +112,12 @@ struct RoutingMetalScene {
         return "\(configuration.channelCount)-channel mix"
       case .peakLevel:
         return "Linear full-scale peak"
+      case .signalGenerator(let configuration):
+        if configuration.waveform.usesFrequency {
+          return
+            "\(configuration.waveform.displayName) · \(configuration.frequency.formatted(.number.precision(.fractionLength(0)))) Hz"
+        }
+        return configuration.waveform.displayName
       }
     }
 
@@ -156,6 +164,8 @@ struct RoutingMetalScene {
       case .peakLevel:
         guard let signal = supplement.peakLevelSignal else { return "Waiting for routed audio" }
         return signal.isClipping ? "Clipping" : "Live peak"
+      case .signalGenerator:
+        return "Ready to route"
       }
     }
 
@@ -202,7 +212,7 @@ struct RoutingMetalScene {
         return selection != nil
       case .outputAudio(let selection, _):
         return selection != nil
-      case .visualizer, .audioMixer, .peakLevel:
+      case .visualizer, .audioMixer, .peakLevel, .signalGenerator:
         return false
       }
     }
@@ -216,7 +226,8 @@ struct RoutingMetalScene {
       switch value {
       case .applicationAudio:
         supplement.applicationIcon == nil
-      case .inputAudio, .outputAudio, .visualizer, .audioMixer, .peakLevel:
+      case .inputAudio, .outputAudio, .visualizer, .audioMixer, .peakLevel,
+        .signalGenerator:
         true
       }
     }
@@ -235,6 +246,8 @@ struct RoutingMetalScene {
         return "slider.horizontal.3"
       case .peakLevel:
         return "gauge.with.dots.needle.50percent"
+      case .signalGenerator:
+        return "waveform.path"
       }
     }
 
@@ -246,6 +259,7 @@ struct RoutingMetalScene {
       case .visualizer: 3
       case .audioMixer: 4
       case .peakLevel: 5
+      case .signalGenerator: 6
       }
     }
 
@@ -259,7 +273,8 @@ struct RoutingMetalScene {
         return selection != nil
       case .audioMixer:
         return true
-      case .applicationAudio, .inputAudio, .outputAudio, .visualizer, .peakLevel:
+      case .applicationAudio, .inputAudio, .outputAudio, .visualizer, .peakLevel,
+        .signalGenerator:
         return false
       }
     }

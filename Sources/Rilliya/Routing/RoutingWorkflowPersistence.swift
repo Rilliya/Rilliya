@@ -157,6 +157,14 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
           configuration.channelCount)
     case .peakLevel:
       return true
+    case .signalGenerator(let configuration):
+      return configuration.frequency.isFinite
+        && (RoutingSignalGeneratorConfiguration
+          .minimumFrequency...RoutingSignalGeneratorConfiguration.maximumFrequency).contains(
+            configuration.frequency
+          )
+        && configuration.amplitude.isFinite
+        && (0...1).contains(configuration.amplitude)
     }
   }
 

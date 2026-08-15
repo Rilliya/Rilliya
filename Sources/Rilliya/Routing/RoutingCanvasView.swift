@@ -13,6 +13,7 @@ private enum RoutingPaletteItem: String, Codable, Transferable {
   case visualizer = "moe.uwucocoa.rilliya.node.visualizer"
   case audioMixer = "moe.uwucocoa.rilliya.node.audio-mixer"
   case peakLevel = "moe.uwucocoa.rilliya.node.peak-level"
+  case signalGenerator = "moe.uwucocoa.rilliya.node.signal-generator"
 
   static var transferRepresentation: some TransferRepresentation {
     CodableRepresentation(contentType: .plainText)
@@ -199,6 +200,9 @@ struct RoutingCanvasView: View {
             context: context
           )
           .zIndex(context.isSelected ? 2 : 1)
+        case .signalGenerator(let configuration):
+          SignalGeneratorNodeView(configuration: configuration, context: context)
+            .zIndex(context.isSelected ? 2 : 1)
         }
       },
       edge: { _, context in
@@ -332,6 +336,8 @@ struct RoutingCanvasView: View {
             resolvedSignalsForSource: signalResolver.resolveOutput
           )
         )
+      case .signalGenerator:
+        supplements[node.id] = .empty
       }
     }
     return RoutingMetalScene(
@@ -503,6 +509,10 @@ struct RoutingCanvasView: View {
           resolvedSignalsForSource: audioSignalResolver.resolveOutput
         )
       )
+    case .signalGenerator(let configuration):
+      SelectedSignalGeneratorInspector(configuration: configuration) { updated in
+        workspace.configureSignalGenerator(updated, for: node.id)
+      }
     }
   }
 
@@ -598,6 +608,8 @@ struct RoutingCanvasView: View {
         nodeID = workspace.addAudioMixerNode(centeredAt: worldPoint)
       case .peakLevel:
         nodeID = workspace.addPeakLevelNode(centeredAt: worldPoint)
+      case .signalGenerator:
+        nodeID = workspace.addSignalGeneratorNode(centeredAt: worldPoint)
       }
       selectNode(nodeID)
 
@@ -662,6 +674,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   let insertVisualizer: () -> Void
   let insertAudioMixer: () -> Void
   let insertPeakLevel: () -> Void
+  let insertSignalGenerator: () -> Void
   let workflowNavigation: WorkflowNavigation
 
   init(
@@ -673,6 +686,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     insertVisualizer: @escaping () -> Void,
     insertAudioMixer: @escaping () -> Void,
     insertPeakLevel: @escaping () -> Void,
+    insertSignalGenerator: @escaping () -> Void,
     @ViewBuilder workflowNavigation: () -> WorkflowNavigation
   ) {
     self.applicationCatalog = applicationCatalog
@@ -683,6 +697,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     self.insertVisualizer = insertVisualizer
     self.insertAudioMixer = insertAudioMixer
     self.insertPeakLevel = insertPeakLevel
+    self.insertSignalGenerator = insertSignalGenerator
     self.workflowNavigation = workflowNavigation()
   }
 
@@ -714,6 +729,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
               visualizerItem
               audioMixerItem
               peakLevelItem
+              signalGeneratorItem
             }
           }
 
@@ -724,9 +740,10 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       }
       .scrollContentBackground(.hidden)
       .background(Color.clear)
-      .frame(maxHeight: .infinity, alignment: .top)
+      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
       .layoutPriority(1)
     }
+    .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
     .padding(.horizontal, 14)
     .padding(.bottom, 14)
     .padding(.top, 34)
@@ -749,7 +766,6 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     .padding(.top, 22)
     .padding(.bottom, 12)
     .frame(width: 286)
-    .frame(maxHeight: .infinity, alignment: .top)
     .background(Color.clear)
   }
 
@@ -815,6 +831,19 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       veil: FlowingAccent.pollen.veil,
       allowsClickInsertion: allowsClickInsertion,
       action: insertPeakLevel
+    )
+  }
+
+  private var signalGeneratorItem: some View {
+    RoutingPaletteNodeItem(
+      item: .signalGenerator,
+      title: "Signal Generator",
+      subtitle: "Create tones and colored noise",
+      systemImage: "waveform.path",
+      foreground: FlowingAccent.poppy.foreground,
+      veil: FlowingAccent.poppy.veil,
+      allowsClickInsertion: allowsClickInsertion,
+      action: insertSignalGenerator
     )
   }
 
@@ -1051,6 +1080,14 @@ private struct RoutingCanvasDropPreview: View {
         "gauge.with.dots.needle.50percent",
         FlowingAccent.pollen.foreground,
         FlowingAccent.pollen.veil
+      )
+    case .signalGenerator:
+      return (
+        "Signal Generator",
+        "Sine · 440 Hz",
+        "waveform.path",
+        FlowingAccent.poppy.foreground,
+        FlowingAccent.poppy.veil
       )
     }
   }
@@ -1682,6 +1719,75 @@ private struct PeakLevelNodeView: View {
       height: RoutingCanvasMetrics.baseNodeSize.height * context.renderScale,
       alignment: .topLeading
     )
+  }
+}
+
+private struct SignalGeneratorNodeView: View {
+  let configuration: RoutingSignalGeneratorConfiguration
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  private let accent = FlowingAccent.poppy
+
+  var body: some View {
+    FlowingCard(
+      spacing: 10,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      HStack(spacing: 9) {
+        Image(systemName: "waveform.path")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(accent.foreground)
+        VStack(alignment: .leading, spacing: 1) {
+          Text("Signal Generator")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text(subtitle)
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+        Spacer(minLength: 0)
+      }
+
+      Text("\(Int((configuration.amplitude * 100).rounded()))% amplitude")
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(FlowingPalette.muted)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+        .background(
+          accent.wash,
+          in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .padding(.trailing, RoutingVisualizerLayout.portLabelGutter)
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width,
+      height: RoutingCanvasMetrics.baseNodeSize.height
+    )
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width * context.renderScale,
+      height: RoutingCanvasMetrics.baseNodeSize.height * context.renderScale,
+      alignment: .topLeading
+    )
+  }
+
+  private var subtitle: String {
+    guard configuration.waveform.usesFrequency else {
+      return configuration.waveform.displayName
+    }
+    return "\(configuration.waveform.displayName) · \(frequencyDescription) Hz"
+  }
+
+  private var frequencyDescription: String {
+    configuration.frequency.formatted(.number.precision(.fractionLength(0)))
   }
 }
 
@@ -2778,6 +2884,134 @@ private struct SelectedPeakLevelInspector: View {
       FlowingPalette.field,
       in: RoundedRectangle(cornerRadius: 9, style: .continuous)
     )
+  }
+}
+
+private struct SelectedSignalGeneratorInspector: View {
+  let configuration: RoutingSignalGeneratorConfiguration
+  let updateConfiguration: (RoutingSignalGeneratorConfiguration) -> Void
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("Signal Generator")
+          .font(.headline)
+          .foregroundStyle(FlowingPalette.ink)
+        Text("Create a realtime test tone or a deterministic noise source.")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      VStack(alignment: .leading, spacing: 7) {
+        Text("Waveform")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+        FlowingSelect(
+          label: "Generator waveform",
+          selection: waveform,
+          options: AudioSignalGeneratorWaveform.allCases.map {
+            FlowingSelectOption($0, label: $0.displayName)
+          },
+          minimumWidth: 164
+        )
+      }
+
+      if configuration.waveform.usesFrequency {
+        generatorSlider(
+          title: "Frequency",
+          value: frequencyPosition,
+          range: 0...1,
+          formattedValue: "\(frequencyDescription) Hz",
+          accessibilityFormat: { _ in "\(frequencyDescription) hertz" }
+        )
+      }
+
+      generatorSlider(
+        title: "Amplitude",
+        value: amplitude,
+        range: 0...1,
+        formattedValue: "\(Int((configuration.amplitude * 100).rounded()))%",
+        accessibilityFormat: { value in "\(Int((value * 100).rounded())) percent" }
+      )
+
+      FlowingCallout(
+        "Connect the mono output to an Output Audio node to render it. Keep amplitude below full scale when mixing sources.",
+        title: "Realtime Source",
+        systemImage: "waveform.path",
+        tone: .neutral
+      )
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  private func generatorSlider(
+    title: String,
+    value: Binding<Double>,
+    range: ClosedRange<Double>,
+    formattedValue: String,
+    accessibilityFormat: @escaping (Double) -> String
+  ) -> some View {
+    VStack(alignment: .leading, spacing: 7) {
+      HStack {
+        Text(title)
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+        Spacer(minLength: 8)
+        Text(formattedValue)
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(FlowingPalette.ink)
+      }
+      FlowingSlider(
+        title,
+        value: value,
+        in: range,
+        formatValue: accessibilityFormat
+      )
+    }
+  }
+
+  private var waveform: Binding<AudioSignalGeneratorWaveform> {
+    Binding(
+      get: { configuration.waveform },
+      set: { waveform in
+        var updated = configuration
+        updated.waveform = waveform
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var frequencyPosition: Binding<Double> {
+    let minimum = RoutingSignalGeneratorConfiguration.minimumFrequency
+    let maximum = RoutingSignalGeneratorConfiguration.maximumFrequency
+    let span = log(maximum / minimum)
+    return Binding(
+      get: { log(configuration.frequency / minimum) / span },
+      set: { position in
+        var updated = configuration
+        updated.frequency = minimum * exp(min(max(position, 0), 1) * span)
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var amplitude: Binding<Double> {
+    Binding(
+      get: { Double(configuration.amplitude) },
+      set: { amplitude in
+        var updated = configuration
+        updated.amplitude = Float(min(max(amplitude, 0), 1))
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var frequencyDescription: String {
+    configuration.frequency.formatted(.number.precision(.fractionLength(0)))
   }
 }
 

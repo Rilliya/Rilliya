@@ -122,12 +122,13 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
   case visualizer(configuration: RoutingVisualizerConfiguration)
   case audioMixer(configuration: RoutingAudioMixerConfiguration)
   case peakLevel
+  case signalGenerator(configuration: RoutingSignalGeneratorConfiguration)
 
   var applicationSelection: RoutingApplicationSelection? {
     switch self {
     case .applicationAudio(let selection, _):
       return selection
-    case .inputAudio, .outputAudio, .visualizer, .audioMixer, .peakLevel:
+    case .inputAudio, .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator:
       return nil
     }
   }
@@ -156,7 +157,7 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     switch self {
     case .applicationAudio(_, let presentation), .inputAudio(_, let presentation):
       return presentation
-    case .outputAudio, .visualizer, .audioMixer, .peakLevel:
+    case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator:
       return nil
     }
   }
@@ -169,7 +170,7 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return .applicationAudio(selection: selection, channelPresentation: presentation)
     case .inputAudio(let selection, _):
       return .inputAudio(selection: selection, channelPresentation: presentation)
-    case .outputAudio, .visualizer, .audioMixer, .peakLevel:
+    case .outputAudio, .visualizer, .audioMixer, .peakLevel, .signalGenerator:
       return nil
     }
   }
@@ -200,6 +201,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return "Audio Mixer"
     case .peakLevel:
       return "Peak Level"
+    case .signalGenerator:
+      return "Signal Generator"
     }
   }
 }
@@ -298,6 +301,73 @@ struct RoutingAudioMixerConfiguration: Codable, Equatable, Hashable, Sendable {
   func encode(to encoder: Encoder) throws {
     var container = encoder.singleValueContainer()
     try container.encode(channelCount)
+  }
+}
+
+struct RoutingSignalGeneratorConfiguration: Codable, Equatable, Hashable, Sendable {
+  static let minimumFrequency = 1.0
+  static let maximumFrequency = 20_000.0
+  static let initial = RoutingSignalGeneratorConfiguration(
+    waveform: .sine,
+    frequency: 440,
+    amplitude: 0.25
+  )
+
+  var waveform: AudioSignalGeneratorWaveform
+  var frequency: Double
+  var amplitude: Float
+
+  init(
+    waveform: AudioSignalGeneratorWaveform,
+    frequency: Double,
+    amplitude: Float
+  ) {
+    precondition(frequency.isFinite)
+    precondition((Self.minimumFrequency...Self.maximumFrequency).contains(frequency))
+    precondition(amplitude.isFinite && (0...1).contains(amplitude))
+    self.waveform = waveform
+    self.frequency = frequency
+    self.amplitude = amplitude
+  }
+
+  init(from decoder: Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    let waveform = try container.decode(AudioSignalGeneratorWaveform.self, forKey: .waveform)
+    let frequency = try container.decode(Double.self, forKey: .frequency)
+    let amplitude = try container.decode(Float.self, forKey: .amplitude)
+    guard frequency.isFinite,
+      (Self.minimumFrequency...Self.maximumFrequency).contains(frequency),
+      amplitude.isFinite,
+      (0...1).contains(amplitude)
+    else {
+      throw DecodingError.dataCorruptedError(
+        forKey: .frequency,
+        in: container,
+        debugDescription: "Signal generator parameters are outside the supported range."
+      )
+    }
+    self.init(waveform: waveform, frequency: frequency, amplitude: amplitude)
+  }
+}
+
+extension AudioSignalGeneratorWaveform {
+  var displayName: String {
+    switch self {
+    case .sine: "Sine"
+    case .square: "Square"
+    case .triangle: "Triangle"
+    case .sawtooth: "Sawtooth"
+    case .whiteNoise: "White Noise"
+    case .pinkNoise: "Pink Noise"
+    case .brownNoise: "Brown Noise"
+    }
+  }
+
+  var usesFrequency: Bool {
+    switch self {
+    case .sine, .square, .triangle, .sawtooth: true
+    case .whiteNoise, .pinkNoise, .brownNoise: false
+    }
   }
 }
 
@@ -754,7 +824,7 @@ enum RoutingCanvasMetrics {
           RoutingAudioMixerLayout.nodeHeight(channelCount: configuration.channelCount)
         )
       )
-    case .peakLevel:
+    case .peakLevel, .signalGenerator:
       return baseNodeSize
     }
     return CGSize(
@@ -1001,6 +1071,17 @@ enum RoutingGraphPorts {
           ordinal: 0,
           total: 1
         ),
+      ]
+    case .signalGenerator:
+      return [
+        RoutingGraphPortValue(
+          direction: .output,
+          channel: .channel(0),
+          name: "Mono",
+          connectionPolicy: .fanOut,
+          ordinal: 0,
+          total: 1
+        )
       ]
     }
     return identities.enumerated().map { ordinal, identity in

@@ -213,7 +213,7 @@ enum RoutingCanvasContentBuilder {
       )
       guard rowFrames.indices.contains(value.ordinal) else { return nil }
       return rowFrames[value.ordinal].midY
-    case .applicationAudio, .inputAudio, .outputAudio, .peakLevel:
+    case .applicationAudio, .inputAudio, .outputAudio, .peakLevel, .signalGenerator:
       return nil
     }
   }
@@ -245,6 +245,9 @@ enum RoutingCanvasContentBuilder {
     case .peakLevel:
       value = "Maximum linear full-scale sample"
       hint = "Connect one audio output to measure its current peak level."
+    case .signalGenerator(let configuration):
+      value = "\(configuration.waveform.displayName), \(Int(configuration.frequency)) hertz"
+      hint = "Connect this generated mono signal to an audio destination."
     }
     let identifier: String?
     if case .node(let nodeID) = node.address.elementID {

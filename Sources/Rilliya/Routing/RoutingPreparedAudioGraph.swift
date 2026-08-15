@@ -29,6 +29,7 @@ final class RoutingPreparedAudioGraphSource: PreparedAudioSource, @unchecked Sen
   let timing = AudioNodeTiming.transparent
 
   private let storage: RoutingPreparedAudioStorage
+  private let generators: [RoutingPreparedSignalGenerator]
   private let captureReads: [RoutingPreparedCaptureRead]
   private let gainOperations: [RoutingPreparedGainOperation]
   private let mixOperations: [RoutingPreparedMixOperation]
@@ -55,6 +56,13 @@ final class RoutingPreparedAudioGraphSource: PreparedAudioSource, @unchecked Sen
     )
     self.preparation = preparation
     self.storage = storage
+    generators = try plan.generators.map {
+      try RoutingPreparedSignalGenerator(
+        plan: $0,
+        preparation: preparation,
+        storage: storage
+      )
+    }
     captureReads = try plan.captureReads.map {
       try RoutingPreparedCaptureRead(
         plan: $0,
@@ -94,6 +102,11 @@ final class RoutingPreparedAudioGraphSource: PreparedAudioSource, @unchecked Sen
     }
     guard outputChannels.count >= preparation.format.channelCount else {
       return .insufficientChannels
+    }
+    for generator in generators {
+      guard generator.render(frameCount: frameCount) == .rendered else {
+        return .insufficientChannels
+      }
     }
     for captureRead in captureReads {
       guard captureRead.render(frameCount: frameCount) == .rendered else {
@@ -138,6 +151,11 @@ private struct RoutingCaptureReadPlan {
   let outputBufferIndices: [Int]
 }
 
+private struct RoutingSignalGeneratorPlan {
+  let configuration: RoutingSignalGeneratorConfiguration
+  let outputBufferIndex: Int
+}
+
 private struct RoutingPreparedControlAddress {
   let nodeID: UUID
   let channelIndex: Int
@@ -160,6 +178,7 @@ private struct RoutingMixPlan {
 
 private struct RoutingPreparedAudioGraphPlan {
   let bufferCount: Int
+  let generators: [RoutingSignalGeneratorPlan]
   let captureReads: [RoutingCaptureReadPlan]
   let gainOperations: [RoutingGainPlan]
   let mixOperations: [RoutingMixPlan]
@@ -174,6 +193,7 @@ private struct RoutingPreparedAudioGraphCompiler {
   private let frameBuffers: [UUID: AudioRealtimeFrameBuffer]
 
   private var nextBufferIndex = 0
+  private var generatorPlans: [RoutingSignalGeneratorPlan] = []
   private var captureReadPlans: [RoutingCaptureReadPlan] = []
   private var gainPlans: [RoutingGainPlan] = []
   private var mixPlans: [RoutingMixPlan] = []
@@ -232,6 +252,7 @@ private struct RoutingPreparedAudioGraphCompiler {
     )
     return RoutingPreparedAudioGraphPlan(
       bufferCount: nextBufferIndex,
+      generators: generatorPlans,
       captureReads: captureReadPlans,
       gainOperations: gainPlans,
       mixOperations: mixPlans,
@@ -257,6 +278,12 @@ private struct RoutingPreparedAudioGraphCompiler {
     switch node.value {
     case .applicationAudio, .inputAudio:
       signal = try sourceSignal(for: node, address: address)
+    case .signalGenerator(let configuration):
+      signal = try signalGeneratorSignal(
+        nodeID: node.id,
+        address: address,
+        configuration: configuration
+      )
     case .visualizer(let configuration):
       signal = try visualizerSignal(
         nodeID: node.id,
@@ -270,6 +297,29 @@ private struct RoutingPreparedAudioGraphCompiler {
       throw RoutingPreparedAudioGraphError.invalidRoute
     }
     signalsByAddress[address] = signal
+    return signal
+  }
+
+  private mutating func signalGeneratorSignal(
+    nodeID: UUID,
+    address: RoutingWorkspacePortAddress,
+    configuration: RoutingSignalGeneratorConfiguration
+  ) throws -> [RoutingCompiledAudioChannel] {
+    guard address.portID.audioChannel == .channel(0) else {
+      throw RoutingPreparedAudioGraphError.invalidRoute
+    }
+    if let existing = sourceSignalsByNodeID[nodeID] {
+      return existing
+    }
+    let outputBufferIndex = allocateBuffers(count: 1)[0]
+    generatorPlans.append(
+      RoutingSignalGeneratorPlan(
+        configuration: configuration,
+        outputBufferIndex: outputBufferIndex
+      )
+    )
+    let signal = [RoutingCompiledAudioChannel(channelIndex: 0, bufferIndex: outputBufferIndex)]
+    sourceSignalsByNodeID[nodeID] = signal
     return signal
   }
 
@@ -509,6 +559,40 @@ private final class RoutingPreparedPointerList {
 
   var immutableBuffer: UnsafeBufferPointer<UnsafePointer<Float>> {
     UnsafeBufferPointer(start: immutable, count: count)
+  }
+}
+
+private final class RoutingPreparedSignalGenerator {
+  private let source: PreparedAudioSignalGeneratorSource
+  private let outputs: RoutingPreparedPointerList
+
+  init(
+    plan: RoutingSignalGeneratorPlan,
+    preparation: AudioRenderPreparation,
+    storage: RoutingPreparedAudioStorage
+  ) throws {
+    source = try PreparedAudioSignalGeneratorSource(
+      preparation: AudioRenderPreparation(
+        format: AudioProcessingFormat(
+          sampleRate: preparation.format.sampleRate,
+          channelCount: 1
+        ),
+        maximumFrameCount: preparation.maximumFrameCount
+      ),
+      configuration: AudioSignalGeneratorConfiguration(
+        waveform: plan.configuration.waveform,
+        frequency: plan.configuration.frequency,
+        amplitude: plan.configuration.amplitude
+      )
+    )
+    outputs = RoutingPreparedPointerList(
+      bufferIndices: [plan.outputBufferIndex],
+      storage: storage
+    )
+  }
+
+  func render(frameCount: Int) -> AudioRenderResult {
+    source.render(outputChannels: outputs.mutableBuffer, frameCount: frameCount)
   }
 }
 

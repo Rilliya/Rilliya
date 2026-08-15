@@ -133,6 +133,26 @@ struct RoutingPreparedAudioGraphTests {
   }
 
   @Test
+  func signalGeneratorRendersWithoutACaptureBuffer() throws {
+    let generatorID = UUID()
+    let outputID = UUID()
+    let renderer = try makeRenderer(
+      nodes: [signalGeneratorNode(id: generatorID), outputNode(id: outputID)],
+      edges: [edge(from: generatorID, .channel(0), to: outputID, .all)],
+      outputNodeID: outputID,
+      frameBuffers: [:],
+      outputChannelCount: 2,
+      maximumFrameCount: 32
+    )
+
+    let rendered = render(renderer, channelCount: 2, frameCount: 32)
+
+    #expect(rendered.result == .rendered)
+    #expect(rendered.channels[0].contains { abs($0) > 0.001 })
+    #expect(rendered.channels[1] == Array(repeating: 0, count: 32))
+  }
+
+  @Test
   func visualizerPassThroughPreservesPCM() throws {
     let sourceID = UUID()
     let visualizerID = UUID()
@@ -296,6 +316,14 @@ struct RoutingPreparedAudioGraphTests {
       value: .audioMixer(configuration: .initial),
       frame: .zero,
       audioChannelControls: controls
+    )
+  }
+
+  private func signalGeneratorNode(id: UUID) -> RoutingWorkspaceNode {
+    RoutingWorkspaceNode(
+      id: id,
+      value: .signalGenerator(configuration: .initial),
+      frame: .zero
     )
   }
 
