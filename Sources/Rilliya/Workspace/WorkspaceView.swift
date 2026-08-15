@@ -1,57 +1,72 @@
+import AppKit
 import FlowingDayControls
+import FlowingDayGraphCanvas
 import SwiftUI
 
 struct WorkspaceView: View {
-  @State private var state = WorkspaceState()
-  @State private var audioCatalog = AudioCatalogController()
+  @State private var routingWorkspace = RoutingWorkspaceModel()
+  @State private var applicationCatalog = InstalledApplicationCatalogController()
+  @State private var iconResolver = NSWorkspaceInstalledApplicationIconResolver()
+  @State private var canvasSession = FlowingGraphCanvasSessionState<RoutingCanvasSchema>()
+  @State private var inspectedNodeID: UUID?
+
+  private let canvasSessionID = FlowingGraphCanvasSessionID()
 
   var body: some View {
-    NavigationSplitView {
-      AudioCatalogSidebar(state: audioCatalog.state) {
-        audioCatalog.refresh()
-      }
-      .navigationSplitViewColumnWidth(min: 280, ideal: 320, max: 400)
-    } detail: {
-      workspace
+    HStack(spacing: 0) {
+      RoutingNodePaletteView(
+        applicationCatalog: applicationCatalog,
+        insertApplicationAudio: insertApplicationAudio
+      )
+
+      Divider()
+        .overlay(FlowingPalette.hairline)
+
+      RoutingCanvasView(
+        workspace: routingWorkspace,
+        applicationCatalog: applicationCatalog,
+        iconResolver: iconResolver,
+        sessionID: canvasSessionID,
+        session: $canvasSession,
+        inspectedNodeID: $inspectedNodeID
+      )
     }
-    .navigationSplitViewStyle(.balanced)
-    .frame(minWidth: 760, minHeight: 500)
+    .background(FlowingPalette.canvas)
+    .frame(minWidth: 840, minHeight: 560)
     .task {
-      state.completeLaunch()
-      audioCatalog.start()
+      await applicationCatalog.refresh()
+    }
+    .task {
+      for await _ in NSWorkspace.shared.notificationCenter.notifications(
+        named: NSWorkspace.didLaunchApplicationNotification
+      ) {
+        await applicationCatalog.refresh()
+      }
+    }
+    .task {
+      for await _ in NSWorkspace.shared.notificationCenter.notifications(
+        named: NSWorkspace.didTerminateApplicationNotification
+      ) {
+        await applicationCatalog.refresh()
+      }
     }
     .onDisappear {
-      audioCatalog.stop()
+      applicationCatalog.cancelRefresh()
     }
   }
 
-  private var workspace: some View {
-    ZStack {
-      FlowingPalette.canvas
-        .ignoresSafeArea()
-
-      FlowingCard(
-        alignment: .center,
-        spacing: 12,
-        contentInsets: EdgeInsets(top: 32, leading: 36, bottom: 32, trailing: 36)
-      ) {
-        FlowingEmptyState(systemImage: state.presentation.systemImage) {
-          VStack(spacing: 7) {
-            Text(state.presentation.title)
-              .font(.title3.weight(.semibold))
-              .foregroundStyle(FlowingPalette.ink)
-            Text(state.presentation.detail)
-              .multilineTextAlignment(.center)
-          }
-        }
-      }
-      .frame(maxWidth: 460)
-      .padding(40)
-    }
+  private func insertApplicationAudio() {
+    inspectedNodeID = routingWorkspace.addApplicationAudioNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: routingWorkspace.nodes.count
+      )
+    )
   }
 }
 
 #Preview {
   WorkspaceView()
+    .flowingAccent(.fern)
     .frame(width: 1_080, height: 680)
 }

@@ -1,3 +1,4 @@
+import FlowingDayControls
 import RilliyaKit
 import SwiftUI
 
@@ -6,6 +7,7 @@ struct RilliyaApp: App {
   var body: some Scene {
     WindowGroup {
       WorkspaceView()
+        .flowingAccent(.fern)
     }
     .defaultSize(width: 1_080, height: 680)
     .windowResizability(.contentMinSize)

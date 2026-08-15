@@ -59,6 +59,16 @@ targets:
         product: RilliyaKit
       - package: FlowingDayUI
         product: FlowingDayControls
+      - package: FlowingDayUI
+        product: FlowingDayCanvas
+      - package: FlowingDayUI
+        product: FlowingDayGraphCore
+      - package: FlowingDayUI
+        product: FlowingDayGraphComposition
+      - package: FlowingDayUI
+        product: FlowingDayGraphLayout
+      - package: FlowingDayUI
+        product: FlowingDayGraphCanvas
 
   RilliyaTests:
     type: bundle.unit-test
