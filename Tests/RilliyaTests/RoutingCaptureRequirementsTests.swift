@@ -112,6 +112,36 @@ struct RoutingCaptureRequirementsTests {
   }
 
   @Test @MainActor
+  func identicalInputDevicesAcrossWorkflowsRemainSeparateSharedConsumers() throws {
+    let deviceID = try #require(AudioDeviceID(rawValue: "test.shared-microphone"))
+    let workflows = [RoutingWorkflowModel(name: "Voice"), RoutingWorkflowModel(name: "Meter")]
+    var sourceIDs: [UUID] = []
+
+    for workflow in workflows {
+      workflow.run()
+      let sourceID = workflow.workspace.addInputAudioNode(centeredAt: .zero)
+      let visualizerID = workflow.workspace.addVisualizerNode(
+        centeredAt: CGPoint(x: 400, y: 0)
+      )
+      workflow.workspace.selectInputDevice(
+        RoutingInputDeviceSelection(id: deviceID, displayName: "Shared Microphone"),
+        for: sourceID
+      )
+      try connect(sourceID: sourceID, targetID: visualizerID, in: workflow.workspace)
+      sourceIDs.append(sourceID)
+    }
+
+    let requirements = RoutingCaptureRequirementResolver.resolve(
+      workflows: workflows,
+      catalogSnapshot: nil
+    )
+
+    #expect(requirements.inputDeviceIDsByNode.count == 2)
+    #expect(Set(requirements.inputDeviceIDsByNode.keys) == Set(sourceIDs))
+    #expect(Set(requirements.inputDeviceIDsByNode.values) == [deviceID])
+  }
+
+  @Test @MainActor
   func processTapMutesOrdinaryPlaybackOnlyWhenItsGraphReachesAnOutputDevice() throws {
     let musicURL = URL(fileURLWithPath: "/Applications/Music.app")
     let processID = try #require(AudioProcessID(rawValue: 72))
