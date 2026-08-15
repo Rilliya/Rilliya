@@ -1196,15 +1196,6 @@ private struct SelectedApplicationInspector: View {
       }
     }
     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
-    .onChange(of: captureController.state(for: nodeID)) { _, state in
-      guard case .running(let format) = state,
-        case .separate = channelPresentation,
-        !format.channelIDs.isEmpty
-      else {
-        return
-      }
-      setChannelPresentation(.separate(channelCount: format.channelIDs.count))
-    }
   }
 
   @ViewBuilder

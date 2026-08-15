@@ -2,6 +2,7 @@ import CoreGraphics
 import FlowingDayGraphCanvas
 import Foundation
 import Observation
+import RilliyaKit
 
 @MainActor
 @Observable
@@ -13,6 +14,9 @@ final class RoutingWorkspaceModel {
   private(set) var canvasContent: RoutingCanvasContent?
   private(set) var accessibilitySnapshot: RoutingCanvasAccessibilitySnapshot?
   private(set) var buildFailureDescription: String?
+  private(set) var runtimeCaptureFormats: [UUID: ProcessOutputCaptureFormat] = [:]
+
+  private var pendingSeparateSourcesByVisualizer: [UUID: Set<UUID>] = [:]
 
   init(id: UUID = UUID()) {
     self.id = id
@@ -82,6 +86,7 @@ final class RoutingWorkspaceModel {
       selection: selection,
       channelPresentation: channelPresentation
     )
+    runtimeCaptureFormats[nodeID] = nil
     rebuildCanvas()
   }
 
@@ -99,12 +104,26 @@ final class RoutingWorkspaceModel {
     case .aggregate:
       normalized = .aggregate
     case .separate(let channelCount):
+      let runtimeChannelCount = runtimeCaptureFormats[nodeID]?.channelIDs.count
       normalized = .separate(
         channelCount: max(
           1,
-          min(RoutingVisualizerConfiguration.maximumAvailableChannelCount, channelCount)
+          min(
+            RoutingVisualizerConfiguration.maximumAvailableChannelCount,
+            runtimeChannelCount ?? channelCount
+          )
         )
       )
+    }
+
+    guard
+      migrateApplicationEdges(
+        nodeID: nodeID,
+        from: nodes[index].value,
+        to: normalized
+      )
+    else {
+      return
     }
     nodes[index].value = .applicationAudio(
       selection: selection,
@@ -119,7 +138,7 @@ final class RoutingWorkspaceModel {
     for nodeID: UUID
   ) {
     guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
-      case .visualizer = nodes[index].value
+      case .visualizer(let previous) = nodes[index].value
     else {
       return
     }
@@ -136,8 +155,65 @@ final class RoutingWorkspaceModel {
       normalized.selectedChannels = [0]
     }
     nodes[index].value = .visualizer(configuration: normalized)
+
+    if previous.mode != normalized.mode {
+      switch normalized.mode {
+      case .mixed:
+        pendingSeparateSourcesByVisualizer[nodeID] = nil
+        retargetIncomingEdgesToMixedInput(nodeID: nodeID)
+      case .separate:
+        let sourceIDs = Set(incomingEdges(for: nodeID).map(\.source.nodeID))
+        if !sourceIDs.isEmpty {
+          pendingSeparateSourcesByVisualizer[nodeID] = sourceIDs
+          edges.removeAll { $0.target.nodeID == nodeID }
+          _ = materializePendingSeparation(for: nodeID)
+        }
+      }
+    }
     resizeNode(at: index)
     rebuildCanvas()
+  }
+
+  func synchronizeCaptureFormats(
+    _ formats: [UUID: ProcessOutputCaptureFormat]
+  ) {
+    var needsRebuild = false
+    for (nodeID, format) in formats where !format.channelIDs.isEmpty {
+      guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+        case .applicationAudio(let selection, let presentation) = nodes[index].value
+      else {
+        continue
+      }
+      if runtimeCaptureFormats[nodeID] != format {
+        runtimeCaptureFormats[nodeID] = format
+      }
+      guard case .separate(let currentCount) = presentation,
+        currentCount != normalizedRuntimeChannelCount(format.channelIDs.count)
+      else {
+        continue
+      }
+      let channelCount = normalizedRuntimeChannelCount(format.channelIDs.count)
+      nodes[index].value = .applicationAudio(
+        selection: selection,
+        channelPresentation: .separate(channelCount: channelCount)
+      )
+      resizeNode(at: index)
+      needsRebuild = true
+    }
+
+    for visualizerID in pendingSeparateSourcesByVisualizer.keys.sorted(by: {
+      $0.uuidString < $1.uuidString
+    }) {
+      needsRebuild = materializePendingSeparation(for: visualizerID) || needsRebuild
+    }
+    if needsRebuild {
+      rebuildCanvas()
+    }
+  }
+
+  var captureSourceNodeIDs: Set<UUID> {
+    Set(edges.map(\.source.nodeID))
+      .union(pendingSeparateSourcesByVisualizer.values.flatMap { $0 })
   }
 
   func node(id: UUID) -> RoutingWorkspaceNode? {
@@ -310,6 +386,165 @@ final class RoutingWorkspaceModel {
     } catch {
       buildFailureDescription = String(describing: error)
     }
+  }
+
+  private func migrateApplicationEdges(
+    nodeID: UUID,
+    from value: RoutingNodeValue,
+    to presentation: RoutingChannelPresentation
+  ) -> Bool {
+    guard case .applicationAudio(_, let previous) = value,
+      previous != presentation
+    else {
+      return true
+    }
+    let outgoing = edges.filter { $0.source.nodeID == nodeID }
+
+    switch (previous, presentation) {
+    case (.aggregate, .separate(let channelCount)):
+      let aggregateEdges = outgoing.filter { $0.source.portID.audioChannel == .all }
+      edges.removeAll { edge in aggregateEdges.contains { $0.id == edge.id } }
+      for edge in aggregateEdges where edge.target.portID.audioChannel == .all {
+        for channel in 0..<channelCount {
+          appendEdgeIfMissing(
+            source: RoutingWorkspacePortAddress(
+              nodeID: nodeID,
+              portID: RoutingGraphPortID(direction: .output, channel: .channel(channel))
+            ),
+            target: edge.target
+          )
+        }
+      }
+      return true
+
+    case (.separate(let channelCount), .aggregate):
+      guard canCollapseToAggregate(outgoing: outgoing, channelCount: channelCount) else {
+        return false
+      }
+      let targetAddresses = Set(outgoing.map(\.target))
+      edges.removeAll { $0.source.nodeID == nodeID }
+      for target in targetAddresses {
+        appendEdgeIfMissing(
+          source: RoutingWorkspacePortAddress(
+            nodeID: nodeID,
+            portID: RoutingGraphPortID(direction: .output, channel: .all)
+          ),
+          target: target
+        )
+      }
+      return true
+
+    case (.aggregate, .aggregate), (.separate, .separate):
+      return true
+    }
+  }
+
+  private func canCollapseToAggregate(
+    outgoing: [RoutingWorkspaceEdge],
+    channelCount: Int
+  ) -> Bool {
+    guard !outgoing.isEmpty else { return true }
+    let grouped = Dictionary(grouping: outgoing, by: \.target)
+    let expected = Set(0..<channelCount)
+    return grouped.allSatisfy { target, targetEdges in
+      guard target.portID.audioChannel == .all else { return false }
+      let channels = Set(
+        targetEdges.compactMap { edge -> Int? in
+          guard case .some(.channel(let index)) = edge.source.portID.audioChannel else {
+            return nil
+          }
+          return index
+        })
+      return channels == expected && targetEdges.count == expected.count
+    }
+  }
+
+  private func retargetIncomingEdgesToMixedInput(nodeID: UUID) {
+    let incoming = incomingEdges(for: nodeID)
+    edges.removeAll { $0.target.nodeID == nodeID }
+    let target = RoutingWorkspacePortAddress(
+      nodeID: nodeID,
+      portID: RoutingGraphPortID(direction: .input, channel: .all)
+    )
+    for edge in incoming {
+      appendEdgeIfMissing(source: edge.source, target: target)
+    }
+  }
+
+  @discardableResult
+  private func materializePendingSeparation(for visualizerID: UUID) -> Bool {
+    guard let sourceIDs = pendingSeparateSourcesByVisualizer[visualizerID],
+      !sourceIDs.isEmpty,
+      let visualizerIndex = nodes.firstIndex(where: { $0.id == visualizerID }),
+      case .visualizer(var configuration) = nodes[visualizerIndex].value
+    else {
+      return false
+    }
+    let formats = sourceIDs.sorted(by: { $0.uuidString < $1.uuidString }).compactMap { nodeID in
+      runtimeCaptureFormats[nodeID].map { (nodeID, $0) }
+    }
+    guard formats.count == sourceIDs.count else { return false }
+    let maximumChannelCount = formats.map { $0.1.channelIDs.count }.max() ?? 0
+    guard maximumChannelCount > 0,
+      maximumChannelCount <= RoutingVisualizerConfiguration.maximumSeparateLaneCount
+    else {
+      return false
+    }
+
+    configuration.mode = .separate
+    configuration.availableChannelCount = maximumChannelCount
+    configuration.selectedChannels = Set(0..<maximumChannelCount)
+    nodes[visualizerIndex].value = .visualizer(configuration: configuration)
+    resizeNode(at: visualizerIndex)
+
+    edges.removeAll { $0.target.nodeID == visualizerID }
+    for (sourceID, format) in formats {
+      guard let sourceIndex = nodes.firstIndex(where: { $0.id == sourceID }),
+        case .applicationAudio(let selection, _) = nodes[sourceIndex].value
+      else {
+        continue
+      }
+      let channelCount = format.channelIDs.count
+      nodes[sourceIndex].value = .applicationAudio(
+        selection: selection,
+        channelPresentation: .separate(channelCount: channelCount)
+      )
+      resizeNode(at: sourceIndex)
+      for channel in 0..<channelCount {
+        appendEdgeIfMissing(
+          source: RoutingWorkspacePortAddress(
+            nodeID: sourceID,
+            portID: RoutingGraphPortID(direction: .output, channel: .channel(channel))
+          ),
+          target: RoutingWorkspacePortAddress(
+            nodeID: visualizerID,
+            portID: RoutingGraphPortID(direction: .input, channel: .channel(channel))
+          )
+        )
+      }
+    }
+    pendingSeparateSourcesByVisualizer[visualizerID] = nil
+    return true
+  }
+
+  private func appendEdgeIfMissing(
+    source: RoutingWorkspacePortAddress,
+    target: RoutingWorkspacePortAddress
+  ) {
+    guard !edges.contains(where: { $0.source == source && $0.target == target }) else {
+      return
+    }
+    edges.append(RoutingWorkspaceEdge(id: UUID(), source: source, target: target))
+  }
+
+  private func normalizedRuntimeChannelCount(_ channelCount: Int) -> Int {
+    max(
+      1,
+      min(
+        RoutingVisualizerConfiguration.maximumAvailableChannelCount,
+        channelCount
+      )
+    )
   }
 
   private func pruneEdgesWithMissingPorts() {

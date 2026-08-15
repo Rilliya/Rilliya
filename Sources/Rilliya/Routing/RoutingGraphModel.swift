@@ -61,6 +61,13 @@ enum RoutingChannelPresentation: Equatable, Hashable, Sendable {
   }
 }
 
+extension RoutingNodeValue {
+  var channelPresentation: RoutingChannelPresentation? {
+    guard case .applicationAudio(_, let presentation) = self else { return nil }
+    return presentation
+  }
+}
+
 enum RoutingVisualizerMode: String, CaseIterable, Equatable, Hashable, Sendable {
   case mixed
   case separate

@@ -55,6 +55,15 @@ struct WorkspaceView: View {
     .onChange(of: captureRequirements, initial: true) { _, requirements in
       captureController.reconcile(requirements: requirements)
     }
+    .onChange(of: captureController.states, initial: true) { _, states in
+      let formats = states.compactMapValues { state -> ProcessOutputCaptureFormat? in
+        guard case .running(let format) = state else { return nil }
+        return format
+      }
+      for workflow in workflowLibrary.workflows {
+        workflow.workspace.synchronizeCaptureFormats(formats)
+      }
+    }
     .onDisappear {
       applicationCatalog.cancelRefresh()
       captureController.stopAll()

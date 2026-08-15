@@ -24,7 +24,7 @@ enum RoutingCaptureRequirementResolver {
 
     for workflow in workflows {
       let workspace = workflow.workspace
-      let routedSourceIDs = Set(workspace.edges.map(\.source.nodeID))
+      let routedSourceIDs = workspace.captureSourceNodeIDs
       for node in workspace.nodes where routedSourceIDs.contains(node.id) {
         guard let selection = node.value.applicationSelection,
           let item = catalogByURL[canonicalApplicationURL(selection.applicationURL)],

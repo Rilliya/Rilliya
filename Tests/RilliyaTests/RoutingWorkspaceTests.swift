@@ -1,6 +1,7 @@
 import CoreGraphics
 import FlowingDayGraphCanvas
 import Foundation
+import RilliyaKit
 import Testing
 
 @testable import Rilliya
@@ -315,6 +316,96 @@ struct RoutingWorkspaceTests {
     #expect(model.node(id: nodeID)?.frame == frameAfterRebuild)
   }
 
+  @Test @MainActor
+  func runtimeFormatUpdatesSeparatePortsWithoutSelectingTheNode() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    model.setApplicationChannelPresentation(.separate(channelCount: 2), for: sourceID)
+
+    model.synchronizeCaptureFormats([
+      sourceID: try captureFormat(channelCount: 4)
+    ])
+
+    #expect(model.node(id: sourceID)?.value.channelPresentation == .separate(channelCount: 4))
+    let outputChannels = try #require(model.canvasContent).presentation.ports.compactMap {
+      port -> Int? in
+      guard port.value.direction == .output,
+        case .some(.channel(let channel)) = port.value.audioChannel
+      else {
+        return nil
+      }
+      return channel
+    }
+    #expect(outputChannels.sorted() == [0, 1, 2, 3])
+  }
+
+  @Test @MainActor
+  func knownRuntimeFormatMigratesMixedRouteToOneEdgePerChannel() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    let visualizerID = model.addVisualizerNode(centeredAt: CGPoint(x: 400, y: 0))
+    try connectAggregate(sourceID: sourceID, targetID: visualizerID, model: model)
+    model.synchronizeCaptureFormats([
+      sourceID: try captureFormat(channelCount: 2)
+    ])
+    var configuration = RoutingVisualizerConfiguration.initial
+    configuration.mode = .separate
+
+    model.configureVisualizer(configuration, for: visualizerID)
+
+    #expect(model.node(id: sourceID)?.value.channelPresentation == .separate(channelCount: 2))
+    #expect(model.edges.count == 2)
+    #expect(
+      Set(model.edges.compactMap { $0.source.portID.audioChannel })
+        == [.channel(0), .channel(1)]
+    )
+    #expect(
+      Set(model.edges.compactMap { $0.target.portID.audioChannel })
+        == [.channel(0), .channel(1)]
+    )
+  }
+
+  @Test @MainActor
+  func pendingSeparateRouteKeepsCaptureAliveUntilFormatArrives() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    let visualizerID = model.addVisualizerNode(centeredAt: CGPoint(x: 400, y: 0))
+    try connectAggregate(sourceID: sourceID, targetID: visualizerID, model: model)
+    var configuration = RoutingVisualizerConfiguration.initial
+    configuration.mode = .separate
+
+    model.configureVisualizer(configuration, for: visualizerID)
+
+    #expect(model.edges.isEmpty)
+    #expect(model.captureSourceNodeIDs == [sourceID])
+
+    model.synchronizeCaptureFormats([
+      sourceID: try captureFormat(channelCount: 2)
+    ])
+
+    #expect(model.edges.count == 2)
+    #expect(model.captureSourceNodeIDs == [sourceID])
+  }
+
+  @Test @MainActor
+  func largeRuntimeFormatIsNeverSilentlyTruncatedIntoAutomaticLanes() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: .zero)
+    let visualizerID = model.addVisualizerNode(centeredAt: CGPoint(x: 400, y: 0))
+    try connectAggregate(sourceID: sourceID, targetID: visualizerID, model: model)
+    model.synchronizeCaptureFormats([
+      sourceID: try captureFormat(channelCount: 48)
+    ])
+    var configuration = RoutingVisualizerConfiguration.initial
+    configuration.mode = .separate
+
+    model.configureVisualizer(configuration, for: visualizerID)
+
+    #expect(model.edges.isEmpty)
+    #expect(model.node(id: sourceID)?.value.channelPresentation == .aggregate)
+    #expect(model.captureSourceNodeIDs == [sourceID])
+  }
+
   @MainActor
   private func makeDragIntent(
     model: RoutingWorkspaceModel,
@@ -328,6 +419,51 @@ struct RoutingWorkspaceTests {
       basePresentationSnapshotID: content.presentation.snapshotID,
       baseLayoutInputID: content.id,
       translation: translation
+    )
+  }
+
+  @MainActor
+  private func connectAggregate(
+    sourceID: UUID,
+    targetID: UUID,
+    model: RoutingWorkspaceModel
+  ) throws {
+    let content = try #require(model.canvasContent)
+    let source = try #require(
+      content.presentation.ports.first {
+        guard case .port(let key) = $0.address.elementID else { return false }
+        return key.nodeID == sourceID && $0.value.audioChannel == .all
+      }
+    )
+    let target = try #require(
+      content.presentation.ports.first {
+        guard case .port(let key) = $0.address.elementID else { return false }
+        return key.nodeID == targetID && $0.value.audioChannel == .all
+      }
+    )
+    model.send(
+      .connectionCompleted(
+        FlowingGraphCanvasConnectionCompletionIntent(
+          operation: .create(sourcePortID: source.id, targetPortID: target.id),
+          basePresentationSnapshotID: content.presentation.snapshotID,
+          baseLayoutInputID: content.id
+        )
+      )
+    )
+  }
+
+  private func captureFormat(channelCount: Int) throws -> ProcessOutputCaptureFormat {
+    let processID = try #require(AudioProcessID(rawValue: 42))
+    let channelIDs = try (0..<channelCount).map { index in
+      AudioChannelID(
+        ownerID: .source(.processOutput(processID)),
+        index: try #require(AudioChannelIndex(rawValue: index))
+      )
+    }
+    return ProcessOutputCaptureFormat(
+      processID: processID,
+      sampleRate: 48_000,
+      channelIDs: channelIDs
     )
   }
 
