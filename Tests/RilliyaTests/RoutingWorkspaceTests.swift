@@ -77,6 +77,30 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func asynchronousDropBuildPublishesTheNodeAndItsAccessibilityRepresentation() async throws {
+    let model = RoutingWorkspaceModel()
+    let dropPoint = CGPoint(x: 640, y: 360)
+
+    let nodeID = await model.addNode(of: .visualizer, centeredAt: dropPoint)
+
+    let node = try #require(model.node(id: nodeID))
+    #expect(node.value.visualizerConfiguration == .initial)
+    #expect(CGPoint(x: node.frame.midX, y: node.frame.midY) == dropPoint)
+    #expect(
+      model.canvasContent?.presentation.nodes.contains {
+        guard case .node(let presentedNodeID) = $0.address.elementID else { return false }
+        return presentedNodeID == nodeID
+      } == true
+    )
+    #expect(
+      model.accessibilitySnapshot?.items.contains {
+        $0.description.label == "Visualizer"
+          && $0.description.value == "Mixed waveform"
+      } == true
+    )
+  }
+
+  @Test @MainActor
   func peakLevelInsertionBuildsCenteredTypedNode() throws {
     let model = RoutingWorkspaceModel()
     let center = CGPoint(x: 420, y: 260)

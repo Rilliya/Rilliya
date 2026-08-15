@@ -25,6 +25,7 @@ final class RoutingWorkspaceModel {
 
   private var pendingSeparateSourcesByVisualizer: [UUID: Set<UUID>] = [:]
   private var preferredSeparateChannelCount: Int?
+  @ObservationIgnored private var canvasBuildGeneration: UInt64 = 0
 
   init(id: UUID = UUID()) {
     self.id = id
@@ -81,6 +82,36 @@ final class RoutingWorkspaceModel {
       rebuildCanvas()
     }
   #endif
+
+  @discardableResult
+  func addNode(
+    of kind: RoutingNodeKind,
+    centeredAt worldPoint: CGPoint
+  ) async -> UUID {
+    let value: RoutingNodeValue =
+      switch kind {
+      case .applicationAudio:
+        .applicationAudio(selection: nil, channelPresentation: .aggregate)
+      case .inputAudio:
+        .inputAudio(selection: nil, channelPresentation: .aggregate)
+      case .outputAudio:
+        .outputAudio(selection: nil, channelPresentation: .aggregate)
+      case .visualizer:
+        .visualizer(configuration: .initial)
+      case .audioMixer:
+        .audioMixer(configuration: .initial)
+      case .peakLevel:
+        .peakLevel
+      case .signalGenerator:
+        .signalGenerator(configuration: .initial)
+      case .delay:
+        .delay(configuration: .initial)
+      }
+    let nodeID = UUID()
+    appendNode(id: nodeID, value: value, centeredAt: worldPoint)
+    await rebuildCanvasInBackground()
+    return nodeID
+  }
 
   @discardableResult
   func addApplicationAudioNode(
@@ -973,6 +1004,7 @@ final class RoutingWorkspaceModel {
   }
 
   private func rebuildCanvas() {
+    canvasBuildGeneration &+= 1
     defer { persistenceRevision &+= 1 }
     do {
       pruneEdgesWithMissingPorts()
@@ -987,6 +1019,52 @@ final class RoutingWorkspaceModel {
     } catch {
       buildFailureDescription = String(describing: error)
     }
+  }
+
+  private func rebuildCanvasInBackground() async {
+    pruneEdgesWithMissingPorts()
+    canvasBuildGeneration &+= 1
+    persistenceRevision &+= 1
+    let generation = canvasBuildGeneration
+    let workspaceID = id
+    let nodeSnapshot = nodes
+    let edgeSnapshot = edges
+    do {
+      let build = try await RoutingCanvasContentBuilder.buildInBackground(
+        workspaceID: workspaceID,
+        nodes: nodeSnapshot,
+        edges: edgeSnapshot
+      )
+      guard generation == canvasBuildGeneration else { return }
+      canvasContent = build.content
+      accessibilitySnapshot = build.accessibilitySnapshot
+      buildFailureDescription = nil
+    } catch {
+      guard generation == canvasBuildGeneration else { return }
+      buildFailureDescription = String(describing: error)
+    }
+  }
+
+  private func appendNode(
+    id: UUID,
+    value: RoutingNodeValue,
+    centeredAt worldPoint: CGPoint
+  ) {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    let size = RoutingCanvasMetrics.nodeSize(for: value)
+    nodes.append(
+      RoutingWorkspaceNode(
+        id: id,
+        value: value,
+        frame: CGRect(
+          x: worldPoint.x - size.width / 2,
+          y: worldPoint.y - size.height / 2,
+          width: size.width,
+          height: size.height
+        )
+      )
+    )
   }
 
   private func migrateAudioSourceEdges(

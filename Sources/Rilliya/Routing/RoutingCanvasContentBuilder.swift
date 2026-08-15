@@ -9,6 +9,27 @@ struct RoutingCanvasBuild {
   let accessibilitySnapshot: RoutingCanvasAccessibilitySnapshot
 }
 
+private struct RoutingCanvasPreparedBuild: Sendable {
+  let presentation: FlowingGraphPresentation<RoutingCanvasSchema>
+  let layoutInput:
+    FlowingGraphLayoutInput<
+      FlowingGraphCanvasLayoutSchema<RoutingCanvasSchema>
+    >
+  let layoutResult:
+    FlowingGraphLayoutResult<
+      FlowingGraphCanvasLayoutSchema<RoutingCanvasSchema>
+    >
+}
+
+// FlowingGraphCanvasContent is an immutable value whose presentation, layout, and render-index
+// members are Sendable for RoutingCanvasSchema. FlowingDayUI does not currently expose that
+// conditional conformance, so this narrow box carries a fully initialized content value back to
+// the main actor without making the shared UI package part of this optimization.
+private struct RoutingCanvasPreparedContent: @unchecked Sendable {
+  let content: RoutingCanvasContent
+  let accessibilitySnapshot: RoutingCanvasAccessibilitySnapshot
+}
+
 enum RoutingCanvasContentBuilder {
   @MainActor
   static func build(
@@ -16,6 +37,30 @@ enum RoutingCanvasContentBuilder {
     nodes: [RoutingWorkspaceNode],
     edges: [RoutingWorkspaceEdge]
   ) throws -> RoutingCanvasBuild {
+    finishForPublication(
+      try makeContent(from: prepare(workspaceID: workspaceID, nodes: nodes, edges: edges))
+    )
+  }
+
+  @MainActor
+  static func buildInBackground(
+    workspaceID: UUID,
+    nodes: [RoutingWorkspaceNode],
+    edges: [RoutingWorkspaceEdge]
+  ) async throws -> RoutingCanvasBuild {
+    let prepared = try await Task.detached(priority: .userInitiated) {
+      try makeContent(
+        from: prepare(workspaceID: workspaceID, nodes: nodes, edges: edges)
+      )
+    }.value
+    return finishForPublication(prepared)
+  }
+
+  private static func prepare(
+    workspaceID: UUID,
+    nodes: [RoutingWorkspaceNode],
+    edges: [RoutingWorkspaceEdge]
+  ) throws -> RoutingCanvasPreparedBuild {
     var graph = FlowingGraph<RoutingGraphSchema>()
     var portPlacements: [RoutingWorkspacePortAddress: RoutingPortPlacement] = [:]
     let portValues = Dictionary(
@@ -141,34 +186,120 @@ enum RoutingCanvasContentBuilder {
       placement: placement,
       edgeRoutes: edgeRoutes
     )
-    let content = try RoutingCanvasContent(
+    return RoutingCanvasPreparedBuild(
       presentation: presentation,
       layoutInput: input,
       layoutResult: layoutResult
     )
-    let accessibilitySnapshot = try content.accessibilitySnapshot(
-      canvasDescription: FlowingGraphCanvasAccessibilityDescription(
-        label: "Audio routing canvas",
-        hint: "Add and arrange audio routing nodes."
-      ),
-      node: accessibilityRepresentation,
-      port: { port in
-        .element(
-          FlowingGraphCanvasAccessibilityDescription(
+  }
+
+  private static func makeContent(
+    from prepared: RoutingCanvasPreparedBuild
+  ) throws -> RoutingCanvasPreparedContent {
+    let content = try RoutingCanvasContent(
+      presentation: prepared.presentation,
+      layoutInput: prepared.layoutInput,
+      layoutResult: prepared.layoutResult
+    )
+    return RoutingCanvasPreparedContent(
+      content: content,
+      accessibilitySnapshot: try makeAccessibilitySnapshot(for: content)
+    )
+  }
+
+  @MainActor
+  private static func finishForPublication(
+    _ prepared: RoutingCanvasPreparedContent
+  ) -> RoutingCanvasBuild {
+    RoutingCanvasBuild(
+      content: prepared.content,
+      accessibilitySnapshot: prepared.accessibilitySnapshot
+    )
+  }
+
+  private static func makeAccessibilitySnapshot(
+    for content: RoutingCanvasContent
+  ) throws -> RoutingCanvasAccessibilitySnapshot {
+    var relatedElementIDs: [RoutingCanvasElementID: [RoutingCanvasElementID]] = [:]
+    for edge in content.presentation.edges {
+      let endpointIDs: [RoutingCanvasElementID] =
+        switch edge.endpoints {
+        case .directed(let source, let target):
+          [elementID(for: source), elementID(for: target)]
+        case .undirected(let first, let second):
+          [elementID(for: first), elementID(for: second)]
+        }
+      relatedElementIDs[edge.id] = endpointIDs
+      for endpointID in endpointIDs {
+        relatedElementIDs[endpointID, default: []].append(edge.id)
+      }
+    }
+    let nodeElementIDByWorkspaceID: [UUID: RoutingCanvasElementID] = Dictionary(
+      uniqueKeysWithValues: content.presentation.nodes.compactMap { node in
+        guard case .node(let nodeID) = node.address.elementID else { return nil }
+        return (nodeID, node.id)
+      }
+    )
+    for port in content.presentation.ports {
+      guard case .port(let key) = port.address.elementID,
+        let nodeID = nodeElementIDByWorkspaceID[key.nodeID]
+      else { continue }
+      relatedElementIDs[port.id, default: []].append(nodeID)
+      relatedElementIDs[nodeID, default: []].append(port.id)
+    }
+
+    var items: [FlowingGraphCanvasAccessibilityItem<RoutingCanvasElementID>] = []
+    items.reserveCapacity(content.presentation.nodes.count + content.presentation.ports.count)
+    for node in content.presentation.nodes {
+      guard case .element(let description) = accessibilityRepresentation(for: node),
+        let frame = content.frame(for: node.localID)
+      else { continue }
+      items.append(
+        FlowingGraphCanvasAccessibilityItem(
+          id: node.id,
+          kind: .node,
+          frame: frame,
+          description: description,
+          relatedElementIDs: relatedElementIDs[node.id] ?? []
+        )
+      )
+    }
+    for port in content.presentation.ports {
+      guard let anchor = content.anchor(for: port.localID) else { continue }
+      items.append(
+        FlowingGraphCanvasAccessibilityItem(
+          id: port.id,
+          kind: .port,
+          frame: CGRect(
+            x: anchor.position.x - 0.5, y: anchor.position.y - 0.5, width: 1, height: 1),
+          description: FlowingGraphCanvasAccessibilityDescription(
             label: port.value.isEnabled ? port.value.label : "\(port.value.label), disabled",
             hint: port.value.isEnabled
               ? "Drag to connect this port."
               : "Use the context menu to enable this port.",
             roleDescription: "routing port"
-          )
+          ),
+          relatedElementIDs: relatedElementIDs[port.id] ?? []
         )
-      },
-      edge: { _ -> FlowingGraphCanvasAccessibilityRepresentation in .hidden }
+      )
+    }
+    return try RoutingCanvasAccessibilitySnapshot(
+      canvasDescription: FlowingGraphCanvasAccessibilityDescription(
+        label: "Audio routing canvas",
+        hint: "Add and arrange audio routing nodes."
+      ),
+      items: items,
+      relationships: relatedElementIDs
     )
-    return RoutingCanvasBuild(
-      content: content,
-      accessibilitySnapshot: accessibilitySnapshot
-    )
+  }
+
+  private static func elementID(
+    for endpoint: FlowingGraphPresentationEndpoint<RoutingCanvasSchema>
+  ) -> RoutingCanvasElementID {
+    switch endpoint {
+    case .node(let id), .port(let id):
+      id
+    }
   }
 
   private static func verticalOffset(

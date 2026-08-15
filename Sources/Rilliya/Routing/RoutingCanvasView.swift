@@ -5,6 +5,7 @@ import FlowingDayGraphCanvas
 import FlowingDayGraphComposition
 import RilliyaKit
 import SwiftUI
+import UniformTypeIdentifiers
 
 private enum RoutingPaletteItem: String, Codable, Transferable {
   case applicationAudio = "moe.uwucocoa.rilliya.node.application-audio"
@@ -38,7 +39,69 @@ private struct RoutingDropPreviewState: Identifiable, Equatable {
   let id: UUID
   let item: RoutingPaletteItem
   let location: CGPoint
-  var isExpanded: Bool
+  var isCommitted: Bool
+}
+
+private struct RoutingCanvasPaletteDropDelegate: DropDelegate {
+  @Binding var isTargeted: Bool
+  let currentItem: RoutingPaletteItem?
+  let hover: (RoutingPaletteItem, CGPoint) -> Void
+  let exit: () -> Void
+  let commit: (RoutingPaletteItem, CGPoint) -> Void
+
+  func validateDrop(info: DropInfo) -> Bool {
+    !info.itemProviders(for: [.plainText]).isEmpty
+  }
+
+  func dropEntered(info: DropInfo) {
+    isTargeted = true
+    loadItem(from: info) { item in
+      hover(item, info.location)
+    }
+  }
+
+  func dropUpdated(info: DropInfo) -> DropProposal? {
+    isTargeted = true
+    if let currentItem {
+      hover(currentItem, info.location)
+    }
+    return DropProposal(operation: .copy)
+  }
+
+  func dropExited(info: DropInfo) {
+    isTargeted = false
+    exit()
+  }
+
+  func performDrop(info: DropInfo) -> Bool {
+    isTargeted = false
+    if let currentItem {
+      commit(currentItem, info.location)
+      return true
+    }
+    guard !info.itemProviders(for: [.plainText]).isEmpty else { return false }
+    loadItem(from: info) { item in
+      commit(item, info.location)
+    }
+    return true
+  }
+
+  private func loadItem(
+    from info: DropInfo,
+    completion: @escaping @MainActor (RoutingPaletteItem) -> Void
+  ) {
+    guard let provider = info.itemProviders(for: [.plainText]).first else { return }
+    provider.loadDataRepresentation(forTypeIdentifier: UTType.plainText.identifier) {
+      data,
+      _ in
+      guard let data,
+        let item = try? JSONDecoder().decode(RoutingPaletteItem.self, from: data)
+      else { return }
+      Task { @MainActor in
+        completion(item)
+      }
+    }
+  }
 }
 
 struct RoutingCanvasView: View {
@@ -92,10 +155,11 @@ struct RoutingCanvasView: View {
       if let dropPreview {
         RoutingCanvasDropPreview(
           item: dropPreview.item,
-          isExpanded: dropPreview.isExpanded,
+          isExpanded: true,
           accent: settings.resolvedAccentID(for: dropPreview.item.kind).accent
         )
         .position(dropPreview.location)
+        .transition(.opacity.combined(with: .scale(scale: 0.96)))
         .allowsHitTesting(false)
         .accessibilityHidden(true)
       }
@@ -109,13 +173,16 @@ struct RoutingCanvasView: View {
         .padding(6)
         .allowsHitTesting(false)
     }
-    .dropDestination(for: RoutingPaletteItem.self) { items, location in
-      guard let item = items.first else { return false }
-      beginDrop(item, at: location)
-      return true
-    } isTargeted: {
-      isDropTargeted = $0
-    }
+    .onDrop(
+      of: [.plainText],
+      delegate: RoutingCanvasPaletteDropDelegate(
+        isTargeted: $isDropTargeted,
+        currentItem: dropPreview?.isCommitted == false ? dropPreview?.item : nil,
+        hover: updateDropPreview,
+        exit: cancelDropPreview,
+        commit: beginDrop
+      )
+    )
     .onDisappear {
       dropTask?.cancel()
     }
@@ -641,54 +708,58 @@ struct RoutingCanvasView: View {
 
   private func beginDrop(_ item: RoutingPaletteItem, at location: CGPoint) {
     dropTask?.cancel()
-    let previewID = UUID()
+    let previewID =
+      dropPreview?.item == item
+      ? dropPreview?.id ?? UUID()
+      : UUID()
     let worldPoint = session.viewport.transform.removing(from: location)
     dropPreview = RoutingDropPreviewState(
       id: previewID,
       item: item,
       location: location,
-      isExpanded: false
+      isCommitted: true
     )
 
     dropTask = Task { @MainActor in
       await Task.yield()
       guard !Task.isCancelled, dropPreview?.id == previewID else { return }
 
-      let nodeID: UUID
-      switch item {
-      case .applicationAudio:
-        nodeID = workspace.addApplicationAudioNode(centeredAt: worldPoint)
-      case .inputAudio:
-        nodeID = workspace.addInputAudioNode(centeredAt: worldPoint)
-      case .outputAudio:
-        nodeID = workspace.addOutputAudioNode(centeredAt: worldPoint)
-      case .visualizer:
-        nodeID = workspace.addVisualizerNode(centeredAt: worldPoint)
-      case .audioMixer:
-        nodeID = workspace.addAudioMixerNode(centeredAt: worldPoint)
-      case .peakLevel:
-        nodeID = workspace.addPeakLevelNode(centeredAt: worldPoint)
-      case .signalGenerator:
-        nodeID = workspace.addSignalGeneratorNode(centeredAt: worldPoint)
-      case .delay:
-        nodeID = workspace.addDelayNode(centeredAt: worldPoint)
-      }
+      let nodeID = await workspace.addNode(of: item.kind, centeredAt: worldPoint)
       selectNode(nodeID)
 
-      withAnimation(
-        reduceMotion
-          ? .easeOut(duration: 0.12)
-          : .spring(response: 0.28, dampingFraction: 0.9)
-      ) {
-        guard dropPreview?.id == previewID else { return }
-        dropPreview?.isExpanded = true
-      }
-
-      try? await Task.sleep(for: .milliseconds(220))
+      try? await Task.sleep(for: reduceMotion ? .milliseconds(40) : .milliseconds(120))
       guard !Task.isCancelled, dropPreview?.id == previewID else { return }
-      withAnimation(.easeOut(duration: 0.1)) {
+      withAnimation(.easeOut(duration: reduceMotion ? 0.06 : 0.12)) {
         dropPreview = nil
       }
+    }
+  }
+
+  private func updateDropPreview(_ item: RoutingPaletteItem, at location: CGPoint) {
+    guard isDropTargeted else { return }
+    if let dropPreview, dropPreview.item == item, !dropPreview.isCommitted {
+      self.dropPreview = RoutingDropPreviewState(
+        id: dropPreview.id,
+        item: item,
+        location: location,
+        isCommitted: false
+      )
+      return
+    }
+    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.12)) {
+      dropPreview = RoutingDropPreviewState(
+        id: UUID(),
+        item: item,
+        location: location,
+        isCommitted: false
+      )
+    }
+  }
+
+  private func cancelDropPreview() {
+    guard dropPreview?.isCommitted != true else { return }
+    withAnimation(reduceMotion ? nil : .easeOut(duration: 0.1)) {
+      dropPreview = nil
     }
   }
 
