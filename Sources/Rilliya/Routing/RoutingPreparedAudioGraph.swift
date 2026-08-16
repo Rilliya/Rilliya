@@ -514,7 +514,7 @@ private struct RoutingPreparedAudioGraphCompiler {
 
     let signal: [RoutingCompiledAudioChannel]
     switch node.value {
-    case .applicationAudio, .inputAudio:
+    case .applicationAudio, .inputAudio, .filePlayback:
       signal = try sourceSignal(for: node, address: address)
     case .signalGenerator(let configuration):
       signal = try signalGeneratorSignal(

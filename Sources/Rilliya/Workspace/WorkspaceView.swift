@@ -16,6 +16,7 @@ struct WorkspaceView: View {
   @State private var iconResolver = NSWorkspaceInstalledApplicationIconResolver()
   @State private var captureController = RoutingCaptureController()
   @State private var inputCaptureController = RoutingInputCaptureController()
+  @State private var filePlaybackController = RoutingFilePlaybackController()
   @State private var outputController = RoutingAudioOutputController()
   @State private var workflowPersistenceStore = RoutingWorkflowPersistenceStore()
   @State private var didRestoreWorkflows = false
@@ -41,6 +42,7 @@ struct WorkspaceView: View {
         insertChannelRouter: insertChannelRouter,
         insertPeakLevel: insertPeakLevel,
         insertSignalGenerator: insertSignalGenerator,
+        insertFilePlayback: insertFilePlayback,
         insertDelay: insertDelay,
         insertNoiseGate: insertNoiseGate,
         insertCompressor: insertCompressor
@@ -131,11 +133,15 @@ struct WorkspaceView: View {
         )
       }
     }
+    .onChange(of: filePlaybackRequirements, initial: true) { _, requirements in
+      filePlaybackController.reconcile(requirements: requirements)
+    }
     .onChange(of: outputReconciliationToken, initial: true) {
       outputController.reconcile(
         workflows: workflowLibrary.workflows,
         captureController: captureController,
-        inputCaptureController: inputCaptureController
+        inputCaptureController: inputCaptureController,
+        filePlaybackController: filePlaybackController
       )
     }
     .onChange(of: settings.defaultSeparateChannelLayout, initial: true) { _, layout in
@@ -177,6 +183,7 @@ struct WorkspaceView: View {
       audioCatalog.stop()
       captureController.stopAll()
       inputCaptureController.stopAll()
+      filePlaybackController.stopAll()
       outputController.stopAll()
     }
   }
@@ -189,7 +196,8 @@ struct WorkspaceView: View {
     RoutingAudioOutputReconciliationToken(
       workflows: workflowLibrary.workflows,
       processStates: captureController.states,
-      inputStates: inputCaptureController.states
+      inputStates: inputCaptureController.states,
+      fileStates: filePlaybackController.states
     )
   }
 
@@ -285,6 +293,13 @@ struct WorkspaceView: View {
     }
   }
 
+  private var filePlaybackRequirements: [UUID: RoutingFilePlaybackRequirement] {
+    RoutingFilePlaybackRequirementResolver.resolve(
+      workflows: workflowLibrary.workflows,
+      catalogSnapshot: audioCatalog.state.snapshot
+    )
+  }
+
   private var workflowCanvas: some View {
     RoutingWorkflowCanvas(
       workflow: workflowLibrary.selectedWorkflow,
@@ -294,6 +309,7 @@ struct WorkspaceView: View {
       iconResolver: iconResolver,
       captureController: captureController,
       inputCaptureController: inputCaptureController,
+      filePlaybackController: filePlaybackController,
       outputController: outputController
     )
   }
@@ -397,6 +413,17 @@ struct WorkspaceView: View {
     selectNode(nodeID, in: workflow)
   }
 
+  private func insertFilePlayback() {
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addFilePlaybackNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
+      )
+    )
+    selectNode(nodeID, in: workflow)
+  }
+
   private func insertDelay() {
     let workflow = workflowLibrary.selectedWorkflow
     let nodeID = workflow.workspace.addDelayNode(
@@ -454,15 +481,22 @@ private struct RoutingAudioOutputReconciliationToken: Equatable {
     let state: RoutingInputCaptureState
   }
 
+  struct FileState: Equatable {
+    let nodeID: UUID
+    let state: RoutingFilePlaybackState
+  }
+
   let workflows: [Workflow]
   let processStates: [ProcessState]
   let inputStates: [InputState]
+  let fileStates: [FileState]
 
   @MainActor
   init(
     workflows: [RoutingWorkflowModel],
     processStates: [UUID: RoutingCaptureState],
-    inputStates: [UUID: RoutingInputCaptureState]
+    inputStates: [UUID: RoutingInputCaptureState],
+    fileStates: [UUID: RoutingFilePlaybackState]
   ) {
     self.workflows = workflows.map {
       Workflow(
@@ -477,6 +511,9 @@ private struct RoutingAudioOutputReconciliationToken: Equatable {
     self.inputStates = inputStates.map {
       InputState(nodeID: $0.key, state: $0.value)
     }.sorted { $0.nodeID.uuidString < $1.nodeID.uuidString }
+    self.fileStates = fileStates.map {
+      FileState(nodeID: $0.key, state: $0.value)
+    }.sorted { $0.nodeID.uuidString < $1.nodeID.uuidString }
   }
 }
 
@@ -489,6 +526,7 @@ private struct RoutingWorkflowCanvas: View {
   let iconResolver: NSWorkspaceInstalledApplicationIconResolver
   let captureController: RoutingCaptureController
   let inputCaptureController: RoutingInputCaptureController
+  let filePlaybackController: RoutingFilePlaybackController
   let outputController: RoutingAudioOutputController
 
   var body: some View {
@@ -500,6 +538,7 @@ private struct RoutingWorkflowCanvas: View {
       iconResolver: iconResolver,
       captureController: captureController,
       inputCaptureController: inputCaptureController,
+      filePlaybackController: filePlaybackController,
       outputController: outputController,
       sessionID: workflow.canvasSessionID,
       isWorkflowRunning: workflow.isRunning,

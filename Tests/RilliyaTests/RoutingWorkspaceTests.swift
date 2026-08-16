@@ -138,6 +138,34 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func filePlaybackInsertionBuildsOneAggregateOutputAndRetainsSelection() throws {
+    let model = RoutingWorkspaceModel()
+    let center = CGPoint(x: 420, y: 260)
+    let nodeID = model.addFilePlaybackNode(centeredAt: center)
+    let configuration = RoutingFilePlaybackConfiguration(
+      selection: RoutingAudioFileSelection(
+        url: URL(fileURLWithPath: "/tmp/example.m4a"),
+        displayName: "Example.m4a",
+        channelCount: 2,
+        nativeSampleRate: 44_100
+      ),
+      loopMode: .infinite
+    )
+
+    model.configureFilePlayback(configuration, for: nodeID)
+
+    let node = try #require(model.node(id: nodeID))
+    #expect(node.value == .filePlayback(configuration: configuration))
+    #expect(CGPoint(x: node.frame.midX, y: node.frame.midY) == center)
+    let ports = RoutingGraphPorts.values(for: node)
+    #expect(ports.count == 1)
+    let port = try #require(ports.first)
+    #expect(port.direction == .output)
+    #expect(port.audioChannel == .all)
+    #expect(port.signalType == .audio)
+  }
+
+  @Test @MainActor
   func delayInsertionBuildsOneTypedInputAndOutput() throws {
     let model = RoutingWorkspaceModel()
     let center = CGPoint(x: 420, y: 260)

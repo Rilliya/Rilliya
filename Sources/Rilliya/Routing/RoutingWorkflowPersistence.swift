@@ -232,6 +232,22 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
           )
         && configuration.amplitude.isFinite
         && (0...1).contains(configuration.amplitude)
+    case .filePlayback(let configuration):
+      guard let selection = configuration.selection else { return true }
+      guard selection.url.isFileURL,
+        !selection.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
+        (1...256).contains(selection.channelCount),
+        selection.nativeSampleRate.isFinite,
+        selection.nativeSampleRate > 0
+      else {
+        return false
+      }
+      switch configuration.loopMode {
+      case .once, .infinite:
+        return true
+      case .playCount(let count):
+        return (1...10_000).contains(count)
+      }
     case .delay(let configuration):
       return configuration.delaySeconds.isFinite
         && (RoutingDelayConfiguration

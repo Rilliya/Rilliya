@@ -177,12 +177,14 @@ final class RoutingAudioOutputController {
   func reconcile(
     workflows: [RoutingWorkflowModel],
     captureController: RoutingCaptureController,
-    inputCaptureController: RoutingInputCaptureController
+    inputCaptureController: RoutingInputCaptureController,
+    filePlaybackController: RoutingFilePlaybackController = RoutingFilePlaybackController()
   ) {
     let plans = makePlans(
       workflows: workflows,
       captureController: captureController,
-      inputCaptureController: inputCaptureController
+      inputCaptureController: inputCaptureController,
+      filePlaybackController: filePlaybackController
     )
     let knownNodeIDs = Set(plans.keys)
       .union(states.keys)
@@ -334,7 +336,8 @@ final class RoutingAudioOutputController {
   private func makePlans(
     workflows: [RoutingWorkflowModel],
     captureController: RoutingCaptureController,
-    inputCaptureController: RoutingInputCaptureController
+    inputCaptureController: RoutingInputCaptureController,
+    filePlaybackController: RoutingFilePlaybackController
   ) -> [UUID: RoutingAudioOutputPlan] {
     var plans: [UUID: RoutingAudioOutputPlan] = [:]
     var claimedBuffers = Set<ObjectIdentifier>()
@@ -363,6 +366,7 @@ final class RoutingAudioOutputController {
         }
         var frameBuffers: [UUID: AudioRealtimeFrameBuffer] = [:]
         var isWaitingForCapture = false
+        var sourceFailureMessage: String?
         for node in nodes {
           let buffer: AudioRealtimeFrameBuffer?
           switch node.value {
@@ -370,6 +374,11 @@ final class RoutingAudioOutputController {
             buffer = captureController.frameBuffer(for: node.id)
           case .inputAudio:
             buffer = inputCaptureController.frameBuffer(for: node.id)
+          case .filePlayback:
+            buffer = filePlaybackController.frameBuffer(for: node.id)
+            if case .failed(let message) = filePlaybackController.state(for: node.id) {
+              sourceFailureMessage = message
+            }
           case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
             .signalGenerator, .delay, .noiseGate, .compressor:
             continue
@@ -379,6 +388,10 @@ final class RoutingAudioOutputController {
             continue
           }
           frameBuffers[node.id] = buffer
+        }
+        if let sourceFailureMessage {
+          plans[outputNode.id] = .blocked(sourceFailureMessage)
+          continue
         }
         guard !isWaitingForCapture else {
           plans[outputNode.id] = .waitingForCapture

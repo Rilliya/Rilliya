@@ -108,6 +108,8 @@ final class RoutingWorkspaceModel {
         .peakLevel
       case .signalGenerator:
         .signalGenerator(configuration: .initial)
+      case .filePlayback:
+        .filePlayback(configuration: .initial)
       case .delay:
         .delay(configuration: .initial)
       case .noiseGate:
@@ -324,6 +326,22 @@ final class RoutingWorkspaceModel {
           height: size.height
         )
       )
+    )
+    rebuildCanvas()
+    return id
+  }
+
+  @discardableResult
+  func addFilePlaybackNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    appendNode(
+      id: id,
+      value: .filePlayback(configuration: .initial),
+      centeredAt: worldPoint
     )
     rebuildCanvas()
     return id
@@ -620,6 +638,24 @@ final class RoutingWorkspaceModel {
       return
     }
     nodes[index].value = .signalGenerator(configuration: configuration)
+    rebuildCanvas()
+  }
+
+  func configureFilePlayback(
+    _ configuration: RoutingFilePlaybackConfiguration,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      case .filePlayback(let previous) = nodes[index].value,
+      previous != configuration
+    else {
+      return
+    }
+    nodes[index].value = .filePlayback(configuration: configuration)
+    let channelCount = configuration.selection?.channelCount ?? 0
+    nodes[index].audioChannelControls = nodes[index].audioChannelControls.filter {
+      $0.key < channelCount
+    }
     rebuildCanvas()
   }
 

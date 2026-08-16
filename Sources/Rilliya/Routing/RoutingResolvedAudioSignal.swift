@@ -78,7 +78,7 @@ struct RoutingAudioSignalResolver {
         return []
       }
       return resolveOutput(edge.source, visited: visited)
-    case .peakLevel, .signalGenerator:
+    case .peakLevel, .signalGenerator, .filePlayback:
       return []
     }
   }

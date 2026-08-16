@@ -1023,6 +1023,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         palette: palette,
         to: &geometry
       )
+    case .filePlayback:
+      appendFilePlayback(
+        node: node,
+        frame: frame,
+        accent: accent,
+        palette: palette,
+        to: &geometry
+      )
     case .delay:
       appendDelay(
         node: node,
@@ -1595,6 +1603,45 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     let amplitude = Int((configuration.amplitude * 100).rounded())
     append(
       atlas: textAtlas.text("\(amplitude)% amplitude", size: 10, weight: .medium),
+      origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
+      color: palette.muted,
+      to: &geometry
+    )
+  }
+
+  private func appendFilePlayback(
+    node: RoutingMetalScene.Node,
+    frame: CGRect,
+    accent: SIMD4<Float>,
+    palette: RoutingMetalPalette,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
+    guard case .filePlayback(let configuration) = node.value else { return }
+    let valueFrame = CGRect(
+      x: frame.minX + RoutingVisualizerLayout.horizontalInset,
+      y: frame.maxY - 48,
+      width: frame.width - 2 * RoutingVisualizerLayout.horizontalInset
+        - RoutingVisualizerLayout.portLabelGutter,
+      height: 34
+    )
+    geometry.shapes.append(
+      RoutingMetalShapeInstance(
+        rect: valueFrame,
+        fill: accent.withAlpha(0.09),
+        border: .zero,
+        cornerRadius: 8,
+        borderWidth: 0,
+        opacity: 1
+      )
+    )
+    let detail: String
+    if let selection = configuration.selection {
+      detail = "\(selection.channelCount) ch · \(configuration.loopMode.description)"
+    } else {
+      detail = "Select this node to configure"
+    }
+    append(
+      atlas: textAtlas.text(detail, size: 10, weight: .medium),
       origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
       color: palette.muted,
       to: &geometry

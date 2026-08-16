@@ -88,6 +88,26 @@ struct RoutingWorkflowPersistenceTests {
   }
 
   @Test
+  func filePlaybackConfigurationRoundTripsThroughTheWorkflowValueCodec() throws {
+    let value = RoutingNodeValue.filePlayback(
+      configuration: RoutingFilePlaybackConfiguration(
+        selection: RoutingAudioFileSelection(
+          url: URL(fileURLWithPath: "/tmp/example.m4a"),
+          displayName: "Example.m4a",
+          channelCount: 2,
+          nativeSampleRate: 44_100
+        ),
+        loopMode: .playCount(3)
+      )
+    )
+
+    let encoded = try JSONEncoder().encode(value)
+    let decoded = try JSONDecoder().decode(RoutingNodeValue.self, from: encoded)
+
+    #expect(decoded == value)
+  }
+
+  @Test
   func storeRoundTripRestoresGraphsSelectionViewportAndWorkflowOverrides() async throws {
     let fixture = try makeFixture()
     let store = RoutingWorkflowPersistenceStore(fileURL: fixture.fileURL)

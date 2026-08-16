@@ -97,6 +97,8 @@ struct RoutingMetalScene {
         return "Peak Level"
       case .signalGenerator:
         return "Signal Generator"
+      case .filePlayback:
+        return "File Playback"
       case .delay:
         return "Delay"
       case .noiseGate:
@@ -135,6 +137,8 @@ struct RoutingMetalScene {
             "\(configuration.waveform.displayName) · \(configuration.frequency.formatted(.number.precision(.fractionLength(0)))) Hz"
         }
         return configuration.waveform.displayName
+      case .filePlayback(let configuration):
+        return configuration.selection?.displayName ?? "Choose an audio file"
       case .delay(let configuration):
         if configuration.delaySeconds < 1 {
           return "\(Int((configuration.delaySeconds * 1_000).rounded())) ms"
@@ -198,6 +202,8 @@ struct RoutingMetalScene {
         return signal.isClipping ? "Clipping" : "Live peak"
       case .signalGenerator:
         return "Ready to route"
+      case .filePlayback(let configuration):
+        return configuration.selection == nil ? "Select to configure" : "Ready to route"
       case .delay:
         return "Ready to route"
       case .noiseGate, .compressor:
@@ -249,7 +255,7 @@ struct RoutingMetalScene {
       case .outputAudio(let selection, _):
         return selection != nil
       case .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel, .signalGenerator,
-        .delay, .noiseGate, .compressor:
+        .filePlayback, .delay, .noiseGate, .compressor:
         return false
       }
     }
@@ -264,7 +270,7 @@ struct RoutingMetalScene {
       case .applicationAudio:
         supplement.applicationIcon == nil
       case .inputAudio, .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter,
-        .peakLevel, .signalGenerator, .delay, .noiseGate, .compressor:
+        .peakLevel, .signalGenerator, .filePlayback, .delay, .noiseGate, .compressor:
         true
       }
     }
@@ -289,6 +295,8 @@ struct RoutingMetalScene {
         return "gauge.with.dots.needle.50percent"
       case .signalGenerator:
         return "waveform.path"
+      case .filePlayback:
+        return "music.note.list"
       case .delay:
         return "clock.arrow.trianglehead.counterclockwise.rotate.90"
       case .noiseGate:
@@ -318,7 +326,7 @@ struct RoutingMetalScene {
       case .audioMixer, .channelRouter:
         return true
       case .applicationAudio, .inputAudio, .outputAudio, .visualizer, .peakLevel,
-        .gain, .signalGenerator, .delay, .noiseGate, .compressor:
+        .gain, .signalGenerator, .filePlayback, .delay, .noiseGate, .compressor:
         return false
       }
     }

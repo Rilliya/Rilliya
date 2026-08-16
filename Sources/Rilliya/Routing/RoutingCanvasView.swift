@@ -5,6 +5,7 @@ import FlowingDayGraphCanvas
 import FlowingDayGraphComposition
 import RilliyaCore
 import RilliyaDSP
+import RilliyaFilePlayback
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -18,6 +19,7 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
   case channelRouter = "moe.uwucocoa.rilliya.node.channel-router"
   case peakLevel = "moe.uwucocoa.rilliya.node.peak-level"
   case signalGenerator = "moe.uwucocoa.rilliya.node.signal-generator"
+  case filePlayback = "moe.uwucocoa.rilliya.node.file-playback"
   case delay = "moe.uwucocoa.rilliya.node.delay"
   case noiseGate = "moe.uwucocoa.rilliya.node.noise-gate"
   case compressor = "moe.uwucocoa.rilliya.node.compressor"
@@ -35,6 +37,7 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
     case .channelRouter: .channelRouter
     case .peakLevel: .peakLevel
     case .signalGenerator: .signalGenerator
+    case .filePlayback: .filePlayback
     case .delay: .delay
     case .noiseGate: .noiseGate
     case .compressor: .compressor
@@ -54,6 +57,7 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
     case .channelRouter: "Reorder and duplicate channels"
     case .peakLevel: "Measure the strongest sample"
     case .signalGenerator: "Create tones and colored noise"
+    case .filePlayback: "Stream a local audio file"
     case .delay: "Add time and feedback"
     case .noiseGate: "Attenuate quiet passages"
     case .compressor: "Control dynamics and peaks"
@@ -62,7 +66,7 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
 
   var category: RoutingPaletteCategory {
     switch self {
-    case .applicationAudio, .inputAudio, .signalGenerator:
+    case .applicationAudio, .inputAudio, .signalGenerator, .filePlayback:
       .sources
     case .outputAudio:
       .destinations
@@ -181,6 +185,7 @@ struct RoutingCanvasView: View {
   let iconResolver: NSWorkspaceInstalledApplicationIconResolver
   let captureController: RoutingCaptureController
   let inputCaptureController: RoutingInputCaptureController
+  let filePlaybackController: RoutingFilePlaybackController
   let outputController: RoutingAudioOutputController
   let sessionID: FlowingGraphCanvasSessionID
   let isWorkflowRunning: Bool
@@ -362,6 +367,9 @@ struct RoutingCanvasView: View {
           case .signalGenerator(let configuration):
             SignalGeneratorNodeView(configuration: configuration, context: context)
               .zIndex(context.isSelected ? 2 : 1)
+          case .filePlayback(let configuration):
+            FilePlaybackNodeView(configuration: configuration, context: context)
+              .zIndex(context.isSelected ? 2 : 1)
           case .delay(let configuration):
             DelayNodeView(configuration: configuration, context: context)
               .zIndex(context.isSelected ? 2 : 1)
@@ -510,6 +518,8 @@ struct RoutingCanvasView: View {
           )
         )
       case .signalGenerator:
+        supplements[node.id] = .empty
+      case .filePlayback:
         supplements[node.id] = .empty
       case .delay:
         supplements[node.id] = .empty
@@ -732,6 +742,33 @@ struct RoutingCanvasView: View {
       SelectedSignalGeneratorInspector(configuration: configuration) { updated in
         workspace.configureSignalGenerator(updated, for: node.id)
       }
+    case .filePlayback(let configuration):
+      SelectedFilePlaybackInspector(
+        configuration: configuration,
+        state: filePlaybackController.state(for: node.id),
+        channelControls: node.audioChannelControls,
+        updateConfiguration: { updated in
+          workspace.configureFilePlayback(updated, for: node.id)
+        },
+        setVolume: { gainDecibels in
+          for channelIndex in 0..<(configuration.selection?.channelCount ?? 0) {
+            workspace.setAudioChannelGain(
+              gainDecibels,
+              nodeID: node.id,
+              channelIndex: channelIndex
+            )
+          }
+        },
+        setMuted: { isMuted in
+          for channelIndex in 0..<(configuration.selection?.channelCount ?? 0) {
+            workspace.setAudioChannelMuted(
+              isMuted,
+              nodeID: node.id,
+              channelIndex: channelIndex
+            )
+          }
+        }
+      )
     case .delay(let configuration):
       SelectedDelayInspector(configuration: configuration) { updated in
         workspace.configureDelay(updated, for: node.id)
@@ -915,6 +952,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   let insertChannelRouter: () -> Void
   let insertPeakLevel: () -> Void
   let insertSignalGenerator: () -> Void
+  let insertFilePlayback: () -> Void
   let insertDelay: () -> Void
   let insertNoiseGate: () -> Void
   let insertCompressor: () -> Void
@@ -935,6 +973,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     insertChannelRouter: @escaping () -> Void,
     insertPeakLevel: @escaping () -> Void,
     insertSignalGenerator: @escaping () -> Void,
+    insertFilePlayback: @escaping () -> Void,
     insertDelay: @escaping () -> Void,
     insertNoiseGate: @escaping () -> Void,
     insertCompressor: @escaping () -> Void,
@@ -952,6 +991,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     self.insertChannelRouter = insertChannelRouter
     self.insertPeakLevel = insertPeakLevel
     self.insertSignalGenerator = insertSignalGenerator
+    self.insertFilePlayback = insertFilePlayback
     self.insertDelay = insertDelay
     self.insertNoiseGate = insertNoiseGate
     self.insertCompressor = insertCompressor
@@ -1135,6 +1175,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     case .channelRouter: insertChannelRouter
     case .peakLevel: insertPeakLevel
     case .signalGenerator: insertSignalGenerator
+    case .filePlayback: insertFilePlayback
     case .delay: insertDelay
     case .noiseGate: insertNoiseGate
     case .compressor: insertCompressor
@@ -1323,6 +1364,12 @@ private struct RoutingCanvasDropPreview: View {
         "Signal Generator",
         "Sine · 440 Hz",
         "waveform.path"
+      )
+    case .filePlayback:
+      return (
+        "File Playback",
+        "Choose an audio file",
+        "music.note.list"
       )
     case .delay:
       return (
@@ -2186,6 +2233,70 @@ private struct SignalGeneratorNodeView: View {
 
   private var frequencyDescription: String {
     configuration.frequency.formatted(.number.precision(.fractionLength(0)))
+  }
+}
+
+private struct FilePlaybackNodeView: View {
+  let configuration: RoutingFilePlaybackConfiguration
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  @Environment(\.flowingAccent) private var accent
+
+  var body: some View {
+    FlowingCard(
+      spacing: 10,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      HStack(spacing: 9) {
+        Image(systemName: "music.note.list")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(accent.foreground)
+        VStack(alignment: .leading, spacing: 1) {
+          Text("File Playback")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text(configuration.selection?.displayName ?? "Choose an audio file")
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+            .lineLimit(1)
+        }
+        Spacer(minLength: 0)
+      }
+
+      Text(fileDetail)
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(FlowingPalette.muted)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+        .background(
+          accent.wash,
+          in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .padding(.trailing, RoutingVisualizerLayout.portLabelGutter)
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width,
+      height: RoutingCanvasMetrics.baseNodeSize.height
+    )
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width * context.renderScale,
+      height: RoutingCanvasMetrics.baseNodeSize.height * context.renderScale,
+      alignment: .topLeading
+    )
+  }
+
+  private var fileDetail: String {
+    guard let selection = configuration.selection else { return "Select this node to configure" }
+    return "\(selection.channelCount) ch · \(configuration.loopMode.description)"
   }
 }
 
@@ -3918,6 +4029,281 @@ private struct SelectedSignalGeneratorInspector: View {
 
   private var frequencyDescription: String {
     configuration.frequency.formatted(.number.precision(.fractionLength(0)))
+  }
+}
+
+private struct SelectedFilePlaybackInspector: View {
+  private enum LoopChoice: String, CaseIterable, Hashable {
+    case once
+    case finite
+    case infinite
+
+    var title: String {
+      switch self {
+      case .once: "Once"
+      case .finite: "Repeat"
+      case .infinite: "Continuous"
+      }
+    }
+  }
+
+  let configuration: RoutingFilePlaybackConfiguration
+  let state: RoutingFilePlaybackState
+  let channelControls: [Int: RoutingAudioChannelControl]
+  let updateConfiguration: (RoutingFilePlaybackConfiguration) -> Void
+  let setVolume: (Double) -> Void
+  let setMuted: (Bool) -> Void
+
+  @State private var isInspectingFile = false
+  @State private var fileIssue: String?
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("File Playback")
+          .font(.headline)
+          .foregroundStyle(FlowingPalette.ink)
+        Text("Stream a Core Audio supported file without loading it all into memory.")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(configuration.selection?.displayName ?? "No audio file selected")
+            .font(.callout.weight(.medium))
+            .foregroundStyle(FlowingPalette.ink)
+            .lineLimit(1)
+          if let selection = configuration.selection {
+            Text(
+              "\(selection.channelCount) ch · "
+                + "\(selection.nativeSampleRate.formatted(.number.precision(.fractionLength(0)))) Hz"
+            )
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(FlowingPalette.muted)
+          }
+        }
+        Spacer(minLength: 8)
+        if isInspectingFile {
+          ProgressView()
+            .controlSize(.small)
+            .accessibilityLabel("Inspecting audio file")
+        }
+        Button {
+          chooseFile()
+        } label: {
+          Label("Choose File", systemImage: "folder")
+        }
+        .buttonStyle(FlowingSoftButtonStyle())
+        .disabled(isInspectingFile)
+      }
+      .padding(12)
+      .background(
+        FlowingPalette.field,
+        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+      )
+
+      if let fileIssue {
+        FlowingCallout(
+          fileIssue,
+          title: "File unavailable",
+          systemImage: "exclamationmark.triangle",
+          tone: .critical
+        )
+      }
+
+      VStack(alignment: .leading, spacing: 7) {
+        Text("Playback")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+        FlowingSelect(
+          label: "File playback mode",
+          selection: loopChoice,
+          options: LoopChoice.allCases.map { FlowingSelectOption($0, label: $0.title) },
+          minimumWidth: 164
+        )
+        .fixedSize(horizontal: false, vertical: true)
+      }
+
+      if loopChoice.wrappedValue == .finite {
+        HStack {
+          Text("Play count")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(FlowingPalette.muted)
+          Spacer(minLength: 8)
+          FlowingStepper(
+            "File play count",
+            value: playCount,
+            in: 2...10_000,
+            step: 1,
+            formatValue: { "\($0)×" }
+          )
+        }
+      }
+
+      VStack(alignment: .leading, spacing: 7) {
+        HStack {
+          Text("Volume")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(FlowingPalette.muted)
+          Spacer(minLength: 8)
+          Text("\(Int(currentGain.rounded())) dB")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(FlowingPalette.ink)
+        }
+        FlowingSlider(
+          "File volume",
+          value: volume,
+          in: volumeRange,
+          formatValue: { "\(Int($0.rounded())) decibels" }
+        )
+        FlowingSwitch("Mute file playback", isOn: muted)
+      }
+      .disabled(configuration.selection == nil)
+
+      FlowingCallout(
+        statusDescription,
+        title: statusTitle,
+        systemImage: statusSymbol,
+        tone: statusTone
+      )
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  private var loopChoice: Binding<LoopChoice> {
+    Binding(
+      get: {
+        switch configuration.loopMode {
+        case .once: .once
+        case .playCount: .finite
+        case .infinite: .infinite
+        }
+      },
+      set: { choice in
+        var updated = configuration
+        updated.loopMode =
+          switch choice {
+          case .once: .once
+          case .finite: .playCount(2)
+          case .infinite: .infinite
+          }
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var playCount: Binding<Int> {
+    Binding(
+      get: {
+        guard case .playCount(let count) = configuration.loopMode else { return 2 }
+        return count
+      },
+      set: { count in
+        var updated = configuration
+        updated.loopMode = .playCount(min(max(count, 2), 10_000))
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var currentGain: Double {
+    channelControls[0]?.gainDecibels ?? 0
+  }
+
+  private var volume: Binding<Double> {
+    Binding(get: { currentGain }, set: setVolume)
+  }
+
+  private var volumeRange: ClosedRange<Double> {
+    ClosedRange(
+      uncheckedBounds: (
+        RoutingAudioChannelControl.minimumGainDecibels,
+        RoutingAudioChannelControl.maximumGainDecibels
+      )
+    )
+  }
+
+  private var muted: Binding<Bool> {
+    Binding(get: { channelControls[0]?.isMuted ?? false }, set: setMuted)
+  }
+
+  private var statusTitle: String {
+    switch state {
+    case .idle: "Waiting for a route"
+    case .preparing: "Preparing file"
+    case .streaming: "Streaming"
+    case .completed: "Playback complete"
+    case .failed: "Playback stopped"
+    }
+  }
+
+  private var statusDescription: String {
+    switch state {
+    case .idle:
+      configuration.selection == nil
+        ? "Choose a file, connect it to an output, then run the workflow."
+        : "Connect this source to an Output Audio node and run the workflow."
+    case .preparing:
+      "Opening the file and preparing a bounded decoded-audio queue."
+    case .streaming(let description):
+      "Decoding \(description.channelCount) channels away from the realtime audio thread."
+    case .completed:
+      "Every requested file pass has reached the end. Run the workflow again to replay it."
+    case .failed(let message):
+      message
+    }
+  }
+
+  private var statusSymbol: String {
+    switch state {
+    case .idle: "cable.connector"
+    case .preparing: "hourglass"
+    case .streaming: "play.fill"
+    case .completed: "checkmark.circle"
+    case .failed: "exclamationmark.triangle"
+    }
+  }
+
+  private var statusTone: FlowingStatusTone {
+    if case .failed = state { return .critical }
+    return .neutral
+  }
+
+  private func chooseFile() {
+    let panel = NSOpenPanel()
+    panel.title = "Choose an Audio File"
+    panel.prompt = "Choose"
+    panel.canChooseDirectories = false
+    panel.canChooseFiles = true
+    panel.allowsMultipleSelection = false
+    panel.allowedContentTypes = [.audio]
+    guard panel.runModal() == .OK, let url = panel.url else { return }
+
+    isInspectingFile = true
+    fileIssue = nil
+    Task {
+      do {
+        let description = try await Task.detached(priority: .userInitiated) {
+          try AudioFileFrameStream.inspect(url)
+        }.value
+        var updated = configuration
+        updated.selection = RoutingAudioFileSelection(
+          url: url,
+          displayName: FileManager.default.displayName(atPath: url.path),
+          channelCount: description.channelCount,
+          nativeSampleRate: description.sampleRate
+        )
+        updateConfiguration(updated)
+      } catch {
+        fileIssue = error.localizedDescription
+      }
+      isInspectingFile = false
+    }
   }
 }
 
