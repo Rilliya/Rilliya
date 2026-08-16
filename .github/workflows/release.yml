@@ -352,7 +352,12 @@ jobs:
         run: |
           set -euo pipefail
           for artifact in release/*.dmg release/*.pkg; do
-            shasum -a 256 "$artifact" > "$artifact.sha256"
+            artifact_directory="$(dirname "$artifact")"
+            artifact_name="$(basename "$artifact")"
+            (
+              cd "$artifact_directory"
+              shasum -a 256 "$artifact_name" > "$artifact_name.sha256"
+            )
           done
 
       - name: Publish GitHub release
