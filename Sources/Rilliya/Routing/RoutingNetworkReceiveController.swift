@@ -92,6 +92,8 @@ final class RoutingNetworkReceiveController {
   @ObservationIgnored private var sources: [RoutingNetworkReceiveConfiguration: SharedSource] = [:]
   @ObservationIgnored private var configurationsByNode: [UUID: RoutingNetworkReceiveConfiguration] =
     [:]
+  @ObservationIgnored private var failedConfigurations: [UUID: RoutingNetworkReceiveConfiguration] =
+    [:]
   @ObservationIgnored private var nextGeneration: UInt64 = 0
 
   init(starter: any RoutingNetworkReceiveStarting = SystemRoutingNetworkReceiveStarter()) {
@@ -122,13 +124,22 @@ final class RoutingNetworkReceiveController {
     }
   }
 
+  /// Clears a latched failure so the next reconciliation opens the listener again.
+  func retry(nodeID: UUID) {
+    guard case .failed = state(for: nodeID) else { return }
+    failedConfigurations[nodeID] = nil
+    states[nodeID] = .idle
+  }
+
   func stopAll() {
+    failedConfigurations.removeAll()
     for nodeID in Array(configurationsByNode.keys) {
       detach(nodeID: nodeID, publishesIdleState: true)
     }
   }
 
   private func start(nodeID: UUID, configuration: RoutingNetworkReceiveConfiguration) {
+    if failedConfigurations[nodeID] == configuration { return }
     if configurationsByNode[nodeID] == configuration,
       let source = sources[configuration],
       source.nodeIDs.contains(nodeID)
@@ -236,6 +247,7 @@ final class RoutingNetworkReceiveController {
     sources[configuration] = nil
     for nodeID in source.nodeIDs where configurationsByNode[nodeID] == configuration {
       configurationsByNode[nodeID] = nil
+      failedConfigurations[nodeID] = configuration
       states[nodeID] = .failed(error.localizedDescription)
     }
   }

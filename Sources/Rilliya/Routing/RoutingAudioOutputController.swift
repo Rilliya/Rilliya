@@ -203,6 +203,13 @@ final class RoutingAudioOutputController {
     }
   }
 
+  /// Clears a latched failure so the next reconciliation starts the node again.
+  func retry(nodeID: UUID) {
+    guard case .failed = state(for: nodeID) else { return }
+    desiredStates[nodeID] = nil
+    states[nodeID] = .idle
+  }
+
   func stopAll() {
     let nodeIDs = Set(states.keys)
       .union(runningSessions.keys)
@@ -327,7 +334,7 @@ final class RoutingAudioOutputController {
         states[nodeID] = .running(session.format)
       } catch {
         guard generations[nodeID] == generation else { return }
-        desiredStates[nodeID] = nil
+        // Clearing the desired state here restarts the failed plan on every reconciliation.
         states[nodeID] = .failed(error.localizedDescription)
       }
     }

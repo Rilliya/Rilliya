@@ -130,15 +130,20 @@ final class RoutingFilePlaybackController {
     }
   }
 
+  /// Clears a latched failure so the next reconciliation starts the node again.
+  func retry(nodeID: UUID) {
+    guard case .failed = state(for: nodeID) else { return }
+    states[nodeID] = .idle
+  }
+
   func stopAll() {
     reconcile(requirements: [:])
   }
 
   private func apply(_ requirement: RoutingFilePlaybackRequirement?, to nodeID: UUID) {
     if desiredRequirements[nodeID] == requirement {
-      // An in-flight lifecycle already converges on this requirement. Restarting it here would
-      // retire its generation, and publishing the resulting state change reenters this method,
-      // so the session would never reach the graph.
+      // Retiring an in-flight lifecycle here would discard the session it is about to publish,
+      // and publishing `preparing` reenters this method, so playback would never start.
       guard lifecycleTasks[nodeID] == nil else { return }
       if case .ready(let request) = requirement,
         runningSessions[nodeID]?.request == request
@@ -149,6 +154,8 @@ final class RoutingFilePlaybackController {
         states[nodeID] = .idle
         return
       }
+      // Without this a start that cannot succeed restarts on every reconciliation.
+      if case .failed = state(for: nodeID) { return }
     }
     desiredRequirements[nodeID] = requirement
     let generation = (generations[nodeID] ?? 0) &+ 1
@@ -201,7 +208,6 @@ final class RoutingFilePlaybackController {
         }
       } catch {
         guard generations[nodeID] == generation else { return }
-        desiredRequirements[nodeID] = nil
         states[nodeID] = .failed(error.localizedDescription)
       }
     }

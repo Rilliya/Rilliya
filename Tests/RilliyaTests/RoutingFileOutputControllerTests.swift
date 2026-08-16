@@ -56,6 +56,33 @@ struct RoutingFileOutputControllerTests {
     #expect(controller.state(for: outputID) == .idle)
   }
 
+  /// Reconciliation reruns whenever any observed audio state changes, so a failure that restarts
+  /// on an unchanged plan spins the node between starting and failed.
+  @Test @MainActor
+  func aFailedStartDoesNotRestartOnAnUnchangedPlan() async throws {
+    let generatorID = UUID()
+    let outputID = UUID()
+    let starter = FileOutputTestStarter(failsWith: FileOutputTestError.destinationUnwritable)
+    let controller = RoutingFileOutputController(starter: starter)
+    let workflow = try makeWorkflow(generatorID: generatorID, outputID: outputID)
+    workflow.run()
+
+    reconcile(controller, workflow: workflow)
+    #expect(await eventually { controller.state(for: outputID).isFailed })
+    #expect(await starter.startCount == 1)
+
+    for _ in 0..<FileOutputTestConstants.reconcileAttempts {
+      reconcile(controller, workflow: workflow)
+      await Task.yield()
+    }
+    #expect(controller.state(for: outputID).isFailed)
+    #expect(await starter.startCount == 1)
+
+    controller.retry(nodeID: outputID)
+    reconcile(controller, workflow: workflow)
+    #expect(await eventually { await starter.startCount == 2 })
+  }
+
   @MainActor
   private func makeWorkflow(
     generatorID: UUID,
@@ -127,9 +154,25 @@ struct RoutingFileOutputControllerTests {
   }
 }
 
+private enum FileOutputTestConstants {
+  static let reconcileAttempts = 5
+}
+
+private enum FileOutputTestError: Error, LocalizedError {
+  case destinationUnwritable
+
+  var errorDescription: String? { "The recording destination cannot be written." }
+}
+
 private actor FileOutputTestStarter: RoutingFileOutputStarting {
   private(set) var startCount = 0
   private(set) var stopCount = 0
+
+  private let failure: (any Error)?
+
+  init(failsWith failure: (any Error)? = nil) {
+    self.failure = failure
+  }
 
   func start(
     configuration: RoutingFileOutputConfiguration,
@@ -139,6 +182,7 @@ private actor FileOutputTestStarter: RoutingFileOutputStarting {
     failureHandler: @escaping @Sendable (String) -> Void
   ) async throws -> any RoutingFileOutputSession {
     startCount += 1
+    if let failure { throw failure }
     let preparation = try AudioRenderPreparation(
       format: AudioProcessingFormat(
         sampleRate: configuration.sampleRate,
@@ -179,6 +223,11 @@ private actor FileOutputTestSession: RoutingFileOutputSession {
 extension RoutingFileOutputState {
   fileprivate var isRunning: Bool {
     guard case .running = self else { return false }
+    return true
+  }
+
+  fileprivate var isFailed: Bool {
+    guard case .failed = self else { return false }
     return true
   }
 }

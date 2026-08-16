@@ -448,6 +448,52 @@ struct RoutingAudioOutputControllerTests {
     outputController.stopAll()
   }
 
+  /// Reconciliation reruns whenever any observed audio state changes, so a failure that restarts
+  /// on an unchanged plan spins the node between starting and failed.
+  @Test @MainActor
+  func aFailedStartDoesNotRestartOnAnUnchangedPlan() async throws {
+    let processID = try #require(AudioProcessID(rawValue: 142))
+    let sourceID = UUID()
+    let outputID = UUID()
+    let captureStarter = OutputTestCaptureStarter()
+    let captureController = RoutingCaptureController(captureStarter: captureStarter)
+    let inputController = RoutingInputCaptureController()
+    let outputStarter = OutputTestPlaybackStarter(failsWith: OutputTestError.deviceUnavailable)
+    let outputController = RoutingAudioOutputController(playbackStarter: outputStarter)
+    let workflow = try makeWorkflow(sourceID: sourceID, outputIDs: [outputID])
+    workflow.run()
+
+    captureController.start(nodeID: sourceID, processID: processID)
+    #expect(await eventually { captureController.frameBuffer(for: sourceID) != nil })
+
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: captureController,
+      inputCaptureController: inputController
+    )
+    #expect(await eventually { outputController.state(for: outputID).isFailed })
+    #expect(await outputStarter.startCount == 1)
+
+    for _ in 0..<OutputTestConstants.reconcileAttempts {
+      outputController.reconcile(
+        workflows: [workflow],
+        captureController: captureController,
+        inputCaptureController: inputController
+      )
+      await Task.yield()
+    }
+    #expect(outputController.state(for: outputID).isFailed)
+    #expect(await outputStarter.startCount == 1)
+
+    outputController.retry(nodeID: outputID)
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: captureController,
+      inputCaptureController: inputController
+    )
+    #expect(await eventually { await outputStarter.startCount == 2 })
+  }
+
   @MainActor
   private func makeWorkflow(
     sourceID: UUID,
@@ -603,8 +649,11 @@ private actor OutputTestPlaybackStarter: RoutingOutputPlaybackStarting {
     startedDeviceIDs.last
   }
 
-  init(suspendsStops: Bool = false) {
+  private let failure: (any Error)?
+
+  init(suspendsStops: Bool = false, failsWith failure: (any Error)? = nil) {
     self.suspendsStops = suspendsStops
+    self.failure = failure
   }
 
   func start(
@@ -613,6 +662,7 @@ private actor OutputTestPlaybackStarter: RoutingOutputPlaybackStarting {
     failureHandler: @escaping DeviceOutputPlayback.FailureHandler
   ) async throws -> any RoutingOutputPlaybackSession {
     startCount += 1
+    if let failure { throw failure }
     let preparation = try AudioRenderPreparation(
       format: AudioProcessingFormat(sampleRate: 48_000, channelCount: 1),
       maximumFrameCount: 32
@@ -675,9 +725,24 @@ private actor OutputTestPlaybackSession: RoutingOutputPlaybackSession {
   }
 }
 
+private enum OutputTestConstants {
+  static let reconcileAttempts = 5
+}
+
+private enum OutputTestError: Error, LocalizedError {
+  case deviceUnavailable
+
+  var errorDescription: String? { "The output device is unavailable." }
+}
+
 extension RoutingAudioOutputState {
   fileprivate var isRunning: Bool {
     guard case .running = self else { return false }
+    return true
+  }
+
+  fileprivate var isFailed: Bool {
+    guard case .failed = self else { return false }
     return true
   }
 }

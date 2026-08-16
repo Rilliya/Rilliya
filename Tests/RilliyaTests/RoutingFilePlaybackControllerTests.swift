@@ -47,7 +47,7 @@ struct RoutingFilePlaybackControllerTests {
 
     controller.reconcile(requirements: [nodeID: .ready(request)])
     #expect(await eventually { await starter.currentStartCount() == 1 })
-    for _ in 0..<5 {
+    for _ in 0..<FilePlaybackTestConstants.reconcileAttempts {
       controller.reconcile(requirements: [nodeID: .ready(request)])
     }
     await starter.release()
@@ -55,6 +55,35 @@ struct RoutingFilePlaybackControllerTests {
     #expect(await eventually { controller.frameBuffer(for: nodeID) != nil })
     #expect(await starter.currentStartCount() == 1)
     #expect(await starter.currentStopCount() == 0)
+  }
+
+  /// Reconciliation reruns whenever any observed audio state changes, so a failure that restarts
+  /// on an unchanged requirement spins the node between preparing and failed.
+  @Test @MainActor
+  func aFailedStartDoesNotRestartOnAnUnchangedRequirement() async throws {
+    let starter = FakeRoutingFilePlaybackStarter(failsWith: FilePlaybackTestError.unreadable)
+    let controller = RoutingFilePlaybackController(starter: starter)
+    let nodeID = UUID()
+    let request = RoutingFilePlaybackRequest(
+      url: URL(fileURLWithPath: "/tmp/missing.wav"),
+      sampleRate: 48_000,
+      loopMode: .infinite
+    )
+
+    controller.reconcile(requirements: [nodeID: .ready(request)])
+    #expect(await eventually { controller.state(for: nodeID).isFailed })
+    #expect(await starter.currentStartCount() == 1)
+
+    for _ in 0..<FilePlaybackTestConstants.reconcileAttempts {
+      controller.reconcile(requirements: [nodeID: .ready(request)])
+      await Task.yield()
+    }
+    #expect(controller.state(for: nodeID).isFailed)
+    #expect(await starter.currentStartCount() == 1)
+
+    controller.retry(nodeID: nodeID)
+    controller.reconcile(requirements: [nodeID: .ready(request)])
+    #expect(await eventually { await starter.currentStartCount() == 2 })
   }
 
   @Test @MainActor
@@ -182,11 +211,17 @@ private actor FakeRoutingFilePlaybackStarter: RoutingFilePlaybackStarting {
   private(set) var stopCount = 0
   private let completesBeforeReturning: Bool
   private let suspendsUntilReleased: Bool
+  private let failure: (any Error)?
   private var suspendedStarts: [CheckedContinuation<Void, Never>] = []
 
-  init(completesBeforeReturning: Bool = false, suspendsUntilReleased: Bool = false) {
+  init(
+    completesBeforeReturning: Bool = false,
+    suspendsUntilReleased: Bool = false,
+    failsWith failure: (any Error)? = nil
+  ) {
     self.completesBeforeReturning = completesBeforeReturning
     self.suspendsUntilReleased = suspendsUntilReleased
+    self.failure = failure
   }
 
   func release() {
@@ -203,6 +238,7 @@ private actor FakeRoutingFilePlaybackStarter: RoutingFilePlaybackStarting {
     if suspendsUntilReleased {
       await withCheckedContinuation { suspendedStarts.append($0) }
     }
+    if let failure { throw failure }
     let description = try AudioFileDescription(
       sampleRate: request.sampleRate,
       channelCount: 1,
@@ -255,5 +291,22 @@ private actor FakeRoutingFilePlaybackSession: RoutingFilePlaybackSession {
     guard !isStopped else { return }
     isStopped = true
     await stopHandler()
+  }
+}
+
+private enum FilePlaybackTestConstants {
+  static let reconcileAttempts = 5
+}
+
+private enum FilePlaybackTestError: Error, LocalizedError {
+  case unreadable
+
+  var errorDescription: String? { "The audio file cannot be read." }
+}
+
+extension RoutingFilePlaybackState {
+  fileprivate var isFailed: Bool {
+    guard case .failed = self else { return false }
+    return true
   }
 }

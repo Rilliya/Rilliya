@@ -215,6 +215,13 @@ final class RoutingFileOutputController {
     }
   }
 
+  /// Clears a latched failure so the next reconciliation starts the node again.
+  func retry(nodeID: UUID) {
+    guard case .failed = state(for: nodeID) else { return }
+    desiredStates[nodeID] = nil
+    states[nodeID] = .idle
+  }
+
   func stopAll() {
     for nodeID in Set(states.keys).union(sessions.keys).union(lifecycleTasks.keys) {
       apply(.idle, to: nodeID)
@@ -318,7 +325,7 @@ final class RoutingFileOutputController {
         states[nodeID] = .running(session.outputURL)
       } catch {
         guard generations[nodeID] == generation else { return }
-        desiredStates[nodeID] = nil
+        // Clearing the desired state here restarts the failed plan on every reconciliation.
         states[nodeID] = .failed(error.localizedDescription)
       }
     }

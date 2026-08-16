@@ -1161,13 +1161,13 @@ enum RoutingPreparedCaptureReadPolicy {
   /// The oldest audio a destination keeps before dropping frames to bound its latency.
   static let maximumBufferedDuration = 0.25
 
+  /// The render quanta a destination retains regardless of the duration bound.
+  static let minimumBufferedRenderQuanta = 2
+
   /// Returns the backlog a destination retains before discarding its oldest frames.
   ///
-  /// A capture device or network peer delivers one IO cycle at a time, so the backlog a healthy
-  /// source presents is set by the producer's granularity rather than by the consumer's render
-  /// quantum. Bounding it by elapsed time keeps latency predictable for every producer, while a
-  /// bound derived from the render quantum would discard audio the destination is about to
-  /// consume whenever a destination renders smaller quanta than its producer delivers.
+  /// A producer delivers a whole IO cycle at a time, so a bound derived from the render quantum
+  /// discards audio a destination that renders smaller quanta is about to consume.
   static func maximumBufferedFrameCount(
     source: RoutingRealtimeCaptureSource,
     maximumFrameCount: Int
@@ -1175,7 +1175,7 @@ enum RoutingPreparedCaptureReadPolicy {
     min(
       source.capacityFrameCount,
       max(
-        maximumFrameCount * 2,
+        maximumFrameCount * minimumBufferedRenderQuanta,
         Int((source.format.sampleRate * maximumBufferedDuration).rounded())
       )
     )
