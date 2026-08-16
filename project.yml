@@ -12,7 +12,8 @@ packages:
   RilliyaKit:
     path: ../RilliyaKit
   FlowingDayUI:
-    path: ../flowing-day-ui
+    url: https://github.com/cocoa-xu/flowing-day-ui.git
+    from: 2.5.0
 
 settings:
   base:
