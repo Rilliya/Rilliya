@@ -2,7 +2,7 @@ name: Rilliya
 
 options:
   minimumXcodeGenVersion: 2.46.0
-  xcodeVersion: "16.4"
+  xcodeVersion: "26.3"
   projectFormat: xcode16_3
   defaultConfig: Debug
   deploymentTarget:
@@ -62,7 +62,7 @@ targets:
           DEPLOYMENT_POSTPROCESSING: YES
           LLVM_LTO: YES_THIN
           STRIP_INSTALLED_PRODUCT: YES
-          STRIP_STYLE: all
+          STRIP_STYLE: non-global
     dependencies:
       - sdk: CoreAudio.framework
       - sdk: CoreFoundation.framework

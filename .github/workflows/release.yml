@@ -27,7 +27,7 @@ permissions:
 jobs:
   release:
     name: Sign, notarize, and publish
-    runs-on: macos-26
+    runs-on: macos-15
     timeout-minutes: 50
     defaults:
       run:
@@ -41,6 +41,13 @@ jobs:
           fetch-depth: 0
           path: Rilliya
           persist-credentials: false
+
+      - name: Select Xcode 26.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
+          [[ "$(xcodebuild -version | head -n 1)" == "Xcode 26.3" ]]
 
       - name: Validate release inputs
         shell: bash
@@ -89,13 +96,15 @@ jobs:
           APPLE_ID: ${{ secrets.APPLE_ID }}
           CERTIFICATE_BASE64: ${{ secrets.DEV_ID_APP_CERTIFICATE_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.DEV_ID_APP_CERTIFICATE_PASSWORD }}
+          INSTALLER_CERTIFICATE_BASE64: ${{ secrets.DEV_ID_INSTALLER_CERTIFICATE_BASE64 }}
+          INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.DEV_ID_INSTALLER_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
           NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
           TEAM_ID: ${{ secrets.TEAM_ID }}
         shell: bash
         run: |
           set -euo pipefail
-          for variable in APPLE_ID CERTIFICATE_BASE64 CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD NOTARY_PASSWORD TEAM_ID; do
+          for variable in APPLE_ID CERTIFICATE_BASE64 CERTIFICATE_PASSWORD INSTALLER_CERTIFICATE_BASE64 INSTALLER_CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD NOTARY_PASSWORD TEAM_ID; do
             if [[ -z "${!variable}" ]]; then
               echo "Missing required release configuration: $variable" >&2
               exit 1
@@ -112,6 +121,8 @@ jobs:
         env:
           CERTIFICATE_BASE64: ${{ secrets.DEV_ID_APP_CERTIFICATE_BASE64 }}
           CERTIFICATE_PASSWORD: ${{ secrets.DEV_ID_APP_CERTIFICATE_PASSWORD }}
+          INSTALLER_CERTIFICATE_BASE64: ${{ secrets.DEV_ID_INSTALLER_CERTIFICATE_BASE64 }}
+          INSTALLER_CERTIFICATE_PASSWORD: ${{ secrets.DEV_ID_INSTALLER_CERTIFICATE_PASSWORD }}
           KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
           TEAM_ID: ${{ secrets.TEAM_ID }}
         run: scripts/release/import-signing-certificate.sh
@@ -162,6 +173,99 @@ jobs:
           archive arm64 arm64
           archive intel x86_64
 
+      - name: Build and sign Universal driver
+        shell: bash
+        run: |
+          set -euo pipefail
+          build_driver() {
+            local name=$1
+            local architecture=$2
+            xcodebuild build \
+              -project Rilliya.xcodeproj \
+              -target RilliyaVirtualAudioDriver \
+              -configuration Release \
+              SYMROOT="$RUNNER_TEMP/RilliyaDriver-$name" \
+              OBJROOT="$RUNNER_TEMP/RilliyaDriverIntermediates-$name" \
+              ARCHS="$architecture" \
+              ONLY_ACTIVE_ARCH=NO \
+              CODE_SIGNING_ALLOWED=NO \
+              CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"
+          }
+
+          build_driver arm64 arm64
+          build_driver intel x86_64
+
+          arm64_driver="$RUNNER_TEMP/RilliyaDriver-arm64/Release/RilliyaVirtualAudioDriver.driver"
+          intel_driver="$RUNNER_TEMP/RilliyaDriver-intel/Release/RilliyaVirtualAudioDriver.driver"
+          universal_driver="$RUNNER_TEMP/RilliyaVirtualAudioDriver.driver"
+          scripts/release/create-universal-driver.sh \
+            "$arm64_driver" "$intel_driver" "$universal_driver"
+          codesign \
+            --force \
+            --options runtime \
+            --timestamp \
+            --keychain "$SIGNING_KEYCHAIN" \
+            --sign "$CODE_SIGN_IDENTITY" \
+            "$universal_driver"
+          codesign --verify --deep --strict --verbose=2 "$universal_driver"
+          architectures="$(lipo -archs "$universal_driver/Contents/MacOS/RilliyaVirtualAudioDriver")"
+          [[ "$architectures" == *arm64* && "$architectures" == *x86_64* ]]
+
+      - name: Create and notarize driver installer
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+          driver_package="release/RilliyaVirtualAudioDriver-$RELEASE_VERSION.pkg"
+          scripts/release/create-driver-installer.sh \
+            "$RUNNER_TEMP/RilliyaVirtualAudioDriver.driver" \
+            "$RELEASE_VERSION" \
+            "$driver_package"
+          xcrun notarytool submit "$driver_package" \
+            --apple-id "$APPLE_ID" \
+            --password "$NOTARY_PASSWORD" \
+            --team-id "$TEAM_ID" \
+            --wait
+          xcrun stapler staple "$driver_package"
+          xcrun stapler validate "$driver_package"
+          pkgutil --check-signature "$driver_package"
+          spctl --assess --type install --verbose=2 "$driver_package"
+
+      - name: Embed installer and sign application variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          entitlements="Sources/Rilliya/Resources/Rilliya.entitlements"
+          driver_package="release/RilliyaVirtualAudioDriver-$RELEASE_VERSION.pkg"
+          plutil -lint "$entitlements"
+          if plutil -extract com.apple.security.get-task-allow raw "$entitlements" >/dev/null 2>&1; then
+            echo "Release entitlements must not include get-task-allow" >&2
+            exit 1
+          fi
+
+          embed_and_sign() {
+            local application=$1
+            local installer_directory="$application/Contents/Resources/Installers"
+            mkdir -p "$installer_directory"
+            ditto "$driver_package" "$installer_directory/RilliyaVirtualAudioDriver.pkg"
+            rm -rf "$application/Contents/_CodeSignature"
+            codesign \
+              --force \
+              --options runtime \
+              --timestamp \
+              --keychain "$SIGNING_KEYCHAIN" \
+              --entitlements "$entitlements" \
+              --sign "$CODE_SIGN_IDENTITY" \
+              "$application"
+          }
+
+          embed_and_sign "$RUNNER_TEMP/Rilliya-arm64.xcarchive/Products/Applications/Rilliya.app"
+          embed_and_sign "$RUNNER_TEMP/Rilliya-intel.xcarchive/Products/Applications/Rilliya.app"
+
       - name: Assemble and sign Universal application
         shell: bash
         run: |
@@ -173,11 +277,6 @@ jobs:
 
           scripts/release/create-universal-application.sh \
             "$arm64_app" "$intel_app" "$universal_app"
-          plutil -lint "$entitlements"
-          if plutil -extract com.apple.security.get-task-allow raw "$entitlements" >/dev/null 2>&1; then
-            echo "Release entitlements must not include get-task-allow" >&2
-            exit 1
-          fi
           codesign \
             --force \
             --options runtime \
@@ -196,6 +295,9 @@ jobs:
           universal_app="$RUNNER_TEMP/Rilliya-universal.app"
 
           for app in "$arm64_app" "$intel_app" "$universal_app"; do
+            installer="$app/Contents/Resources/Installers/RilliyaVirtualAudioDriver.pkg"
+            [[ -f "$installer" ]]
+            pkgutil --check-signature "$installer"
             codesign --verify --deep --strict --verbose=2 "$app"
           done
 
@@ -258,8 +360,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          for dmg in release/*.dmg; do
-            shasum -a 256 "$dmg" > "$dmg.sha256"
+          for artifact in release/*.dmg release/*.pkg; do
+            shasum -a 256 "$artifact" > "$artifact.sha256"
           done
 
       - name: Publish GitHub release
@@ -269,7 +371,7 @@ jobs:
         run: |
           set -euo pipefail
           tag="v$RELEASE_VERSION"
-          assets=(release/*.dmg release/*.dmg.sha256)
+          assets=(release/*.dmg release/*.dmg.sha256 release/*.pkg release/*.pkg.sha256)
 
           if git rev-parse "$tag" >/dev/null 2>&1; then
             if [[ "$(git rev-list -n 1 "$tag")" != "$GITHUB_SHA" ]]; then

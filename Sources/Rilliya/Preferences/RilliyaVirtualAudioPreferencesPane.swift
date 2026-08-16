@@ -31,7 +31,7 @@ struct RilliyaVirtualAudioPreferencesPane: View {
     PreferencesSection(
       "Virtual Audio Driver",
       footer:
-        "The driver publishes Rilliya-managed input and output devices to macOS. Installing it requires an administrator password."
+        "The driver publishes Rilliya-managed input and output devices to macOS. Installing it requires an administrator password and a restart so Core Audio can load it."
     ) {
       switch controller.availability {
       case .available:

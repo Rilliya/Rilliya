@@ -16,7 +16,7 @@ permissions:
 jobs:
   native:
     name: Native
-    runs-on: macos-26
+    runs-on: macos-15
     timeout-minutes: 35
     defaults:
       run:
@@ -41,6 +41,13 @@ jobs:
           repository: cocoa-xu/flowing-day-ui
           path: flowing-day-ui
           persist-credentials: false
+
+      - name: Select Xcode 26.3
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo xcode-select --switch /Applications/Xcode_26.3.app/Contents/Developer
+          [[ "$(xcodebuild -version | head -n 1)" == "Xcode 26.3" ]]
 
       - name: Fingerprint Swift toolchain
         id: toolchain
@@ -95,7 +102,14 @@ jobs:
           arm64_app="$RUNNER_TEMP/RilliyaBuild-arm64/Build/Products/Release/Rilliya.app"
           intel_app="$RUNNER_TEMP/RilliyaBuild-intel/Build/Products/Release/Rilliya.app"
           universal_app="$RUNNER_TEMP/Rilliya-Universal.app"
+          arm64_driver="$RUNNER_TEMP/RilliyaBuild-arm64/Build/Products/Release/RilliyaVirtualAudioDriver.driver"
+          intel_driver="$RUNNER_TEMP/RilliyaBuild-intel/Build/Products/Release/RilliyaVirtualAudioDriver.driver"
+          universal_driver="$RUNNER_TEMP/RilliyaVirtualAudioDriver-Universal.driver"
           scripts/release/create-universal-application.sh \
             "$arm64_app" "$intel_app" "$universal_app"
+          scripts/release/create-universal-driver.sh \
+            "$arm64_driver" "$intel_driver" "$universal_driver"
           architectures="$(lipo -archs "$universal_app/Contents/MacOS/Rilliya")"
           [[ "$architectures" == *arm64* && "$architectures" == *x86_64* ]]
+          driver_architectures="$(lipo -archs "$universal_driver/Contents/MacOS/RilliyaVirtualAudioDriver")"
+          [[ "$driver_architectures" == *arm64* && "$driver_architectures" == *x86_64* ]]
