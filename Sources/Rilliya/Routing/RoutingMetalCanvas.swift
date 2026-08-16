@@ -1,5 +1,6 @@
 import AppKit
 import FlowingDayCanvas
+import FlowingDayControls
 import FlowingDayGraphCanvas
 import FlowingDayGraphLayout
 import MetalKit
@@ -49,6 +50,14 @@ enum RoutingCanvasMouseTool: String, CaseIterable, Hashable, Sendable {
   case pan
 }
 
+@MainActor
+struct RoutingCanvasContextMenuRequest: Identifiable {
+  let id = UUID()
+  let anchor: CGPoint
+  let accentID: RoutingAccentID
+  let items: [FlowingContextMenuItem]
+}
+
 struct RoutingMetalCanvas: NSViewRepresentable {
   let scene: RoutingMetalScene
   let selection: Set<RoutingCanvasElementID>
@@ -63,6 +72,8 @@ struct RoutingMetalCanvas: NSViewRepresentable {
   let onDeleteEdges: (Set<UUID>) -> Void
   let onToggleEdgeEnabled: (UUID) -> Void
   let onTogglePortEnabled: (UUID, RoutingGraphPortID) -> Void
+  let onShowNodeColorPicker: (UUID) -> Void
+  let onPresentContextMenu: (RoutingCanvasContextMenuRequest) -> Void
   let onSetAudioChannelGain: (UUID, Int, Double) -> Void
   let onToggleAudioChannelMuted: (UUID, Int) -> Void
   let showsDisabledPortCrosses: Bool
@@ -104,6 +115,8 @@ struct RoutingMetalCanvas: NSViewRepresentable {
     view.onDeleteEdges = onDeleteEdges
     view.onToggleEdgeEnabled = onToggleEdgeEnabled
     view.onTogglePortEnabled = onTogglePortEnabled
+    view.onShowNodeColorPicker = onShowNodeColorPicker
+    view.onPresentContextMenu = onPresentContextMenu
     view.onSetAudioChannelGain = onSetAudioChannelGain
     view.onToggleAudioChannelMuted = onToggleAudioChannelMuted
     view.onViewportChange = onViewportChange
@@ -119,6 +132,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   var onDeleteEdges: ((Set<UUID>) -> Void)?
   var onToggleEdgeEnabled: ((UUID) -> Void)?
   var onTogglePortEnabled: ((UUID, RoutingGraphPortID) -> Void)?
+  var onShowNodeColorPicker: ((UUID) -> Void)?
+  var onPresentContextMenu: ((RoutingCanvasContextMenuRequest) -> Void)?
   var onSetAudioChannelGain: ((UUID, Int, Double) -> Void)?
   var onToggleAudioChannelMuted: ((UUID, Int) -> Void)?
   var onViewportChange: ((FlowingCanvasViewport, FlowingCanvasViewportChangePhase) -> Void)?
@@ -156,9 +171,6 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   private var hoveredNodeID: RoutingCanvasElementID?
   private var hoveredPortID: RoutingCanvasElementID?
   private var hoveredEdgeID: RoutingCanvasElementID?
-  private var contextNodeIDs: Set<UUID> = []
-  private var contextEdgeID: UUID?
-  private var contextPortAddress: RoutingWorkspacePortAddress?
   private var mouseDownViewportPoint: CGPoint?
   private var mouseDownWorldPoint: CGPoint?
   private var mouseDownCameraOffset: CGSize?
@@ -601,93 +613,79 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     let viewportPoint = convert(event.locationInWindow, from: nil)
     let worldPoint = camera.worldPoint(for: viewportPoint)
     if let port = port(at: worldPoint) {
-      contextNodeIDs = []
-      contextEdgeID = nil
-      contextPortAddress = RoutingWorkspacePortAddress(
-        nodeID: port.workspaceNodeID,
-        portID: port.value.id
+      presentContextMenu(
+        at: viewportPoint,
+        accentID: scene.nodes.first(where: { $0.id == port.nodeID })?.accentID
+          ?? .fern,
+        items: [
+          FlowingContextMenuItem(port.value.isEnabled ? "Disable Port" : "Enable Port") {
+            [weak self] in
+            self?.onTogglePortEnabled?(port.workspaceNodeID, port.value.id)
+          }
+        ]
       )
-      let menu = NSMenu(title: "Port")
-      let toggleItem = NSMenuItem(
-        title: port.value.isEnabled ? "Disable Port" : "Enable Port",
-        action: #selector(toggleContextPort),
-        keyEquivalent: ""
-      )
-      toggleItem.target = self
-      menu.addItem(toggleItem)
-      return menu
+      return nil
     }
     if let node = node(at: worldPoint) {
       if !selection.contains(node.id) {
         updateSelection([node.id])
       }
-      contextNodeIDs = Set(
+      let nodeIDs = Set(
         scene.nodes
           .filter { selection.contains($0.id) || $0.id == node.id }
           .map(\.workspaceID)
       )
-      contextEdgeID = nil
-      contextPortAddress = nil
-
-      let menu = NSMenu(title: "Node")
-      let deleteItem = NSMenuItem(
-        title: contextNodeIDs.count == 1 ? "Delete Node" : "Delete \(contextNodeIDs.count) Nodes",
-        action: #selector(deleteContextNode),
-        keyEquivalent: ""
+      var items: [FlowingContextMenuItem] = []
+      if nodeIDs.count == 1 {
+        items.append(
+          FlowingContextMenuItem("Change Node Color…") { [weak self] in
+            self?.onShowNodeColorPicker?(node.workspaceID)
+          }
+        )
+        items.append(.separator())
+      }
+      items.append(
+        FlowingContextMenuItem(
+          nodeIDs.count == 1 ? "Delete Node" : "Delete \(nodeIDs.count) Nodes",
+          accent: .crimson
+        ) { [weak self] in
+          self?.onDeleteNodes?(nodeIDs)
+          self?.updateSelection([])
+        }
       )
-      deleteItem.target = self
-      menu.addItem(deleteItem)
-      return menu
+      presentContextMenu(at: viewportPoint, accentID: node.accentID, items: items)
+      return nil
     }
     guard let edge = edge(at: worldPoint) else { return nil }
     updateSelection([edge.id])
-    contextNodeIDs = []
-    contextPortAddress = nil
-    contextEdgeID = edge.workspaceID
-
-    let menu = NSMenu(title: "Connection")
-    let toggleItem = NSMenuItem(
-      title: edge.isEnabled ? "Disable Connection" : "Enable Connection",
-      action: #selector(toggleContextEdge),
-      keyEquivalent: ""
+    presentContextMenu(
+      at: viewportPoint,
+      accentID: scene.nodes.first(where: { $0.id == edge.sourceNodeID })?.accentID
+        ?? .fern,
+      items: [
+        FlowingContextMenuItem(
+          edge.isEnabled ? "Disable Connection" : "Enable Connection"
+        ) { [weak self] in
+          self?.onToggleEdgeEnabled?(edge.workspaceID)
+        },
+        .separator(),
+        FlowingContextMenuItem("Delete Connection", accent: .crimson) { [weak self] in
+          self?.onDeleteEdges?([edge.workspaceID])
+          self?.updateSelection([])
+        },
+      ]
     )
-    toggleItem.target = self
-    menu.addItem(toggleItem)
-    menu.addItem(.separator())
-    let deleteItem = NSMenuItem(
-      title: "Delete Connection",
-      action: #selector(deleteContextEdge),
-      keyEquivalent: ""
+    return nil
+  }
+
+  private func presentContextMenu(
+    at anchor: CGPoint,
+    accentID: RoutingAccentID,
+    items: [FlowingContextMenuItem]
+  ) {
+    onPresentContextMenu?(
+      RoutingCanvasContextMenuRequest(anchor: anchor, accentID: accentID, items: items)
     )
-    deleteItem.target = self
-    menu.addItem(deleteItem)
-    return menu
-  }
-
-  @objc private func toggleContextEdge() {
-    guard let contextEdgeID else { return }
-    onToggleEdgeEnabled?(contextEdgeID)
-    self.contextEdgeID = nil
-  }
-
-  @objc private func deleteContextNode() {
-    guard !contextNodeIDs.isEmpty else { return }
-    onDeleteNodes?(contextNodeIDs)
-    updateSelection([])
-    contextNodeIDs = []
-  }
-
-  @objc private func deleteContextEdge() {
-    guard let contextEdgeID else { return }
-    onDeleteEdges?([contextEdgeID])
-    updateSelection([])
-    self.contextEdgeID = nil
-  }
-
-  @objc private func toggleContextPort() {
-    guard let contextPortAddress else { return }
-    onTogglePortEnabled?(contextPortAddress.nodeID, contextPortAddress.portID)
-    self.contextPortAddress = nil
   }
 
   func restoreCamera(_ camera: FlowingGraphCanvasMetalCamera) {
@@ -1122,7 +1120,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
           fill: fill,
           border: portAccent,
           cornerRadius: Float(diameter / 2),
-          borderWidth: Float(1.5 / camera.zoom),
+          borderWidth: Float(RoutingCanvasMetrics.portBorderWidth / camera.zoom),
           opacity: 1
         )
       )

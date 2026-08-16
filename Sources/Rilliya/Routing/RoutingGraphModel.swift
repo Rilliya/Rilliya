@@ -1408,6 +1408,8 @@ typealias RoutingCanvasAccessibilitySnapshot =
 enum RoutingCanvasMetrics {
   static let baseNodeSize = CGSize(width: 252, height: 128)
   static let mixerNodeWidth: CGFloat = 300
+  static let portBorderWidth: CGFloat = 1.5
+  static let portAnchorInset = portBorderWidth / 2
   static let contentBounds = CGRect(
     x: -100_000,
     y: -100_000,

@@ -234,6 +234,7 @@ struct RoutingCanvasView: View {
   @State private var dropPreview: RoutingDropPreviewState?
   @State private var dropTask: Task<Void, Never>?
   @State private var metalSceneTopologyCache = RoutingMetalSceneTopologyCache()
+  @State private var expandedNodeColorPickerID: UUID?
 
   var body: some View {
     ZStack {
@@ -287,6 +288,10 @@ struct RoutingCanvasView: View {
     .onDisappear {
       dropTask?.cancel()
     }
+    .onChange(of: selectedWorkspaceNodeID) { oldValue, newValue in
+      guard oldValue != newValue else { return }
+      expandedNodeColorPickerID = nil
+    }
   }
 
   private func canvas(_ content: RoutingCanvasContent) -> some View {
@@ -326,6 +331,9 @@ struct RoutingCanvasView: View {
           removeEdges: workspace.removeEdges,
           toggleEdgeEnabled: workspace.toggleEdgeEnabled,
           togglePortEnabled: workspace.togglePortEnabled,
+          showNodeColorPicker: { nodeID in
+            expandedNodeColorPickerID = nodeID
+          },
           setAudioChannelGain: { nodeID, channelIndex, gainDecibels in
             workspace.setAudioChannelGain(
               gainDecibels,
@@ -709,12 +717,17 @@ struct RoutingCanvasView: View {
     if let nodeID = selectedWorkspaceNodeID,
       let node = workspace.node(id: nodeID)
     {
-      VStack(spacing: 10) {
+      VStack(spacing: 6) {
         selectedNodeInspectorContent(node: node)
         RoutingNodeColorOverrideCard(
-          kind: node.value.kind,
           selection: node.accentOverride,
           inheritedAccentID: settings.resolvedAccentID(for: node.value.kind),
+          isExpanded: Binding(
+            get: { expandedNodeColorPickerID == node.id },
+            set: { isExpanded in
+              expandedNodeColorPickerID = isExpanded ? node.id : nil
+            }
+          ),
           setSelection: { workspace.setAccentOverride($0, for: node.id) }
         )
       }
@@ -3044,12 +3057,10 @@ private enum RoutingPortDisplayMode: Hashable {
 }
 
 private struct RoutingNodeColorOverrideCard: View {
-  let kind: RoutingNodeKind
   let selection: RoutingAccentID?
   let inheritedAccentID: RoutingAccentID
+  @Binding var isExpanded: Bool
   let setSelection: (RoutingAccentID?) -> Void
-
-  @State private var isExpanded = false
 
   var body: some View {
     FlowingCard(
@@ -3058,19 +3069,18 @@ private struct RoutingNodeColorOverrideCard: View {
     ) {
       FlowingDisclosure(
         isExpanded: $isExpanded,
-        minimumHeaderHeight: 52,
-        contentInsets: EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
+        minimumHeaderHeight: 38,
+        contentInsets: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
       ) {
-        HStack(spacing: 10) {
+        HStack(spacing: 8) {
           RoutingAccentSwatch(accentID: selection ?? inheritedAccentID)
-          VStack(alignment: .leading, spacing: 2) {
-            Text("Node Color")
-              .font(.callout.weight(.semibold))
-              .foregroundStyle(FlowingPalette.ink)
-            Text(currentColorDescription)
-              .font(.caption)
-              .foregroundStyle(FlowingPalette.muted)
-          }
+          Text("Node Color")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text(currentColorDescription)
+            .font(.caption2)
+            .foregroundStyle(FlowingPalette.muted)
+            .lineLimit(1)
         }
       } content: {
         RoutingAccentGrid(
@@ -3083,14 +3093,11 @@ private struct RoutingNodeColorOverrideCard: View {
         .padding(.bottom, 10)
       }
     }
-    .shadow(color: .black.opacity(0.05), radius: 8, y: 3)
+    .shadow(color: .black.opacity(0.035), radius: 6, y: 2)
   }
 
   private var currentColorDescription: String {
-    if let selection {
-      return "This node · \(selection.displayName)"
-    }
-    return "Node default · \(inheritedAccentID.displayName)"
+    selection == nil ? "Node default" : "Custom"
   }
 }
 

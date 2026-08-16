@@ -1,28 +1,13 @@
 import FlowingDayControls
 import SwiftUI
 
-enum RoutingAccentGridMetrics {
-  static let chipLabelSize: CGFloat = 10.5
-}
-
 struct RoutingAccentGrid: View {
   let selection: RoutingAccentID?
   let inheritedAccentID: RoutingAccentID
   let inheritedLabel: String
   let setSelection: (RoutingAccentID?) -> Void
 
-  @Environment(\.flowingTypography) private var typography
-
   private let columns = Array(repeating: GridItem(.flexible(), spacing: 7), count: 7)
-
-  private var chipTypography: FlowingTypography {
-    var result = typography
-    result.selectionLabel = FlowingTextStyle(
-      size: RoutingAccentGridMetrics.chipLabelSize,
-      weight: .medium
-    )
-    return result
-  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -35,9 +20,6 @@ struct RoutingAccentGrid: View {
             Text(inheritedLabel)
               .font(.caption.weight(.semibold))
               .foregroundStyle(FlowingPalette.ink)
-            Text(inheritedAccentID.displayName)
-              .font(.caption2)
-              .foregroundStyle(FlowingPalette.muted)
           }
           Spacer(minLength: 8)
           if selection == nil {
@@ -61,11 +43,19 @@ struct RoutingAccentGrid: View {
         ForEach(Array(RoutingAccentID.families.enumerated()), id: \.offset) { _, family in
           LazyVGrid(columns: columns, spacing: 7) {
             ForEach(family.accents, id: \.self) { accentID in
-              FlowingChip(accentID.displayName) {
+              FlowingChip("") {
                 setSelection(accentID)
               }
               .flowingAccent(accentID.accent)
-              .flowingTypography(chipTypography)
+              .overlay {
+                if selection == accentID {
+                  RoundedRectangle(cornerRadius: 8, style: .continuous)
+                    .strokeBorder(FlowingPalette.ink.opacity(0.68), lineWidth: 2)
+                    .allowsHitTesting(false)
+                }
+              }
+              .help(accentID.displayName)
+              .accessibilityLabel(accentID.displayName)
               .accessibilityValue(selection == accentID ? "Selected" : "Not selected")
             }
           }

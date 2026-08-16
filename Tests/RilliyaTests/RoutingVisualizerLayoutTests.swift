@@ -138,11 +138,15 @@ struct RoutingVisualizerLayoutTests {
     #expect(ports.map(\.position.y) == laneCenters + laneCenters)
     #expect(
       ports.filter { $0.value.direction == .input }
-        .allSatisfy { $0.position.x == node.frame.minX }
+        .allSatisfy {
+          $0.position.x == node.frame.minX + RoutingCanvasMetrics.portAnchorInset
+        }
     )
     #expect(
       ports.filter { $0.value.direction == .output }
-        .allSatisfy { $0.position.x == node.frame.maxX }
+        .allSatisfy {
+          $0.position.x == node.frame.maxX - RoutingCanvasMetrics.portAnchorInset
+        }
     )
   }
 

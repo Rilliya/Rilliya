@@ -492,9 +492,13 @@ private struct RoutingPortAnchorResolver: FlowingGraphPortAnchorResolver {
       placement.verticalOffset
       ?? nodeSize.height * CGFloat(placement.ordinal + 1) / CGFloat(placement.total + 1)
     let isInput = id.direction == .input
+    let horizontalPosition =
+      isInput
+      ? RoutingCanvasMetrics.portAnchorInset
+      : nodeSize.width - RoutingCanvasMetrics.portAnchorInset
     return FlowingGraphPortAnchor(
       key: port.key,
-      position: CGPoint(x: isInput ? 0 : nodeSize.width, y: verticalPosition),
+      position: CGPoint(x: horizontalPosition, y: verticalPosition),
       normal: CGVector(dx: isInput ? -1 : 1, dy: 0)
     )
   }

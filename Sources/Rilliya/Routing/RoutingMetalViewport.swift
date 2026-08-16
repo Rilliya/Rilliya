@@ -12,6 +12,7 @@ struct RoutingMetalViewport: View {
   let removeEdges: (Set<UUID>) -> Void
   let toggleEdgeEnabled: (UUID) -> Void
   let togglePortEnabled: (UUID, RoutingGraphPortID) -> Void
+  let showNodeColorPicker: (UUID) -> Void
   let setAudioChannelGain: (UUID, Int, Double) -> Void
   let toggleAudioChannelMuted: (UUID, Int) -> Void
   let showsDisabledPortCrosses: Bool
@@ -19,6 +20,7 @@ struct RoutingMetalViewport: View {
   let setMiniMapVisible: (Bool) -> Void
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
+  @State private var contextMenuRequest: RoutingCanvasContextMenuRequest?
   @StateObject private var controller: RoutingMetalCanvasController
 
   init(
@@ -30,6 +32,7 @@ struct RoutingMetalViewport: View {
     removeEdges: @escaping (Set<UUID>) -> Void,
     toggleEdgeEnabled: @escaping (UUID) -> Void,
     togglePortEnabled: @escaping (UUID, RoutingGraphPortID) -> Void,
+    showNodeColorPicker: @escaping (UUID) -> Void,
     setAudioChannelGain: @escaping (UUID, Int, Double) -> Void,
     toggleAudioChannelMuted: @escaping (UUID, Int) -> Void,
     showsDisabledPortCrosses: Bool,
@@ -44,6 +47,7 @@ struct RoutingMetalViewport: View {
     self.removeEdges = removeEdges
     self.toggleEdgeEnabled = toggleEdgeEnabled
     self.togglePortEnabled = togglePortEnabled
+    self.showNodeColorPicker = showNodeColorPicker
     self.setAudioChannelGain = setAudioChannelGain
     self.toggleAudioChannelMuted = toggleAudioChannelMuted
     self.showsDisabledPortCrosses = showsDisabledPortCrosses
@@ -73,6 +77,10 @@ struct RoutingMetalViewport: View {
           onDeleteEdges: removeEdges,
           onToggleEdgeEnabled: toggleEdgeEnabled,
           onTogglePortEnabled: togglePortEnabled,
+          onShowNodeColorPicker: showNodeColorPicker,
+          onPresentContextMenu: { request in
+            contextMenuRequest = request
+          },
           onSetAudioChannelGain: setAudioChannelGain,
           onToggleAudioChannelMuted: toggleAudioChannelMuted,
           showsDisabledPortCrosses: showsDisabledPortCrosses,
@@ -107,6 +115,17 @@ struct RoutingMetalViewport: View {
           insets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
         ) {
           viewportControls
+        }
+
+        if let contextMenuRequest {
+          FlowingContextMenu(
+            anchor: contextMenuRequest.anchor,
+            items: contextMenuRequest.items,
+            onDismiss: { self.contextMenuRequest = nil }
+          )
+          .flowingAccent(contextMenuRequest.accentID.accent)
+          .id(contextMenuRequest.id)
+          .zIndex(10)
         }
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity)
