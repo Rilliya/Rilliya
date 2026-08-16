@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="880" viewBox="0 0 720 440" role="img" aria-labelledby="title description">
+  <title id="title">Rilliya disk image background</title>
+  <desc id="description">A quiet pearl surface with a restrained installation cue.</desc>
+  <defs>
+    <linearGradient id="surface" x1="72" y1="24" x2="648" y2="416" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#FBFDFC"/>
+      <stop offset="0.52" stop-color="#F7FAF8"/>
+      <stop offset="1" stop-color="#F2F7F4"/>
+    </linearGradient>
+    <radialGradient id="mint-light" cx="0" cy="0" r="1" gradientTransform="translate(126 74) rotate(37) scale(286 218)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#72DFBC" stop-opacity="0.16"/>
+      <stop offset="1" stop-color="#72DFBC" stop-opacity="0"/>
+    </radialGradient>
+    <radialGradient id="leaf-light" cx="0" cy="0" r="1" gradientTransform="translate(650 408) rotate(-143) scale(300 222)" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#A9DC68" stop-opacity="0.15"/>
+      <stop offset="1" stop-color="#A9DC68" stop-opacity="0"/>
+    </radialGradient>
+    <linearGradient id="guide" x1="276" y1="195" x2="444" y2="195" gradientUnits="userSpaceOnUse">
+      <stop stop-color="#4FC795" stop-opacity="0.12"/>
+      <stop offset="0.5" stop-color="#54B98D" stop-opacity="0.58"/>
+      <stop offset="1" stop-color="#7ACD79" stop-opacity="0.12"/>
+    </linearGradient>
+    <filter id="soft-shadow" x="-20%" y="-80%" width="140%" height="260%">
+      <feDropShadow dx="0" dy="8" stdDeviation="12" flood-color="#376A59" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="720" height="440" fill="url(#surface)"/>
+  <rect width="720" height="440" fill="url(#mint-light)"/>
+  <rect width="720" height="440" fill="url(#leaf-light)"/>
+
+  <g filter="url(#soft-shadow)">
+    <rect x="282" y="183" width="156" height="24" rx="12" fill="#FFFFFF" fill-opacity="0.52"/>
+    <path d="M295 195 H424" fill="none" stroke="url(#guide)" stroke-width="2" stroke-linecap="round"/>
+    <path d="M416 188 L425 195 L416 202" fill="none" stroke="#57AE87" stroke-opacity="0.72" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+  </g>
+
+  <text x="360" y="352" text-anchor="middle" fill="#63716A" fill-opacity="0.78" font-family="-apple-system, BlinkMacSystemFont, sans-serif" font-size="14" font-weight="500" letter-spacing="0.15">Drag Rilliya to Applications</text>
+</svg>
