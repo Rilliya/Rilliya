@@ -1,3 +1,4 @@
+import FlowingDayControls
 import Foundation
 import RilliyaCapture
 import RilliyaFilePlayback
@@ -5,6 +6,7 @@ import RilliyaFileWriting
 import RilliyaNetworkAudio
 import RilliyaPlayback
 import RilliyaRealtime
+import SwiftUI
 
 /// Why a routing node stopped, in both the length a canvas node can show and the length the
 /// inspector can show.
@@ -168,5 +170,117 @@ enum RoutingNodeFailureSummary {
     case .writeFailed: "Write failed"
     case .cancelled: nil
     }
+  }
+}
+
+/// A destination or capture controller that can report why one node stopped.
+@MainActor
+protocol RoutingNodeFailureReporting: AnyObject {
+  func failure(for nodeID: UUID) -> RoutingNodeFailure?
+}
+
+extension RoutingCaptureController: RoutingNodeFailureReporting {
+  func failure(for nodeID: UUID) -> RoutingNodeFailure? {
+    guard case .failed(let failure) = state(for: nodeID) else { return nil }
+    return failure
+  }
+}
+
+extension RoutingInputCaptureController: RoutingNodeFailureReporting {
+  func failure(for nodeID: UUID) -> RoutingNodeFailure? {
+    guard case .failed(let failure) = state(for: nodeID) else { return nil }
+    return failure
+  }
+}
+
+extension RoutingOutputCaptureController: RoutingNodeFailureReporting {
+  func failure(for nodeID: UUID) -> RoutingNodeFailure? {
+    guard case .failed(let failure) = state(for: nodeID) else { return nil }
+    return failure
+  }
+}
+
+extension RoutingAudioOutputController: RoutingNodeFailureReporting {
+  func failure(for nodeID: UUID) -> RoutingNodeFailure? {
+    guard case .failed(let failure) = state(for: nodeID) else { return nil }
+    return failure
+  }
+}
+
+extension RoutingFilePlaybackController: RoutingNodeFailureReporting {
+  func failure(for nodeID: UUID) -> RoutingNodeFailure? {
+    guard case .failed(let failure) = state(for: nodeID) else { return nil }
+    return failure
+  }
+}
+
+extension RoutingFileOutputController: RoutingNodeFailureReporting {
+  func failure(for nodeID: UUID) -> RoutingNodeFailure? {
+    guard case .failed(let failure) = state(for: nodeID) else { return nil }
+    return failure
+  }
+}
+
+extension RoutingNetworkSendController: RoutingNodeFailureReporting {
+  func failure(for nodeID: UUID) -> RoutingNodeFailure? {
+    guard case .failed(let failure) = state(for: nodeID) else { return nil }
+    return failure
+  }
+}
+
+extension RoutingNetworkReceiveController: RoutingNodeFailureReporting {
+  func failure(for nodeID: UUID) -> RoutingNodeFailure? {
+    guard case .failed(let failure) = state(for: nodeID) else { return nil }
+    return failure
+  }
+}
+
+/// How a workflow is doing, so a paused workflow, a healthy one, and one running with stopped
+/// nodes are distinguishable without opening it.
+enum RoutingWorkflowRunState: Equatable {
+  case paused
+  case running
+  case runningWithIssues(count: Int)
+
+  init(isRunning: Bool, failingNodeCount: Int) {
+    guard isRunning else {
+      self = .paused
+      return
+    }
+    self = failingNodeCount > 0 ? .runningWithIssues(count: failingNodeCount) : .running
+  }
+
+  var accessibilityValue: String {
+    switch self {
+    case .paused: "Paused"
+    case .running: "Running"
+    case .runningWithIssues(let count):
+      "Running, \(count) stopped node\(count == 1 ? "" : "s")"
+    }
+  }
+}
+
+extension RoutingWorkflowRunState {
+  var indicatorColor: Color {
+    switch self {
+    case .paused: FlowingPalette.hairline
+    case .running: Color(nsColor: .systemGreen)
+    case .runningWithIssues: Color(nsColor: .systemOrange)
+    }
+  }
+}
+
+@MainActor
+enum RoutingWorkflowFailures {
+  /// The nodes a running workflow could not start, in canvas order so stepping through them
+  /// follows the graph rather than a hash.
+  static func failingNodeIDs(
+    in workflow: RoutingWorkflowModel,
+    reporters: [any RoutingNodeFailureReporting]
+  ) -> [UUID] {
+    guard workflow.isRunning else { return [] }
+    return workflow.workspace.nodes
+      .filter { node in reporters.contains { $0.failure(for: node.id) != nil } }
+      .map(\.id)
   }
 }

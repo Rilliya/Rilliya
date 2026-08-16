@@ -92,7 +92,8 @@ struct WorkspaceView: View {
           library: workflowLibrary,
           captureController: captureController,
           inputCaptureController: inputCaptureController,
-          outputCaptureController: outputCaptureController
+          outputCaptureController: outputCaptureController,
+          runState: runtime.runState(of:)
         )
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -518,6 +519,7 @@ private struct RoutingWorkflowSwitcher: View {
   let captureController: RoutingCaptureController
   let inputCaptureController: RoutingInputCaptureController
   let outputCaptureController: RoutingOutputCaptureController
+  let runState: (RoutingWorkflowModel) -> RoutingWorkflowRunState
 
   @State private var workflowDialog: WorkflowDialog?
   @State private var isWorkflowPopoverPresented = false
@@ -556,7 +558,7 @@ private struct RoutingWorkflowSwitcher: View {
       ) {
         library.selectedWorkflow.toggleRunning()
       }
-      .accessibilityValue(library.selectedWorkflow.isRunning ? "Running" : "Paused")
+      .accessibilityValue(runState(library.selectedWorkflow).accessibilityValue)
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .accessibilityElement(children: .contain)
@@ -593,7 +595,7 @@ private struct RoutingWorkflowSwitcher: View {
         ForEach(library.workflows) { workflow in
           RoutingWorkflowSelectionRow(
             name: workflow.name,
-            isRunning: workflow.isRunning,
+            runState: runState(workflow),
             isSelected: workflow.id == library.selectedWorkflowID
           ) {
             library.selectWorkflow(id: workflow.id)
@@ -740,7 +742,7 @@ private struct RoutingWorkflowPopoverLabel: View {
 
 private struct RoutingWorkflowSelectionRow: View {
   let name: String
-  let isRunning: Bool
+  let runState: RoutingWorkflowRunState
   let isSelected: Bool
   let action: () -> Void
 
@@ -751,7 +753,7 @@ private struct RoutingWorkflowSelectionRow: View {
     Button(action: action) {
       HStack(spacing: 8) {
         Circle()
-          .fill(isRunning ? Color(nsColor: .systemGreen) : FlowingPalette.hairline)
+          .fill(runState.indicatorColor)
           .frame(width: 7, height: 7)
           .accessibilityHidden(true)
         Text(name)
@@ -759,6 +761,12 @@ private struct RoutingWorkflowSelectionRow: View {
           .foregroundStyle(FlowingPalette.ink)
           .lineLimit(1)
         Spacer(minLength: 8)
+        if case .runningWithIssues(let count) = runState {
+          Text("\(count)")
+            .font(.caption2.weight(.semibold).monospacedDigit())
+            .foregroundStyle(Color(nsColor: .systemOrange))
+            .accessibilityHidden(true)
+        }
         if isSelected {
           Image(systemName: "checkmark")
             .font(.system(size: 10, weight: .bold))
@@ -777,7 +785,7 @@ private struct RoutingWorkflowSelectionRow: View {
     .onHover { isHovering = $0 }
     .accessibilityLabel(name)
     .accessibilityValue(
-      [isSelected ? "Selected" : nil, isRunning ? "Running" : "Paused"]
+      [isSelected ? "Selected" : nil, runState.accessibilityValue]
         .compactMap { $0 }
         .joined(separator: ", ")
     )

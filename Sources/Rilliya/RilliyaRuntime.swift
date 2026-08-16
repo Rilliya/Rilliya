@@ -87,6 +87,30 @@ final class RilliyaRuntime {
     ).contains(canonicalApplicationURL(application.applicationURL))
   }
 
+  var failureReporters: [any RoutingNodeFailureReporting] {
+    [
+      captureController,
+      inputCaptureController,
+      outputCaptureController,
+      outputController,
+      filePlaybackController,
+      fileOutputController,
+      networkSendController,
+      networkReceiveController,
+    ]
+  }
+
+  func failingNodeIDs(in workflow: RoutingWorkflowModel) -> [UUID] {
+    RoutingWorkflowFailures.failingNodeIDs(in: workflow, reporters: failureReporters)
+  }
+
+  func runState(of workflow: RoutingWorkflowModel) -> RoutingWorkflowRunState {
+    RoutingWorkflowRunState(
+      isRunning: workflow.isRunning,
+      failingNodeCount: failingNodeIDs(in: workflow).count
+    )
+  }
+
   func setWorkflowRunning(_ isRunning: Bool, id: UUID) {
     guard let workflow = workflowLibrary.workflows.first(where: { $0.id == id }) else { return }
     if isRunning {
