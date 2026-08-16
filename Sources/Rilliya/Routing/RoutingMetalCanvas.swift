@@ -954,7 +954,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       geometry.shapes.append(
         RoutingMetalShapeInstance(
           rect: iconFrame,
-          fill: node.usesNeutralPlaceholderIcon ? palette.field : accent.withAlpha(0.12),
+          fill: accent.withAlpha(0.12),
           border: .zero,
           cornerRadius: 10,
           borderWidth: 0,
@@ -979,7 +979,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       append(
         atlas: textAtlas.symbol(node.symbolName, pointSize: 16, weight: .semibold),
         centeredIn: iconFrame,
-        color: node.usesNeutralPlaceholderIcon ? palette.muted : accent,
+        color: accent,
         to: &geometry
       )
     }

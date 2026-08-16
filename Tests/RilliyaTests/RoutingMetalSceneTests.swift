@@ -192,6 +192,8 @@ struct RoutingMetalSceneTests {
     #expect(node.applicationStatusText == "Select this node to configure")
     #expect(!node.hasApplicationSelection)
     #expect(node.applicationURL == nil)
+    #expect(node.accentID == .fern)
+    #expect(node.drawsIconPlate)
   }
 
   @Test @MainActor

@@ -363,11 +363,6 @@ struct RoutingMetalScene {
       accentID.paletteIndex
     }
 
-    var usesNeutralPlaceholderIcon: Bool {
-      guard case .applicationAudio = value else { return false }
-      return true
-    }
-
     var embedsPortLabels: Bool {
       switch value {
       case .applicationAudio(let selection, .separate):
