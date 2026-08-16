@@ -136,12 +136,16 @@ final class RoutingFilePlaybackController {
 
   private func apply(_ requirement: RoutingFilePlaybackRequirement?, to nodeID: UUID) {
     if desiredRequirements[nodeID] == requirement {
+      // An in-flight lifecycle already converges on this requirement. Restarting it here would
+      // retire its generation, and publishing the resulting state change reenters this method,
+      // so the session would never reach the graph.
+      guard lifecycleTasks[nodeID] == nil else { return }
       if case .ready(let request) = requirement,
         runningSessions[nodeID]?.request == request
       {
         return
       }
-      if requirement == nil, runningSessions[nodeID] == nil, lifecycleTasks[nodeID] == nil {
+      if requirement == nil, runningSessions[nodeID] == nil {
         states[nodeID] = .idle
         return
       }

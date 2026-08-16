@@ -32,6 +32,100 @@ struct RoutingFilePlaybackControllerTests {
     #expect(await starter.currentStartCount() == 1)
   }
 
+  /// Publishing `preparing` reenters reconciliation, so an unchanged requirement must not retire
+  /// the lifecycle that is still starting; otherwise playback never reaches the graph.
+  @Test @MainActor
+  func reconcilingAnUnchangedRequirementDuringStartupKeepsTheSession() async throws {
+    let starter = FakeRoutingFilePlaybackStarter(suspendsUntilReleased: true)
+    let controller = RoutingFilePlaybackController(starter: starter)
+    let nodeID = UUID()
+    let request = RoutingFilePlaybackRequest(
+      url: URL(fileURLWithPath: "/tmp/source.wav"),
+      sampleRate: 48_000,
+      loopMode: .infinite
+    )
+
+    controller.reconcile(requirements: [nodeID: .ready(request)])
+    #expect(await eventually { await starter.currentStartCount() == 1 })
+    for _ in 0..<5 {
+      controller.reconcile(requirements: [nodeID: .ready(request)])
+    }
+    await starter.release()
+
+    #expect(await eventually { controller.frameBuffer(for: nodeID) != nil })
+    #expect(await starter.currentStartCount() == 1)
+    #expect(await starter.currentStopCount() == 0)
+  }
+
+  @Test @MainActor
+  func networkSendResolvesAFilePlaybackSourceAtItsOwnSampleRate() throws {
+    let playbackID = UUID()
+    let sendID = UUID()
+    let url = URL(fileURLWithPath: "/tmp/source.m4a")
+    let workspace = try RoutingWorkspaceModel(
+      restoringID: UUID(),
+      nodes: [
+        RoutingWorkspaceNode(
+          id: playbackID,
+          value: .filePlayback(
+            configuration: RoutingFilePlaybackConfiguration(
+              selection: RoutingAudioFileSelection(
+                url: url,
+                displayName: "Source",
+                channelCount: 2,
+                nativeSampleRate: 44_100
+              ),
+              loopMode: .infinite
+            )
+          ),
+          frame: CGRect(x: 0, y: 0, width: 252, height: 128)
+        ),
+        RoutingWorkspaceNode(
+          id: sendID,
+          value: .networkSend(
+            configuration: RoutingNetworkSendConfiguration(
+              host: "10.0.0.2",
+              port: 48_620,
+              sampleRate: 48_000,
+              channelCount: 2
+            )
+          ),
+          frame: CGRect(x: 500, y: 0, width: 252, height: 128)
+        ),
+      ],
+      edges: [
+        RoutingWorkspaceEdge(
+          id: UUID(),
+          source: RoutingWorkspacePortAddress(
+            nodeID: playbackID,
+            portID: RoutingGraphPortID(direction: .output, channel: .all)
+          ),
+          target: RoutingWorkspacePortAddress(
+            nodeID: sendID,
+            portID: RoutingGraphPortID(direction: .input, channel: .all)
+          )
+        )
+      ]
+    )
+    let workflow = RoutingWorkflowModel(
+      name: "Flow",
+      workspace: workspace,
+      isRunning: true
+    )
+
+    let requirements = RoutingFilePlaybackRequirementResolver.resolve(
+      workflows: [workflow],
+      catalogSnapshot: nil
+    )
+
+    #expect(
+      requirements[playbackID]
+        == .ready(
+          RoutingFilePlaybackRequest(url: url, sampleRate: 48_000, loopMode: .infinite)
+        )
+    )
+  }
+
   @Test @MainActor
   func replacementWaitsForPreviousSessionTeardown() async throws {
     let starter = FakeRoutingFilePlaybackStarter()
@@ -87,9 +181,18 @@ private actor FakeRoutingFilePlaybackStarter: RoutingFilePlaybackStarting {
   private(set) var startCount = 0
   private(set) var stopCount = 0
   private let completesBeforeReturning: Bool
+  private let suspendsUntilReleased: Bool
+  private var suspendedStarts: [CheckedContinuation<Void, Never>] = []
 
-  init(completesBeforeReturning: Bool = false) {
+  init(completesBeforeReturning: Bool = false, suspendsUntilReleased: Bool = false) {
     self.completesBeforeReturning = completesBeforeReturning
+    self.suspendsUntilReleased = suspendsUntilReleased
+  }
+
+  func release() {
+    let suspended = suspendedStarts
+    suspendedStarts.removeAll()
+    for continuation in suspended { continuation.resume() }
   }
 
   func start(
@@ -97,6 +200,9 @@ private actor FakeRoutingFilePlaybackStarter: RoutingFilePlaybackStarting {
     eventHandler: @escaping AudioFileFrameStream.EventHandler
   ) async throws -> any RoutingFilePlaybackSession {
     startCount += 1
+    if suspendsUntilReleased {
+      await withCheckedContinuation { suspendedStarts.append($0) }
+    }
     let description = try AudioFileDescription(
       sampleRate: request.sampleRate,
       channelCount: 1,
