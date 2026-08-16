@@ -1023,7 +1023,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     )
 
     switch node.value {
-    case .applicationAudio, .inputAudio, .systemOutput, .outputAudio:
+    case .applicationAudio, .inputAudio, .systemOutput, .virtualOutput, .outputAudio,
+      .virtualInput:
       appendAudioSource(
         node: node, frame: frame, accent: accent, palette: palette, to: &geometry)
     case .visualizer:
@@ -1203,10 +1204,11 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     guard
       let statusText =
         node.applicationStatusText ?? node.inputDeviceStatusText ?? node.systemOutputStatusText
-        ?? node.outputDeviceStatusText,
+        ?? node.outputDeviceStatusText ?? node.virtualAudioStatusText,
       let statusSymbolName =
         node.applicationStatusSymbolName ?? node.inputDeviceStatusSymbolName
         ?? node.systemOutputStatusSymbolName ?? node.outputDeviceStatusSymbolName
+        ?? node.virtualAudioStatusSymbolName
     else {
       return
     }

@@ -3,6 +3,7 @@ import FlowingDayGraphCanvas
 import Foundation
 import Observation
 import RilliyaCapture
+import RilliyaVirtualAudio
 
 enum RoutingWorkspaceRestorationError: Error, Equatable {
   case duplicateNodeID
@@ -96,8 +97,12 @@ final class RoutingWorkspaceModel {
         .inputAudio(selection: nil, channelPresentation: .aggregate)
       case .systemOutput:
         .systemOutput(selection: nil, channelPresentation: .aggregate)
+      case .virtualOutput:
+        .virtualOutput(selection: nil, channelPresentation: .aggregate)
       case .outputAudio:
         .outputAudio(selection: nil, channelPresentation: .aggregate)
+      case .virtualInput:
+        .virtualInput(selection: nil, channelPresentation: .aggregate)
       case .visualizer:
         .visualizer(configuration: .initial)
       case .audioMixer:
@@ -239,6 +244,38 @@ final class RoutingWorkspaceModel {
         )
       )
     )
+    rebuildCanvas()
+    return id
+  }
+
+  @discardableResult
+  func addVirtualOutputNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    let value = RoutingNodeValue.virtualOutput(
+      selection: nil,
+      channelPresentation: .aggregate
+    )
+    appendNode(id: id, value: value, centeredAt: worldPoint)
+    rebuildCanvas()
+    return id
+  }
+
+  @discardableResult
+  func addVirtualInputNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    let value = RoutingNodeValue.virtualInput(
+      selection: nil,
+      channelPresentation: .aggregate
+    )
+    appendNode(id: id, value: value, centeredAt: worldPoint)
     rebuildCanvas()
     return id
   }
@@ -570,6 +607,40 @@ final class RoutingWorkspaceModel {
     rebuildCanvas()
   }
 
+  func selectVirtualOutput(
+    _ selection: RoutingVirtualAudioEndpointSelection?,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }) else { return }
+    guard case .virtualOutput(let currentSelection, let channelPresentation) = nodes[index].value,
+      currentSelection != selection
+    else { return }
+    nodes[index].value = .virtualOutput(
+      selection: selection,
+      channelPresentation: channelPresentation
+    )
+    nodes[index].audioChannelControls.removeAll(keepingCapacity: true)
+    runtimeCaptureFormats[nodeID] = nil
+    resizeNode(at: index)
+    rebuildCanvas()
+  }
+
+  func selectVirtualInput(
+    _ selection: RoutingVirtualAudioEndpointSelection?,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }) else { return }
+    guard case .virtualInput(let currentSelection, let channelPresentation) = nodes[index].value,
+      currentSelection != selection
+    else { return }
+    nodes[index].value = .virtualInput(
+      selection: selection,
+      channelPresentation: channelPresentation
+    )
+    resizeNode(at: index)
+    rebuildCanvas()
+  }
+
   func setApplicationChannelPresentation(
     _ presentation: RoutingChannelPresentation,
     for nodeID: UUID
@@ -591,11 +662,32 @@ final class RoutingWorkspaceModel {
     setAudioSourceChannelPresentation(presentation, for: nodeID, expectedKind: .systemOutput)
   }
 
+  func setVirtualOutputChannelPresentation(
+    _ presentation: RoutingChannelPresentation,
+    for nodeID: UUID
+  ) {
+    setAudioSourceChannelPresentation(presentation, for: nodeID, expectedKind: .virtualOutput)
+  }
+
   func setOutputDeviceChannelPresentation(
     _ presentation: RoutingChannelPresentation,
     for nodeID: UUID
   ) {
     guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      let updated = nodes[index].value.replacingAudioDestinationChannelPresentation(presentation),
+      updated != nodes[index].value
+    else { return }
+    nodes[index].value = updated
+    resizeNode(at: index)
+    rebuildCanvas()
+  }
+
+  func setVirtualInputChannelPresentation(
+    _ presentation: RoutingChannelPresentation,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      nodes[index].value.kind == .virtualInput,
       let updated = nodes[index].value.replacingAudioDestinationChannelPresentation(presentation),
       updated != nodes[index].value
     else { return }
@@ -887,6 +979,66 @@ final class RoutingWorkspaceModel {
       formats.mapValues(RoutingAudioCaptureFormat.init),
       preferredSeparateChannelCount: preferredSeparateChannelCount
     )
+  }
+
+  func synchronizeVirtualAudioCatalog(_ catalog: VirtualAudioEndpointCatalog) {
+    var needsRebuild = false
+    for index in nodes.indices {
+      let currentValue = nodes[index].value
+      let updatedValue: RoutingNodeValue?
+      switch currentValue {
+      case .virtualOutput(let selection?, let presentation):
+        guard let endpoint = catalog.endpoint(id: selection.id) else { continue }
+        let synchronizedSelection = RoutingVirtualAudioEndpointSelection(
+          id: endpoint.id,
+          displayName: endpoint.configuration.name
+        )
+        let synchronizedPresentation = synchronizedPresentation(
+          presentation,
+          endpoint: endpoint,
+          expectedDirection: .output
+        )
+        updatedValue = .virtualOutput(
+          selection: synchronizedSelection,
+          channelPresentation: synchronizedPresentation
+        )
+      case .virtualInput(let selection?, let presentation):
+        guard let endpoint = catalog.endpoint(id: selection.id) else { continue }
+        let synchronizedSelection = RoutingVirtualAudioEndpointSelection(
+          id: endpoint.id,
+          displayName: endpoint.configuration.name
+        )
+        let synchronizedPresentation = synchronizedPresentation(
+          presentation,
+          endpoint: endpoint,
+          expectedDirection: .input
+        )
+        updatedValue = .virtualInput(
+          selection: synchronizedSelection,
+          channelPresentation: synchronizedPresentation
+        )
+      default:
+        updatedValue = nil
+      }
+      guard let updatedValue, updatedValue != currentValue else { continue }
+      nodes[index].value = updatedValue
+      resizeNode(at: index)
+      needsRebuild = true
+    }
+    if needsRebuild {
+      rebuildCanvas()
+    }
+  }
+
+  private func synchronizedPresentation(
+    _ presentation: RoutingChannelPresentation,
+    endpoint: VirtualAudioEndpoint,
+    expectedDirection: VirtualAudioEndpointDirection
+  ) -> RoutingChannelPresentation {
+    guard endpoint.configuration.direction == expectedDirection,
+      case .separate = presentation
+    else { return presentation }
+    return .separate(channelCount: endpoint.configuration.format.channelCount)
   }
 
   private func synchronizeAudioCaptureFormats(

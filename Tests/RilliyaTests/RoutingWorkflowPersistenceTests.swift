@@ -6,6 +6,7 @@ import RilliyaCapture
 import RilliyaCore
 import RilliyaDSP
 import RilliyaFileWriting
+import RilliyaVirtualAudio
 import Testing
 
 @testable import Rilliya
@@ -47,6 +48,36 @@ struct RoutingWorkflowPersistenceTests {
     let decoded = try JSONDecoder().decode(RoutingNodeValue.self, from: encoded)
 
     #expect(decoded == value)
+  }
+
+  @Test
+  func virtualEndpointReferencesRoundTripWithoutPersistingHALObjectIDs() throws {
+    let endpointID = VirtualAudioEndpointID(
+      rawValue: try #require(UUID(uuidString: "41DFE126-1BAF-4D96-87F6-73E7B84EB01D"))
+    )
+    let selection = RoutingVirtualAudioEndpointSelection(
+      id: endpointID,
+      displayName: "Studio Link"
+    )
+    let values: [RoutingNodeValue] = [
+      .virtualOutput(
+        selection: selection,
+        channelPresentation: .separate(channelCount: 8)
+      ),
+      .virtualInput(
+        selection: selection,
+        channelPresentation: .aggregate
+      ),
+    ]
+
+    for value in values {
+      let encoded = try JSONEncoder().encode(value)
+      let decoded = try JSONDecoder().decode(RoutingNodeValue.self, from: encoded)
+      #expect(decoded == value)
+      let json = try #require(String(data: encoded, encoding: .utf8))
+      #expect(json.contains(endpointID.rawValue.uuidString))
+      #expect(!json.localizedCaseInsensitiveContains("AudioObjectID"))
+    }
   }
 
   @Test

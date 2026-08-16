@@ -5,6 +5,7 @@ import RilliyaCapture
 import RilliyaCore
 import RilliyaPlayback
 import RilliyaRealtime
+import RilliyaVirtualAudio
 import Testing
 
 @testable import Rilliya
@@ -391,6 +392,62 @@ struct RoutingAudioOutputControllerTests {
     #expect(await eventually { outputController.state(for: outputID) == .idle })
   }
 
+  @Test @MainActor
+  func virtualInputPlaysIntoItsStableHiddenFeederDevice() async throws {
+    let endpointID = VirtualAudioEndpointID(
+      rawValue: try #require(UUID(uuidString: "E27B64B0-ACDC-41AB-AC5D-CF9EBE789205"))
+    )
+    let endpoint = VirtualAudioEndpoint(
+      id: endpointID,
+      configuration: try VirtualAudioEndpointConfiguration(
+        name: "Shared Microphone",
+        direction: .input,
+        format: VirtualAudioEndpointFormat(sampleRate: 48_000, channelCount: 2)
+      )
+    )
+    let catalog = try VirtualAudioEndpointCatalog(revision: 2, endpoints: [endpoint])
+    let expectedDeviceID = try #require(AudioDeviceID(rawValue: endpoint.deviceUIDs.hostBridge))
+    let outputStarter = OutputTestPlaybackStarter()
+    let outputController = RoutingAudioOutputController(playbackStarter: outputStarter)
+    let workflow = RoutingWorkflowModel(name: "Virtual Microphone")
+    let generatorID = workflow.workspace.addSignalGeneratorNode(centeredAt: .zero)
+    let outputID = workflow.workspace.addVirtualInputNode(
+      centeredAt: CGPoint(x: 400, y: 0)
+    )
+    workflow.workspace.selectVirtualInput(
+      RoutingVirtualAudioEndpointSelection(
+        id: endpoint.id,
+        displayName: endpoint.configuration.name
+      ),
+      for: outputID
+    )
+    try connect(sourceID: generatorID, targetID: outputID, in: workflow.workspace)
+    workflow.run()
+
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: RoutingCaptureController(captureStarter: OutputTestCaptureStarter()),
+      inputCaptureController: RoutingInputCaptureController(),
+      virtualAudioCatalog: catalog
+    )
+
+    let didStart = await eventually { await outputStarter.startCount == 1 }
+    #expect(
+      didStart,
+      "Expected playback to start; final state: \(String(reflecting: outputController.state(for: outputID)))"
+    )
+    let startedDeviceID = await outputStarter.lastStartedDeviceID
+    let startCount = await outputStarter.startCount
+    let finalState = outputController.state(for: outputID)
+    #expect(
+      startedDeviceID != nil,
+      "Expected a completed playback start; final state: \(String(reflecting: finalState))"
+    )
+    #expect(startedDeviceID == expectedDeviceID)
+    #expect(startCount == 1)
+    outputController.stopAll()
+  }
+
   @MainActor
   private func makeWorkflow(
     sourceID: UUID,
@@ -443,7 +500,7 @@ struct RoutingAudioOutputControllerTests {
 
   @MainActor
   private func eventually(_ predicate: @MainActor () async -> Bool) async -> Bool {
-    for _ in 0..<200 where !(await predicate()) {
+    for _ in 0..<1_000 where !(await predicate()) {
       try? await Task.sleep(for: .milliseconds(1))
     }
     return await predicate()
@@ -540,6 +597,11 @@ private actor OutputTestPlaybackStarter: RoutingOutputPlaybackStarting {
   private(set) var stopCount = 0
   private var suspendsStops: Bool
   private var stopContinuations: [CheckedContinuation<Void, Never>] = []
+  private var startedDeviceIDs: [AudioDeviceID] = []
+
+  var lastStartedDeviceID: AudioDeviceID? {
+    startedDeviceIDs.last
+  }
 
   init(suspendsStops: Bool = false) {
     self.suspendsStops = suspendsStops
@@ -556,7 +618,7 @@ private actor OutputTestPlaybackStarter: RoutingOutputPlaybackStarting {
       maximumFrameCount: 32
     )
     _ = try rendererFactory(preparation)
-    return OutputTestPlaybackSession(
+    let session = OutputTestPlaybackSession(
       format: DeviceOutputPlaybackFormat(
         deviceID: deviceID,
         sampleRate: 48_000,
@@ -566,6 +628,8 @@ private actor OutputTestPlaybackStarter: RoutingOutputPlaybackStarting {
     ) { [self] in
       await stop()
     }
+    startedDeviceIDs.append(deviceID)
+    return session
   }
 
   func setSuspendsStops(_ value: Bool) {

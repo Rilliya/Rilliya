@@ -39,6 +39,9 @@ struct WorkspaceView: View {
     runtime.networkReceiveController
   }
   private var outputController: RoutingAudioOutputController { runtime.outputController }
+  private var virtualAudioController: RilliyaVirtualAudioController {
+    runtime.virtualAudioController
+  }
   private var workflowPersistenceStore: RoutingWorkflowPersistenceStore {
     runtime.workflowPersistenceStore
   }
@@ -68,7 +71,9 @@ struct WorkspaceView: View {
         insertApplicationAudio: insertApplicationAudio,
         insertInputAudio: insertInputAudio,
         insertSystemOutput: insertSystemOutput,
+        insertVirtualOutput: insertVirtualOutput,
         insertOutputAudio: insertOutputAudio,
+        insertVirtualInput: insertVirtualInput,
         insertVisualizer: insertVisualizer,
         insertAudioMixer: insertAudioMixer,
         insertGain: insertGain,
@@ -238,7 +243,8 @@ struct WorkspaceView: View {
       fileOutputController: fileOutputController,
       networkSendController: networkSendController,
       networkReceiveController: networkReceiveController,
-      outputController: outputController
+      outputController: outputController,
+      virtualAudioController: virtualAudioController
     )
   }
 
@@ -286,9 +292,31 @@ struct WorkspaceView: View {
     selectNode(nodeID, in: workflow)
   }
 
+  private func insertVirtualOutput() {
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addVirtualOutputNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
+      )
+    )
+    selectNode(nodeID, in: workflow)
+  }
+
   private func insertOutputAudio() {
     let workflow = workflowLibrary.selectedWorkflow
     let nodeID = workflow.workspace.addOutputAudioNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
+      )
+    )
+    selectNode(nodeID, in: workflow)
+  }
+
+  private func insertVirtualInput() {
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addVirtualInputNode(
       centeredAt: RoutingNodeInsertion.point(
         in: workflow.canvasSession.viewport.visibleWorldRect,
         existingNodeCount: workflow.workspace.nodes.count
@@ -451,6 +479,7 @@ private struct RoutingWorkflowCanvas: View {
   let networkSendController: RoutingNetworkSendController
   let networkReceiveController: RoutingNetworkReceiveController
   let outputController: RoutingAudioOutputController
+  let virtualAudioController: RilliyaVirtualAudioController
 
   var body: some View {
     RoutingCanvasView(
@@ -467,6 +496,7 @@ private struct RoutingWorkflowCanvas: View {
       networkSendController: networkSendController,
       networkReceiveController: networkReceiveController,
       outputController: outputController,
+      virtualAudioController: virtualAudioController,
       sessionID: workflow.canvasSessionID,
       isWorkflowRunning: workflow.isRunning,
       session: $workflow.canvasSession,

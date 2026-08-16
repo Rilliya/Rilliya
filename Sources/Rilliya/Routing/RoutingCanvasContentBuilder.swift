@@ -311,7 +311,9 @@ enum RoutingCanvasContentBuilder {
     case .applicationAudio(_, .separate(let channelCount)),
       .inputAudio(_, .separate(let channelCount)),
       .systemOutput(_, .separate(let channelCount)),
-      .outputAudio(_, .separate(let channelCount)):
+      .virtualOutput(_, .separate(let channelCount)),
+      .outputAudio(_, .separate(let channelCount)),
+      .virtualInput(_, .separate(let channelCount)):
       let rowFrames = RoutingAudioSourceLayout.rowFrames(
         in: localFrame,
         channelCount: channelCount
@@ -352,9 +354,9 @@ enum RoutingCanvasContentBuilder {
       )
       guard rowFrames.indices.contains(value.ordinal) else { return nil }
       return rowFrames[value.ordinal].midY
-    case .applicationAudio, .inputAudio, .systemOutput, .outputAudio, .gain, .peakLevel,
-      .signalGenerator, .filePlayback, .fileOutput, .networkSend, .networkReceive, .delay,
-      .noiseGate, .compressor:
+    case .applicationAudio, .inputAudio, .systemOutput, .virtualOutput, .outputAudio,
+      .virtualInput, .gain, .peakLevel, .signalGenerator, .filePlayback, .fileOutput,
+      .networkSend, .networkReceive, .delay, .noiseGate, .compressor:
       return nil
     }
   }
@@ -381,9 +383,15 @@ enum RoutingCanvasContentBuilder {
         value = "No output source selected"
       }
       hint = "Choose the system default or a specific output device whose audio will be routed."
+    case .virtualOutput(let selection, _):
+      value = selection?.displayName ?? "No virtual output selected"
+      hint = "Choose a shared virtual output whose audio Rilliya will receive."
     case .outputAudio(let selection, _):
       value = selection?.displayName ?? "No output device selected"
       hint = "Select an audio output device that will receive routed channels."
+    case .virtualInput(let selection, _):
+      value = selection?.displayName ?? "No virtual input selected"
+      hint = "Choose a shared virtual input that will receive routed audio."
     case .visualizer(let configuration):
       value =
         configuration.mode == .mixed

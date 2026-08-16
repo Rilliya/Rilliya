@@ -13,7 +13,7 @@ enum RoutingPreparedAudioGraphError: Error, Equatable, LocalizedError, Sendable 
   var errorDescription: String? {
     switch self {
     case .missingOutputNode:
-      "The selected destination is not an Output Audio node."
+      "The selected destination is not a supported audio sink."
     case .missingCapture(let nodeID):
       "Audio capture for node \(nodeID) is not ready."
     case .incompatibleSampleRate(let nodeID):
@@ -479,7 +479,7 @@ private struct RoutingPreparedAudioGraphCompiler {
       throw RoutingPreparedAudioGraphError.missingOutputNode
     }
     switch outputNode.value {
-    case .outputAudio, .fileOutput, .networkSend:
+    case .outputAudio, .virtualInput, .fileOutput, .networkSend:
       break
     default:
       throw RoutingPreparedAudioGraphError.missingOutputNode
@@ -536,7 +536,8 @@ private struct RoutingPreparedAudioGraphCompiler {
 
     let signal: [RoutingCompiledAudioChannel]
     switch node.value {
-    case .applicationAudio, .inputAudio, .systemOutput, .filePlayback, .networkReceive:
+    case .applicationAudio, .inputAudio, .systemOutput, .virtualOutput, .filePlayback,
+      .networkReceive:
       signal = try sourceSignal(for: node, address: address)
     case .signalGenerator(let configuration):
       signal = try signalGeneratorSignal(
@@ -588,7 +589,7 @@ private struct RoutingPreparedAudioGraphCompiler {
         configuration: configuration,
         visited: visited
       )
-    case .outputAudio, .fileOutput, .networkSend, .peakLevel:
+    case .outputAudio, .virtualInput, .fileOutput, .networkSend, .peakLevel:
       throw RoutingPreparedAudioGraphError.invalidRoute
     }
     signalsByAddress[address] = signal

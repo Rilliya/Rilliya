@@ -21,6 +21,7 @@ final class RilliyaRuntime {
   let outputController = RoutingAudioOutputController()
   let workflowPersistenceStore = RoutingWorkflowPersistenceStore()
   let managedApplicationStore = RilliyaManagedApplicationStore()
+  let virtualAudioController = RilliyaVirtualAudioController.shared
 
   var didRestoreWorkflows = false
   var workflowSaveTask: Task<Void, Never>?
@@ -46,6 +47,7 @@ final class RilliyaRuntime {
     startApplicationObservation()
     Task {
       await applicationCatalog.refresh()
+      await virtualAudioController.refresh()
     }
     guard !isObservingAudioState else { return }
     isObservingAudioState = true
@@ -128,10 +130,14 @@ final class RilliyaRuntime {
   private func reconcileAudio(settings: RilliyaSettings) {
     rebuildApplicationMixer()
     let workflows = audioWorkflows
+    for workflow in workflows {
+      workflow.workspace.synchronizeVirtualAudioCatalog(virtualAudioController.catalog)
+    }
     let requirements = RoutingCaptureRequirementResolver.resolve(
       workflows: workflows,
       catalogSnapshot: applicationCatalog.state.snapshot,
-      audioCatalogSnapshot: audioCatalog.state.snapshot
+      audioCatalogSnapshot: audioCatalog.state.snapshot,
+      virtualAudioCatalog: virtualAudioController.catalog
     )
     captureController.reconcile(requirements: requirements)
     inputCaptureController.reconcile(deviceIDsByNode: requirements.inputDeviceIDsByNode)
@@ -187,7 +193,8 @@ final class RilliyaRuntime {
       inputCaptureController: inputCaptureController,
       outputCaptureController: outputCaptureController,
       filePlaybackController: filePlaybackController,
-      networkReceiveController: networkReceiveController
+      networkReceiveController: networkReceiveController,
+      virtualAudioCatalog: virtualAudioController.catalog
     )
     networkSendController.reconcile(
       workflows: workflowLibrary.workflows,

@@ -386,6 +386,14 @@ final class RoutingFileOutputController {
               activeKeys: &candidateCaptureCursorKeys,
               failureMessage: &failure
             )
+          case .virtualOutput:
+            source = captureCursorCache.resolvedSource(
+              for: node.id,
+              consumerID: outputNode.id,
+              provider: inputCaptureController,
+              activeKeys: &candidateCaptureCursorKeys,
+              failureMessage: &failure
+            )
           case .systemOutput:
             source = captureCursorCache.resolvedSource(
               for: node.id,
@@ -485,6 +493,8 @@ final class RoutingFileOutputController {
         switch destination.value {
         case .outputAudio(let selection, _) where selection != nil:
           break
+        case .virtualInput(let selection, _) where selection != nil:
+          break
         case .networkSend:
           break
         default:
@@ -500,6 +510,8 @@ final class RoutingFileOutputController {
           case .applicationAudio:
             buffer = captureController.frameBuffer(for: node.id)
           case .inputAudio:
+            buffer = inputCaptureController.frameBuffer(for: node.id)
+          case .virtualOutput:
             buffer = inputCaptureController.frameBuffer(for: node.id)
           case .systemOutput:
             buffer = outputCaptureController.frameBuffer(for: node.id)

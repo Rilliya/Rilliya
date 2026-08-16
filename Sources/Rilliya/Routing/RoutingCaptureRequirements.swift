@@ -1,6 +1,7 @@
 import Foundation
 import RilliyaCapture
 import RilliyaCore
+import RilliyaVirtualAudio
 
 struct RoutingCaptureRequirements: Equatable {
   let processIDsByNode: [UUID: AudioProcessID]
@@ -32,7 +33,8 @@ enum RoutingCaptureRequirementResolver {
   static func resolve(
     workflows: [RoutingWorkflowModel],
     catalogSnapshot: InstalledApplicationCatalogSnapshot?,
-    audioCatalogSnapshot: AudioCatalogSnapshot? = nil
+    audioCatalogSnapshot: AudioCatalogSnapshot? = nil,
+    virtualAudioCatalog: VirtualAudioEndpointCatalog = .empty
   ) -> RoutingCaptureRequirements {
     let catalogByURL = Dictionary(
       (catalogSnapshot?.items ?? []).map { item in
@@ -70,6 +72,16 @@ enum RoutingCaptureRequirementResolver {
             }
           case nil:
             break
+          }
+          continue
+        }
+        if case .virtualOutput(let selection, _) = node.value {
+          if let selection,
+            let endpoint = virtualAudioCatalog.endpoint(id: selection.id),
+            endpoint.configuration.direction == .output,
+            let bridgeDeviceID = AudioDeviceID(rawValue: endpoint.deviceUIDs.hostBridge)
+          {
+            inputRequirements[node.id] = bridgeDeviceID
           }
           continue
         }

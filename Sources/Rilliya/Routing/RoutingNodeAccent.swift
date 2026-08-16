@@ -141,7 +141,9 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
   case applicationAudio
   case inputAudio
   case systemOutput
+  case virtualOutput
   case outputAudio
+  case virtualInput
   case visualizer
   case audioMixer
   case gain
@@ -161,7 +163,9 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .applicationAudio: "Application Audio"
     case .inputAudio: "Input Audio"
     case .systemOutput: "System Output"
+    case .virtualOutput: "Virtual Output"
     case .outputAudio: "Output Audio"
+    case .virtualInput: "Virtual Input"
     case .visualizer: "Visualizer"
     case .audioMixer: "Audio Mixer"
     case .gain: "Gain"
@@ -183,7 +187,9 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .applicationAudio: "macwindow.on.rectangle"
     case .inputAudio: "waveform.badge.mic"
     case .systemOutput: "speaker.wave.2.circle"
+    case .virtualOutput: "waveform.and.mic"
     case .outputAudio: "speaker.wave.2"
+    case .virtualInput: "waveform.and.mic"
     case .visualizer: "waveform"
     case .audioMixer: "slider.horizontal.3"
     case .gain: "plusminus"
@@ -205,7 +211,9 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .applicationAudio: .fern
     case .inputAudio, .outputAudio: .brook
     case .systemOutput: .ripple
+    case .virtualOutput: .lagoon
     case .visualizer: .seafoam
+    case .virtualInput: .meadow
     case .audioMixer, .peakLevel: .pollen
     case .gain: .honey
     case .channelRouter: .mist
@@ -227,7 +235,9 @@ extension RoutingNodeValue {
     case .applicationAudio: .applicationAudio
     case .inputAudio: .inputAudio
     case .systemOutput: .systemOutput
+    case .virtualOutput: .virtualOutput
     case .outputAudio: .outputAudio
+    case .virtualInput: .virtualInput
     case .visualizer: .visualizer
     case .audioMixer: .audioMixer
     case .gain: .gain

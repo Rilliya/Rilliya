@@ -3,6 +3,7 @@ import Observation
 import RilliyaCore
 import RilliyaPlayback
 import RilliyaRealtime
+import RilliyaVirtualAudio
 
 enum RoutingAudioOutputState: Equatable {
   case idle
@@ -181,7 +182,8 @@ final class RoutingAudioOutputController {
     inputCaptureController: RoutingInputCaptureController,
     outputCaptureController: RoutingOutputCaptureController = RoutingOutputCaptureController(),
     filePlaybackController: RoutingFilePlaybackController = RoutingFilePlaybackController(),
-    networkReceiveController: RoutingNetworkReceiveController = RoutingNetworkReceiveController()
+    networkReceiveController: RoutingNetworkReceiveController = RoutingNetworkReceiveController(),
+    virtualAudioCatalog: VirtualAudioEndpointCatalog = .empty
   ) {
     let plans = makePlans(
       workflows: workflows,
@@ -189,7 +191,8 @@ final class RoutingAudioOutputController {
       inputCaptureController: inputCaptureController,
       outputCaptureController: outputCaptureController,
       filePlaybackController: filePlaybackController,
-      networkReceiveController: networkReceiveController
+      networkReceiveController: networkReceiveController,
+      virtualAudioCatalog: virtualAudioCatalog
     )
     let knownNodeIDs = Set(plans.keys)
       .union(states.keys)
@@ -345,7 +348,8 @@ final class RoutingAudioOutputController {
     inputCaptureController: RoutingInputCaptureController,
     outputCaptureController: RoutingOutputCaptureController,
     filePlaybackController: RoutingFilePlaybackController,
-    networkReceiveController: RoutingNetworkReceiveController
+    networkReceiveController: RoutingNetworkReceiveController,
+    virtualAudioCatalog: VirtualAudioEndpointCatalog
   ) -> [UUID: RoutingAudioOutputPlan] {
     var plans: [UUID: RoutingAudioOutputPlan] = [:]
     var claimedBuffers = Set<ObjectIdentifier>()
@@ -356,7 +360,25 @@ final class RoutingAudioOutputController {
       let activeEdges = workspace.edges.filter(workspace.isEdgeActive)
       let incomingEdges = Dictionary(grouping: activeEdges, by: { $0.target.nodeID })
       for outputNode in workspace.nodes {
-        guard case .outputAudio(let selection, _) = outputNode.value else { continue }
+        let selection: RoutingOutputDeviceSelection?
+        switch outputNode.value {
+        case .outputAudio(let physicalSelection, _):
+          selection = physicalSelection
+        case .virtualInput(let virtualSelection, _):
+          selection = virtualSelection.flatMap { selection in
+            guard
+              let endpoint = virtualAudioCatalog.endpoint(id: selection.id),
+              endpoint.configuration.direction == .input,
+              let deviceID = AudioDeviceID(rawValue: endpoint.deviceUIDs.hostBridge)
+            else { return nil }
+            return RoutingOutputDeviceSelection(
+              id: deviceID,
+              displayName: endpoint.configuration.name
+            )
+          }
+        default:
+          continue
+        }
         guard let selection,
           incomingEdges[outputNode.id]?.isEmpty == false
         else {
@@ -397,6 +419,14 @@ final class RoutingAudioOutputController {
               activeKeys: &candidateCaptureCursorKeys,
               failureMessage: &sourceFailureMessage
             )
+          case .virtualOutput:
+            source = captureCursorCache.resolvedSource(
+              for: node.id,
+              consumerID: outputNode.id,
+              provider: inputCaptureController,
+              activeKeys: &candidateCaptureCursorKeys,
+              failureMessage: &sourceFailureMessage
+            )
           case .systemOutput:
             source = captureCursorCache.resolvedSource(
               for: node.id,
@@ -425,8 +455,9 @@ final class RoutingAudioOutputController {
             if case .failed(let message) = networkReceiveController.state(for: node.id) {
               sourceFailureMessage = message
             }
-          case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
-            .signalGenerator, .fileOutput, .networkSend, .delay, .noiseGate, .compressor:
+          case .outputAudio, .virtualInput, .visualizer, .audioMixer, .gain, .channelRouter,
+            .peakLevel, .signalGenerator, .fileOutput, .networkSend, .delay, .noiseGate,
+            .compressor:
             continue
           }
           guard let source else {

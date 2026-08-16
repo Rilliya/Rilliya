@@ -478,6 +478,32 @@ struct RoutingMetalSceneTests {
     #expect(node.status == "Preparing system output capture")
   }
 
+  @Test @MainActor
+  func virtualAudioNodesExposeTheMissingDriverActionOnTheCanvas() throws {
+    let model = RoutingWorkspaceModel()
+    let outputID = model.addVirtualOutputNode(centeredAt: CGPoint(x: 100, y: 100))
+    let inputID = model.addVirtualInputNode(centeredAt: CGPoint(x: 500, y: 100))
+    let unavailable = RoutingMetalNodeSupplement(
+      isRunning: false,
+      isCapturing: false,
+      captureConsumerCount: 0,
+      visualizerSignal: nil,
+      virtualAudioDriverAvailable: false
+    )
+    let scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [outputID: unavailable, inputID: unavailable]
+    )
+
+    #expect(scene.nodes.count == 2)
+    #expect(scene.nodes.allSatisfy { $0.virtualAudioStatusText == "Install virtual audio driver" })
+    #expect(
+      scene.nodes.allSatisfy {
+        $0.virtualAudioStatusSymbolName == "externaldrive.badge.plus"
+      }
+    )
+  }
+
   @Test
   func existingRouteFollowsTheSourceDuringAnInteractiveDrag() throws {
     let route = FlowingGraphEdgeRoute(

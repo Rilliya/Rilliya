@@ -19,6 +19,7 @@ struct RoutingMetalNodeSupplement: Equatable {
   let fileOutputState: RoutingFileOutputState?
   let networkSendState: RoutingNetworkSendState?
   let networkReceiveState: RoutingNetworkReceiveState?
+  let virtualAudioDriverAvailable: Bool?
 
   init(
     isRunning: Bool,
@@ -34,7 +35,8 @@ struct RoutingMetalNodeSupplement: Equatable {
     audioOutputState: RoutingAudioOutputState? = nil,
     fileOutputState: RoutingFileOutputState? = nil,
     networkSendState: RoutingNetworkSendState? = nil,
-    networkReceiveState: RoutingNetworkReceiveState? = nil
+    networkReceiveState: RoutingNetworkReceiveState? = nil,
+    virtualAudioDriverAvailable: Bool? = nil
   ) {
     self.isRunning = isRunning
     self.isCapturing = isCapturing
@@ -50,6 +52,7 @@ struct RoutingMetalNodeSupplement: Equatable {
     self.fileOutputState = fileOutputState
     self.networkSendState = networkSendState
     self.networkReceiveState = networkReceiveState
+    self.virtualAudioDriverAvailable = virtualAudioDriverAvailable
   }
 
   static let empty = RoutingMetalNodeSupplement(
@@ -97,8 +100,12 @@ struct RoutingMetalScene {
         return "Input Audio"
       case .systemOutput:
         return "System Output"
+      case .virtualOutput:
+        return "Virtual Output"
       case .outputAudio:
         return "Output Audio"
+      case .virtualInput:
+        return "Virtual Input"
       case .visualizer:
         return "Visualizer"
       case .audioMixer:
@@ -136,8 +143,12 @@ struct RoutingMetalScene {
         return selection?.displayName ?? "Choose an input device"
       case .systemOutput(let selection, _):
         return selection?.displayName ?? "Choose an output source"
+      case .virtualOutput(let selection, _):
+        return selection?.displayName ?? "Choose a virtual output"
       case .outputAudio(let selection, _):
         return selection?.displayName ?? "Choose an output device"
+      case .virtualInput(let selection, _):
+        return selection?.displayName ?? "Choose a virtual input"
       case .visualizer(let configuration):
         if configuration.mode == .mixed { return "Mixed waveform" }
         let count = configuration.normalizedSelectedChannels.count
@@ -219,6 +230,15 @@ struct RoutingMetalScene {
         }
         if supplement.isRunning { return "Ready to capture" }
         return selection == nil ? "Select to configure" : "Output source is unavailable"
+      case .virtualOutput(let selection, _):
+        if supplement.isCapturing {
+          if supplement.captureConsumerCount > 1 {
+            return "Shared capture · \(supplement.captureConsumerCount) nodes"
+          }
+          return "Receiving virtual output"
+        }
+        if supplement.isRunning { return "Ready to receive" }
+        return selection == nil ? "Select to configure" : "Virtual output is unavailable"
       case .outputAudio(let selection, _):
         switch supplement.audioOutputState {
         case .waitingForCapture:
@@ -234,6 +254,21 @@ struct RoutingMetalScene {
         }
         if supplement.isRunning { return "Ready for routed audio" }
         return selection == nil ? "Select to configure" : "Output device is unavailable"
+      case .virtualInput(let selection, _):
+        switch supplement.audioOutputState {
+        case .waitingForCapture:
+          return "Waiting for routed capture"
+        case .starting:
+          return "Preparing virtual input"
+        case .running:
+          return "Supplying virtual input"
+        case .failed:
+          return "Virtual input stopped"
+        case .idle, .none:
+          break
+        }
+        if supplement.isRunning { return "Ready for routed audio" }
+        return selection == nil ? "Select to configure" : "Virtual input is unavailable"
       case .visualizer:
         return supplement.visualizerSignal == nil ? "Waiting for routed audio" : "Live waveform"
       case .audioMixer:
@@ -299,6 +334,18 @@ struct RoutingMetalScene {
       return selection == nil ? "Select this node to configure" : nil
     }
 
+    var virtualAudioStatusText: String? {
+      switch value {
+      case .virtualOutput(let selection, _), .virtualInput(let selection, _):
+        if supplement.virtualAudioDriverAvailable == false {
+          return "Install virtual audio driver"
+        }
+        return selection == nil ? "Select this node to configure" : nil
+      default:
+        return nil
+      }
+    }
+
     var applicationStatusSymbolName: String? {
       guard case .applicationAudio(let selection, _) = value else { return nil }
       return selection == nil ? "cursorarrow.click" : nil
@@ -319,6 +366,12 @@ struct RoutingMetalScene {
       return selection == nil ? "cursorarrow.click" : nil
     }
 
+    var virtualAudioStatusSymbolName: String? {
+      guard virtualAudioStatusText != nil else { return nil }
+      return supplement.virtualAudioDriverAvailable == false
+        ? "externaldrive.badge.plus" : "cursorarrow.click"
+    }
+
     var hasApplicationSelection: Bool {
       guard case .applicationAudio(let selection, _) = value else { return false }
       return selection != nil
@@ -332,7 +385,11 @@ struct RoutingMetalScene {
         return selection != nil
       case .systemOutput(let selection, _):
         return selection != nil
+      case .virtualOutput(let selection, _):
+        return selection != nil
       case .outputAudio(let selection, _):
+        return selection != nil
+      case .virtualInput(let selection, _):
         return selection != nil
       case .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel, .signalGenerator,
         .filePlayback, .fileOutput, .networkSend, .networkReceive, .delay, .noiseGate,
@@ -350,8 +407,8 @@ struct RoutingMetalScene {
       switch value {
       case .applicationAudio:
         supplement.applicationIcon == nil
-      case .inputAudio, .systemOutput, .outputAudio, .visualizer, .audioMixer, .gain,
-        .channelRouter,
+      case .inputAudio, .systemOutput, .virtualOutput, .outputAudio, .virtualInput, .visualizer,
+        .audioMixer, .gain, .channelRouter,
         .peakLevel, .signalGenerator, .filePlayback, .fileOutput, .networkSend,
         .networkReceive, .delay, .noiseGate, .compressor:
         true
@@ -366,8 +423,12 @@ struct RoutingMetalScene {
         return "waveform.badge.mic"
       case .systemOutput:
         return "speaker.wave.2.circle"
+      case .virtualOutput:
+        return "waveform.and.mic"
       case .outputAudio:
         return "speaker.wave.2"
+      case .virtualInput:
+        return "waveform.and.mic"
       case .visualizer:
         return "waveform"
       case .audioMixer:
@@ -409,13 +470,17 @@ struct RoutingMetalScene {
         return selection != nil
       case .systemOutput(let selection, .separate):
         return selection != nil
+      case .virtualOutput(let selection, .separate):
+        return selection != nil
       case .outputAudio(let selection, .separate):
+        return selection != nil
+      case .virtualInput(let selection, .separate):
         return selection != nil
       case .audioMixer, .channelRouter:
         return true
-      case .applicationAudio, .inputAudio, .systemOutput, .outputAudio, .visualizer, .peakLevel,
-        .gain, .signalGenerator, .filePlayback, .fileOutput, .networkSend, .networkReceive,
-        .delay, .noiseGate, .compressor:
+      case .applicationAudio, .inputAudio, .systemOutput, .virtualOutput, .outputAudio,
+        .virtualInput, .visualizer, .peakLevel, .gain, .signalGenerator, .filePlayback,
+        .fileOutput, .networkSend, .networkReceive, .delay, .noiseGate, .compressor:
         return false
       }
     }

@@ -7,6 +7,7 @@ import RilliyaCore
 import RilliyaDSP
 import RilliyaFileWriting
 import RilliyaRealtime
+import RilliyaVirtualAudio
 
 struct RoutingApplicationSelection: Codable, Equatable, Hashable, Identifiable, Sendable {
   let id: String
@@ -46,6 +47,17 @@ struct RoutingOutputDeviceSelection: Equatable, Hashable, Identifiable, Sendable
 
   init(id: AudioDeviceID, displayName: String) {
     precondition(!displayName.isEmpty)
+    self.id = id
+    self.displayName = displayName
+  }
+}
+
+struct RoutingVirtualAudioEndpointSelection: Codable, Equatable, Hashable, Identifiable, Sendable {
+  let id: VirtualAudioEndpointID
+  let displayName: String
+
+  init(id: VirtualAudioEndpointID, displayName: String) {
+    precondition(!displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     self.id = id
     self.displayName = displayName
   }
@@ -136,8 +148,16 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     selection: RoutingOutputCaptureSelection?,
     channelPresentation: RoutingChannelPresentation
   )
+  case virtualOutput(
+    selection: RoutingVirtualAudioEndpointSelection?,
+    channelPresentation: RoutingChannelPresentation
+  )
   case outputAudio(
     selection: RoutingOutputDeviceSelection?,
+    channelPresentation: RoutingChannelPresentation
+  )
+  case virtualInput(
+    selection: RoutingVirtualAudioEndpointSelection?,
     channelPresentation: RoutingChannelPresentation
   )
   case visualizer(configuration: RoutingVisualizerConfiguration)
@@ -158,9 +178,9 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     switch self {
     case .applicationAudio(let selection, _):
       return selection
-    case .inputAudio, .systemOutput, .outputAudio, .visualizer, .audioMixer, .gain,
-      .channelRouter, .peakLevel, .signalGenerator, .filePlayback, .fileOutput, .networkSend,
-      .networkReceive, .delay, .noiseGate, .compressor:
+    case .inputAudio, .systemOutput, .virtualOutput, .outputAudio, .virtualInput, .visualizer,
+      .audioMixer, .gain, .channelRouter, .peakLevel, .signalGenerator, .filePlayback,
+      .fileOutput, .networkSend, .networkReceive, .delay, .noiseGate, .compressor:
       return nil
     }
   }
@@ -178,6 +198,15 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
   var outputCaptureSelection: RoutingOutputCaptureSelection? {
     guard case .systemOutput(let selection, _) = self else { return nil }
     return selection
+  }
+
+  var virtualAudioEndpointSelection: RoutingVirtualAudioEndpointSelection? {
+    switch self {
+    case .virtualOutput(let selection, _), .virtualInput(let selection, _):
+      selection
+    default:
+      nil
+    }
   }
 
   var visualizerConfiguration: RoutingVisualizerConfiguration? {
@@ -203,11 +232,11 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
   var audioSourceChannelPresentation: RoutingChannelPresentation? {
     switch self {
     case .applicationAudio(_, let presentation), .inputAudio(_, let presentation),
-      .systemOutput(_, let presentation):
+      .systemOutput(_, let presentation), .virtualOutput(_, let presentation):
       return presentation
-    case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
-      .signalGenerator, .filePlayback, .fileOutput, .networkSend, .networkReceive, .delay,
-      .noiseGate, .compressor:
+    case .outputAudio, .virtualInput, .visualizer, .audioMixer, .gain, .channelRouter,
+      .peakLevel, .signalGenerator, .filePlayback, .fileOutput, .networkSend, .networkReceive,
+      .delay, .noiseGate, .compressor:
       return nil
     }
   }
@@ -222,23 +251,35 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return .inputAudio(selection: selection, channelPresentation: presentation)
     case .systemOutput(let selection, _):
       return .systemOutput(selection: selection, channelPresentation: presentation)
-    case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
-      .signalGenerator, .filePlayback, .fileOutput, .networkSend, .networkReceive, .delay,
-      .noiseGate, .compressor:
+    case .virtualOutput(let selection, _):
+      return .virtualOutput(selection: selection, channelPresentation: presentation)
+    case .outputAudio, .virtualInput, .visualizer, .audioMixer, .gain, .channelRouter,
+      .peakLevel, .signalGenerator, .filePlayback, .fileOutput, .networkSend, .networkReceive,
+      .delay, .noiseGate, .compressor:
       return nil
     }
   }
 
   var audioDestinationChannelPresentation: RoutingChannelPresentation? {
-    guard case .outputAudio(_, let presentation) = self else { return nil }
-    return presentation
+    switch self {
+    case .outputAudio(_, let presentation), .virtualInput(_, let presentation):
+      presentation
+    default:
+      nil
+    }
   }
 
   func replacingAudioDestinationChannelPresentation(
     _ presentation: RoutingChannelPresentation
   ) -> RoutingNodeValue? {
-    guard case .outputAudio(let selection, _) = self else { return nil }
-    return .outputAudio(selection: selection, channelPresentation: presentation)
+    switch self {
+    case .outputAudio(let selection, _):
+      .outputAudio(selection: selection, channelPresentation: presentation)
+    case .virtualInput(let selection, _):
+      .virtualInput(selection: selection, channelPresentation: presentation)
+    default:
+      nil
+    }
   }
 
   var title: String {
@@ -249,8 +290,12 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return "Input Audio"
     case .systemOutput:
       return "System Output"
+    case .virtualOutput:
+      return "Virtual Output"
     case .outputAudio:
       return "Output Audio"
+    case .virtualInput:
+      return "Virtual Input"
     case .visualizer:
       return "Visualizer"
     case .audioMixer:
@@ -1453,12 +1498,34 @@ enum RoutingCanvasMetrics {
         width: baseNodeSize.width,
         height: max(minimumHeight, RoutingAudioSourceLayout.nodeHeight(channelCount: channelCount))
       )
+    case .virtualOutput(let selection, .aggregate):
+      if selection != nil {
+        return CGSize(width: baseNodeSize.width, height: 80)
+      }
+      portCount = 1
+    case .virtualOutput(let selection, .separate(let channelCount)):
+      let minimumHeight = selection == nil ? baseNodeSize.height : 80
+      return CGSize(
+        width: baseNodeSize.width,
+        height: max(minimumHeight, RoutingAudioSourceLayout.nodeHeight(channelCount: channelCount))
+      )
     case .outputAudio(let selection, .aggregate):
       if selection != nil {
         return CGSize(width: baseNodeSize.width, height: 80)
       }
       portCount = 1
     case .outputAudio(let selection, .separate(let channelCount)):
+      let minimumHeight = selection == nil ? baseNodeSize.height : 80
+      return CGSize(
+        width: baseNodeSize.width,
+        height: max(minimumHeight, RoutingAudioSourceLayout.nodeHeight(channelCount: channelCount))
+      )
+    case .virtualInput(let selection, .aggregate):
+      if selection != nil {
+        return CGSize(width: baseNodeSize.width, height: 80)
+      }
+      portCount = 1
+    case .virtualInput(let selection, .separate(let channelCount)):
       let minimumHeight = selection == nil ? baseNodeSize.height : 80
       return CGSize(
         width: baseNodeSize.width,
@@ -1712,9 +1779,11 @@ enum RoutingGraphPorts {
     switch value {
     case .applicationAudio(_, let channelPresentation),
       .inputAudio(_, let channelPresentation),
-      .systemOutput(_, let channelPresentation):
+      .systemOutput(_, let channelPresentation),
+      .virtualOutput(_, let channelPresentation):
       identities = outputIdentities(for: channelPresentation)
-    case .outputAudio(_, let channelPresentation):
+    case .outputAudio(_, let channelPresentation),
+      .virtualInput(_, let channelPresentation):
       identities = inputIdentities(for: channelPresentation)
     case .visualizer(let configuration):
       return visualizerValues(for: configuration)

@@ -7,6 +7,7 @@ import RilliyaCore
 import RilliyaDSP
 import RilliyaFilePlayback
 import RilliyaFileWriting
+import RilliyaVirtualAudio
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -14,7 +15,9 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
   case applicationAudio = "moe.uwucocoa.rilliya.node.application-audio"
   case inputAudio = "moe.uwucocoa.rilliya.node.input-audio"
   case systemOutput = "moe.uwucocoa.rilliya.node.system-output"
+  case virtualOutput = "moe.uwucocoa.rilliya.node.virtual-output"
   case outputAudio = "moe.uwucocoa.rilliya.node.output-audio"
+  case virtualInput = "moe.uwucocoa.rilliya.node.virtual-input"
   case visualizer = "moe.uwucocoa.rilliya.node.visualizer"
   case audioMixer = "moe.uwucocoa.rilliya.node.audio-mixer"
   case gain = "moe.uwucocoa.rilliya.node.gain"
@@ -36,7 +39,9 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
     case .applicationAudio: .applicationAudio
     case .inputAudio: .inputAudio
     case .systemOutput: .systemOutput
+    case .virtualOutput: .virtualOutput
     case .outputAudio: .outputAudio
+    case .virtualInput: .virtualInput
     case .visualizer: .visualizer
     case .audioMixer: .audioMixer
     case .gain: .gain
@@ -60,7 +65,9 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
     case .applicationAudio: "Capture an app output"
     case .inputAudio: "Capture an input device"
     case .systemOutput: "Capture an output device"
+    case .virtualOutput: "Receive audio from other applications"
     case .outputAudio: "Play through an output device"
+    case .virtualInput: "Expose routed audio to other applications"
     case .visualizer: "Inspect routed channels"
     case .audioMixer: "Mix routed channel levels"
     case .gain: "Adjust level and polarity"
@@ -79,10 +86,10 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
 
   var category: RoutingPaletteCategory {
     switch self {
-    case .applicationAudio, .inputAudio, .systemOutput, .signalGenerator, .filePlayback,
-      .networkReceive:
+    case .applicationAudio, .inputAudio, .systemOutput, .virtualOutput, .signalGenerator,
+      .filePlayback, .networkReceive:
       .sources
-    case .outputAudio, .fileOutput, .networkSend:
+    case .outputAudio, .virtualInput, .fileOutput, .networkSend:
       .destinations
     case .audioMixer, .gain, .channelRouter:
       .routing
@@ -222,6 +229,7 @@ struct RoutingCanvasView: View {
   let networkSendController: RoutingNetworkSendController
   let networkReceiveController: RoutingNetworkReceiveController
   let outputController: RoutingAudioOutputController
+  let virtualAudioController: RilliyaVirtualAudioController
   let sessionID: FlowingGraphCanvasSessionID
   let isWorkflowRunning: Bool
 
@@ -374,9 +382,25 @@ struct RoutingCanvasView: View {
           case .systemOutput:
             SystemOutputNodeView(node: node, context: context)
               .zIndex(context.isSelected ? 2 : 1)
+          case .virtualOutput:
+            VirtualAudioEndpointNodeView(
+              node: node,
+              context: context,
+              direction: .output,
+              isDriverAvailable: virtualAudioController.availability != .notInstalled
+            )
+            .zIndex(context.isSelected ? 2 : 1)
           case .outputAudio:
             OutputAudioNodeView(node: node, context: context)
               .zIndex(context.isSelected ? 2 : 1)
+          case .virtualInput:
+            VirtualAudioEndpointNodeView(
+              node: node,
+              context: context,
+              direction: .input,
+              isDriverAvailable: virtualAudioController.availability != .notInstalled
+            )
+            .zIndex(context.isSelected ? 2 : 1)
           case .visualizer(let configuration):
             VisualizerNodeView(
               configuration: configuration,
@@ -544,6 +568,30 @@ struct RoutingCanvasView: View {
           audioChannelControls: node.audioChannelControls,
           outputCaptureState: state
         )
+      case .virtualOutput(let selection, _):
+        let state = inputCaptureController.state(for: node.id)
+        let captureFormat: RoutingAudioCaptureFormat?
+        switch state {
+        case .running(let format):
+          captureFormat = RoutingAudioCaptureFormat(format)
+        case .idle, .starting, .failed:
+          captureFormat = nil
+        }
+        supplements[node.id] = RoutingMetalNodeSupplement(
+          isRunning: isVirtualEndpointAvailable(selection, direction: .output),
+          isCapturing: {
+            switch state {
+            case .starting, .running: true
+            case .idle, .failed: false
+            }
+          }(),
+          captureConsumerCount: inputCaptureController.consumerCount(for: node.id),
+          visualizerSignal: nil,
+          captureFormat: captureFormat,
+          audioSourceMeters: audioSourceMeters(for: node),
+          audioChannelControls: node.audioChannelControls,
+          virtualAudioDriverAvailable: virtualAudioDriverAvailability
+        )
       case .outputAudio(let selection, _):
         supplements[node.id] = RoutingMetalNodeSupplement(
           isRunning: isOutputAvailable(selection),
@@ -551,6 +599,15 @@ struct RoutingCanvasView: View {
           captureConsumerCount: 0,
           visualizerSignal: nil,
           audioOutputState: outputController.state(for: node.id)
+        )
+      case .virtualInput(let selection, _):
+        supplements[node.id] = RoutingMetalNodeSupplement(
+          isRunning: isVirtualEndpointAvailable(selection, direction: .input),
+          isCapturing: false,
+          captureConsumerCount: 0,
+          visualizerSignal: nil,
+          audioOutputState: outputController.state(for: node.id),
+          virtualAudioDriverAvailable: virtualAudioDriverAvailability
         )
       case .visualizer(let configuration):
         supplements[node.id] = RoutingMetalNodeSupplement(
@@ -712,6 +769,23 @@ struct RoutingCanvasView: View {
     }
   }
 
+  private func isVirtualEndpointAvailable(
+    _ selection: RoutingVirtualAudioEndpointSelection?,
+    direction: VirtualAudioEndpointDirection
+  ) -> Bool {
+    guard let selection else { return false }
+    return virtualAudioController.catalog.endpoint(id: selection.id)?.configuration.direction
+      == direction
+  }
+
+  private var virtualAudioDriverAvailability: Bool? {
+    switch virtualAudioController.availability {
+    case .available: true
+    case .notInstalled: false
+    case nil: nil
+    }
+  }
+
   @ViewBuilder
   private var selectedNodeInspector: some View {
     if let nodeID = selectedWorkspaceNodeID,
@@ -841,6 +915,20 @@ struct RoutingCanvasView: View {
           )
         }
       )
+    case .virtualOutput(let selection, let channelPresentation):
+      SelectedVirtualAudioEndpointInspector(
+        direction: .output,
+        selection: selection,
+        channelPresentation: channelPresentation,
+        controller: virtualAudioController,
+        state: inputCaptureController.state(for: node.id),
+        selectEndpoint: { selection in
+          workspace.selectVirtualOutput(selection, for: node.id)
+        },
+        setChannelPresentation: { presentation in
+          workspace.setVirtualOutputChannelPresentation(presentation, for: node.id)
+        }
+      )
     case .outputAudio(let selection, let channelPresentation):
       SelectedOutputAudioInspector(
         selection: selection,
@@ -852,6 +940,20 @@ struct RoutingCanvasView: View {
         },
         setChannelPresentation: { presentation in
           workspace.setOutputDeviceChannelPresentation(presentation, for: node.id)
+        }
+      )
+    case .virtualInput(let selection, let channelPresentation):
+      SelectedVirtualAudioEndpointInspector(
+        direction: .input,
+        selection: selection,
+        channelPresentation: channelPresentation,
+        controller: virtualAudioController,
+        state: nil,
+        selectEndpoint: { selection in
+          workspace.selectVirtualInput(selection, for: node.id)
+        },
+        setChannelPresentation: { presentation in
+          workspace.setVirtualInputChannelPresentation(presentation, for: node.id)
         }
       )
     case .visualizer(let configuration):
@@ -1127,7 +1229,9 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   let insertApplicationAudio: () -> Void
   let insertInputAudio: () -> Void
   let insertSystemOutput: () -> Void
+  let insertVirtualOutput: () -> Void
   let insertOutputAudio: () -> Void
+  let insertVirtualInput: () -> Void
   let insertVisualizer: () -> Void
   let insertAudioMixer: () -> Void
   let insertGain: () -> Void
@@ -1152,7 +1256,9 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     insertApplicationAudio: @escaping () -> Void,
     insertInputAudio: @escaping () -> Void,
     insertSystemOutput: @escaping () -> Void,
+    insertVirtualOutput: @escaping () -> Void,
     insertOutputAudio: @escaping () -> Void,
+    insertVirtualInput: @escaping () -> Void,
     insertVisualizer: @escaping () -> Void,
     insertAudioMixer: @escaping () -> Void,
     insertGain: @escaping () -> Void,
@@ -1174,7 +1280,9 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     self.insertApplicationAudio = insertApplicationAudio
     self.insertInputAudio = insertInputAudio
     self.insertSystemOutput = insertSystemOutput
+    self.insertVirtualOutput = insertVirtualOutput
     self.insertOutputAudio = insertOutputAudio
+    self.insertVirtualInput = insertVirtualInput
     self.insertVisualizer = insertVisualizer
     self.insertAudioMixer = insertAudioMixer
     self.insertGain = insertGain
@@ -1374,7 +1482,9 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     case .applicationAudio: insertApplicationAudio
     case .inputAudio: insertInputAudio
     case .systemOutput: insertSystemOutput
+    case .virtualOutput: insertVirtualOutput
     case .outputAudio: insertOutputAudio
+    case .virtualInput: insertVirtualInput
     case .visualizer: insertVisualizer
     case .audioMixer: insertAudioMixer
     case .gain: insertGain
@@ -1539,11 +1649,23 @@ private struct RoutingCanvasDropPreview: View {
         "Choose an output source",
         "speaker.wave.2.circle"
       )
+    case .virtualOutput:
+      return (
+        "Virtual Output",
+        "Choose a virtual output",
+        "waveform.and.mic"
+      )
     case .outputAudio:
       return (
         "Output Audio",
         "Choose an output device",
         "speaker.wave.2"
+      )
+    case .virtualInput:
+      return (
+        "Virtual Input",
+        "Choose a virtual input",
+        "mic.badge.plus"
       )
     case .visualizer:
       return (
@@ -1649,7 +1771,8 @@ private struct RoutingCanvasDropPreview: View {
 
       if isExpanded {
         Text(
-          item == .applicationAudio || item == .inputAudio || item == .outputAudio
+          item == .applicationAudio || item == .inputAudio || item == .systemOutput
+            || item == .virtualOutput || item == .outputAudio || item == .virtualInput
             ? "Select this node to configure" : "Waiting for audio input"
         )
         .font(.caption)
@@ -2038,6 +2161,101 @@ private struct SystemOutputNodeView: View {
             in: RoundedRectangle(cornerRadius: 8, style: .continuous)
           )
           .padding(.trailing, 38)
+        }
+      }
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(width: size.width, height: size.height)
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: size.width * context.renderScale,
+      height: size.height * context.renderScale,
+      alignment: .topLeading
+    )
+  }
+}
+
+private struct VirtualAudioEndpointNodeView: View {
+  let node: FlowingGraphPresentationNode<RoutingCanvasSchema>
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+  let direction: VirtualAudioEndpointDirection
+  let isDriverAvailable: Bool
+
+  @Environment(\.flowingAccent) private var accent
+
+  private var selection: RoutingVirtualAudioEndpointSelection? {
+    node.value.virtualAudioEndpointSelection
+  }
+
+  private var title: String {
+    direction == .output ? "Virtual Output" : "Virtual Input"
+  }
+
+  private var placeholder: String {
+    direction == .output ? "Choose a virtual output" : "Choose a virtual input"
+  }
+
+  private var systemImage: String {
+    direction == .output ? "speaker.wave.2.badge.waveform" : "mic.badge.plus"
+  }
+
+  var body: some View {
+    let size = RoutingCanvasMetrics.nodeSize(for: node.value)
+    FlowingCard(
+      spacing: 0,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      VStack(alignment: .leading, spacing: 11) {
+        HStack(spacing: 11) {
+          Image(systemName: systemImage)
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(accent.foreground)
+            .frame(width: 38, height: 38)
+            .background(
+              accent.veil,
+              in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+            )
+
+          VStack(alignment: .leading, spacing: 2) {
+            Text(title)
+              .font(.caption.weight(.medium))
+              .foregroundStyle(FlowingPalette.muted)
+            Text(selection?.displayName ?? placeholder)
+              .font(.callout.weight(.semibold))
+              .foregroundStyle(FlowingPalette.ink)
+              .lineLimit(1)
+          }
+
+          Spacer(minLength: 6)
+        }
+        .padding(direction == .output ? .trailing : .leading, 38)
+
+        if selection == nil || !isDriverAvailable {
+          HStack(spacing: 7) {
+            Image(systemName: isDriverAvailable ? "cursorarrow.click" : "externaldrive.badge.plus")
+              .font(.system(size: 9, weight: .semibold))
+            Text(
+              isDriverAvailable ? "Select this node to configure" : "Install virtual audio driver"
+            )
+            .font(.caption)
+            .lineLimit(1)
+            Spacer(minLength: 0)
+          }
+          .foregroundStyle(accent.foreground)
+          .padding(.horizontal, 10)
+          .frame(height: 30)
+          .background(
+            accent.wash,
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+          )
+          .padding(direction == .output ? .trailing : .leading, 38)
         }
       }
     }
@@ -4057,6 +4275,232 @@ private struct SelectedSystemOutputInspector: View {
     }
     guard !mutedChannels.isEmpty else { return nil }
     return mutedChannels.formatted(.list(type: .and))
+  }
+}
+
+private struct SelectedVirtualAudioEndpointInspector: View {
+  let direction: VirtualAudioEndpointDirection
+  let selection: RoutingVirtualAudioEndpointSelection?
+  let channelPresentation: RoutingChannelPresentation
+  let controller: RilliyaVirtualAudioController
+  let state: RoutingInputCaptureState?
+  let selectEndpoint: (RoutingVirtualAudioEndpointSelection?) -> Void
+  let setChannelPresentation: (RoutingChannelPresentation) -> Void
+
+  private var title: String {
+    direction == .output ? "Virtual Output" : "Virtual Input"
+  }
+
+  private var endpoints: [VirtualAudioEndpoint] {
+    controller.catalog.endpoints.filter { $0.configuration.direction == direction }
+  }
+
+  private var selectedEndpoint: VirtualAudioEndpoint? {
+    guard let selection else { return nil }
+    return endpoints.first { $0.id == selection.id }
+  }
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title)
+          .font(.headline)
+          .foregroundStyle(FlowingPalette.ink)
+        Text(
+          direction == .output
+            ? "Receive audio played by other applications."
+            : "Expose routed audio as an input for other applications."
+        )
+        .font(.caption)
+        .foregroundStyle(FlowingPalette.muted)
+      }
+
+      driverContent
+
+      if controller.availability == .available {
+        endpointPicker
+
+        if let selectedEndpoint {
+          let format = selectedEndpoint.configuration.format
+          Text("\(format.channelCount) ch · \(format.sampleRate.formatted()) Hz")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(FlowingPalette.muted)
+
+          captureStateContent
+
+          Divider()
+            .overlay(FlowingPalette.hairline)
+
+          VStack(alignment: .leading, spacing: 9) {
+            Text(direction == .output ? "Output Ports" : "Input Ports")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(FlowingPalette.muted)
+
+            FlowingSegmentedControl(
+              label: "Port presentation",
+              selection: portDisplayMode,
+              options: [
+                FlowingSegmentOption(.aggregate, label: "All Channels"),
+                FlowingSegmentOption(.separate, label: "Separate"),
+              ]
+            )
+
+            Text(
+              "Separate uses the endpoint's configured \(format.channelCount) channels. "
+                + "Change its format in Virtual Devices preferences."
+            )
+            .font(.caption2)
+            .foregroundStyle(FlowingPalette.faint)
+          }
+        }
+      }
+
+      Button("Manage Virtual Devices") {
+        RilliyaPreferencesWindowController.shared.showPreferences()
+      }
+      .buttonStyle(FlowingSoftButtonStyle())
+
+      if let issue = controller.issue {
+        FlowingCallout(issue, title: "Virtual audio unavailable", tone: .warning)
+      }
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+    .task {
+      await controller.refresh()
+    }
+  }
+
+  @ViewBuilder
+  private var driverContent: some View {
+    switch controller.availability {
+    case .available:
+      if endpoints.isEmpty {
+        FlowingCallout(
+          "Create a \(direction == .output ? "virtual output" : "virtual input") in Preferences before selecting it here.",
+          title: "No compatible virtual devices",
+          systemImage: "waveform.badge.plus",
+          tone: .neutral
+        )
+      }
+    case .notInstalled:
+      FlowingCallout(
+        "Install Rilliya's clean-room audio driver before creating virtual devices.",
+        title: "Driver required",
+        systemImage: "externaldrive.badge.plus",
+        tone: .warning
+      )
+      if controller.isInstallerBundled {
+        Button("Open Driver Installer") {
+          controller.openInstaller()
+        }
+        .buttonStyle(FlowingSoftButtonStyle())
+      }
+    case nil:
+      HStack(spacing: 9) {
+        ProgressView()
+          .controlSize(.small)
+        Text("Checking the virtual audio driver…")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+    }
+  }
+
+  private var endpointPicker: some View {
+    FlowingSearchPicker(
+      label: title,
+      selection: pickerSelection,
+      options: pickerOptions,
+      maximumVisibleOptions: 8
+    )
+  }
+
+  private var pickerSelection: Binding<String> {
+    Binding(
+      get: { selection?.id.rawValue.uuidString ?? "" },
+      set: { selectedID in
+        guard selectedID != selection?.id.rawValue.uuidString else { return }
+        guard
+          let endpoint = endpoints.first(where: {
+            $0.id.rawValue.uuidString == selectedID
+          })
+        else {
+          selectEndpoint(nil)
+          return
+        }
+        selectEndpoint(
+          RoutingVirtualAudioEndpointSelection(
+            id: endpoint.id,
+            displayName: endpoint.configuration.name
+          )
+        )
+        if case .separate = channelPresentation {
+          setChannelPresentation(
+            .separate(channelCount: endpoint.configuration.format.channelCount)
+          )
+        }
+      }
+    )
+  }
+
+  private var pickerOptions: [FlowingSelectOption<String>] {
+    [FlowingSelectOption("", label: "No \(title)")]
+      + endpoints.map { endpoint in
+        FlowingSelectOption(
+          endpoint.id.rawValue.uuidString,
+          label: endpoint.configuration.name
+        )
+      }
+  }
+
+  private var portDisplayMode: Binding<RoutingPortDisplayMode> {
+    Binding(
+      get: {
+        switch channelPresentation {
+        case .aggregate: .aggregate
+        case .separate: .separate
+        }
+      },
+      set: { mode in
+        switch mode {
+        case .aggregate:
+          setChannelPresentation(.aggregate)
+        case .separate:
+          let channelCount = selectedEndpoint?.configuration.format.channelCount ?? 2
+          setChannelPresentation(.separate(channelCount: channelCount))
+        }
+      }
+    )
+  }
+
+  @ViewBuilder
+  private var captureStateContent: some View {
+    if let state {
+      switch state {
+      case .idle:
+        EmptyView()
+      case .starting:
+        HStack(spacing: 8) {
+          ProgressView()
+            .controlSize(.small)
+          Text("Preparing virtual output capture…")
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+      case .running(let format):
+        Label(
+          "Capturing \(format.channelIDs.count) ch · \(format.sampleRate.formatted()) Hz",
+          systemImage: "waveform"
+        )
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(FlowingAccent.lagoon.foreground)
+      case .failed(let message):
+        FlowingCallout(message, title: "Virtual output stopped", tone: .warning)
+      }
+    }
   }
 }
 

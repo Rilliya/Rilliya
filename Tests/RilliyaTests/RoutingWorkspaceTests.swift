@@ -5,6 +5,7 @@ import RilliyaCapture
 import RilliyaCore
 import RilliyaDSP
 import RilliyaFileWriting
+import RilliyaVirtualAudio
 import Testing
 
 @testable import Rilliya
@@ -462,6 +463,71 @@ struct RoutingWorkspaceTests {
     let ports = RoutingGraphPorts.values(for: node)
     #expect(ports.count == 2)
     #expect(ports.allSatisfy { $0.direction == .output })
+  }
+
+  @Test @MainActor
+  func virtualEndpointCatalogUpdatesNamesAndSeparatePortCountsWithoutChangingReferences() throws {
+    let model = RoutingWorkspaceModel()
+    let outputEndpointID = VirtualAudioEndpointID(
+      rawValue: try #require(UUID(uuidString: "02CC3B98-D784-4140-A44A-84A1B2C38BFB"))
+    )
+    let inputEndpointID = VirtualAudioEndpointID(
+      rawValue: try #require(UUID(uuidString: "DB5730F4-BF70-45EE-9C81-F20722EF05AA"))
+    )
+    let sourceID = model.addVirtualOutputNode(centeredAt: CGPoint(x: 100, y: 100))
+    let destinationID = model.addVirtualInputNode(centeredAt: CGPoint(x: 500, y: 100))
+    model.selectVirtualOutput(
+      RoutingVirtualAudioEndpointSelection(
+        id: outputEndpointID,
+        displayName: "Old Output Name"
+      ),
+      for: sourceID
+    )
+    model.selectVirtualInput(
+      RoutingVirtualAudioEndpointSelection(
+        id: inputEndpointID,
+        displayName: "Old Input Name"
+      ),
+      for: destinationID
+    )
+    model.setVirtualOutputChannelPresentation(.separate(channelCount: 2), for: sourceID)
+    model.setVirtualInputChannelPresentation(.separate(channelCount: 2), for: destinationID)
+
+    let outputEndpoint = VirtualAudioEndpoint(
+      id: outputEndpointID,
+      configuration: try VirtualAudioEndpointConfiguration(
+        name: "Renamed Output",
+        direction: .output,
+        format: VirtualAudioEndpointFormat(sampleRate: 96_000, channelCount: 6)
+      )
+    )
+    let inputEndpoint = VirtualAudioEndpoint(
+      id: inputEndpointID,
+      configuration: try VirtualAudioEndpointConfiguration(
+        name: "Renamed Input",
+        direction: .input,
+        format: VirtualAudioEndpointFormat(sampleRate: 48_000, channelCount: 4)
+      )
+    )
+    model.synchronizeVirtualAudioCatalog(
+      try VirtualAudioEndpointCatalog(
+        revision: 3,
+        endpoints: [outputEndpoint, inputEndpoint]
+      )
+    )
+
+    let source = try #require(model.node(id: sourceID))
+    let destination = try #require(model.node(id: destinationID))
+    #expect(source.value.virtualAudioEndpointSelection?.id == outputEndpointID)
+    #expect(source.value.virtualAudioEndpointSelection?.displayName == "Renamed Output")
+    #expect(source.value.channelPresentation == .separate(channelCount: 6))
+    #expect(RoutingGraphPorts.values(for: source).count == 6)
+    #expect(destination.value.virtualAudioEndpointSelection?.id == inputEndpointID)
+    #expect(destination.value.virtualAudioEndpointSelection?.displayName == "Renamed Input")
+    #expect(
+      destination.value.audioDestinationChannelPresentation == .separate(channelCount: 4)
+    )
+    #expect(RoutingGraphPorts.values(for: destination).count == 4)
   }
 
   @Test @MainActor

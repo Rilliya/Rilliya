@@ -7,11 +7,13 @@ private enum RilliyaPreferencesPage: Hashable {
   case general
   case canvas
   case customization
+  case virtualAudio
   case about
 }
 
 private struct RilliyaPreferencesRoot: View {
   let settings: RilliyaSettings
+  let virtualAudioController: RilliyaVirtualAudioController
 
   @State private var selection = RilliyaPreferencesPage.general
 
@@ -52,6 +54,20 @@ private struct RilliyaPreferencesRoot: View {
             ) {
               RilliyaCustomizationPreferencesPane(settings: settings)
             },
+          ]
+        ),
+        PreferencesPageGroup(
+          id: "audio",
+          title: "Audio",
+          pages: [
+            PreferencesPage(
+              id: .virtualAudio,
+              title: "Virtual Devices",
+              subtitle: "Install the driver and manage shared endpoints",
+              icon: .system("waveform.badge.plus")
+            ) {
+              RilliyaVirtualAudioPreferencesPane(controller: virtualAudioController)
+            }
           ]
         ),
         PreferencesPageGroup(
@@ -416,7 +432,10 @@ final class RilliyaPreferencesWindowController {
       size: CGSize(width: 860, height: 600),
       minimumSize: CGSize(width: 760, height: 520)
     ),
-    rootView: RilliyaPreferencesRoot(settings: RilliyaSettings.shared)
+    rootView: RilliyaPreferencesRoot(
+      settings: RilliyaSettings.shared,
+      virtualAudioController: RilliyaVirtualAudioController.shared
+    )
   )
 
   private init() {}

@@ -190,6 +190,11 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
         return false
       }
       return isValid(presentation)
+    case .virtualOutput(let selection, let presentation):
+      return isValidVirtualEndpointSelection(
+        selection,
+        presentation: presentation
+      )
     case .outputAudio(let selection, let presentation):
       if let selection,
         selection.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
@@ -197,6 +202,11 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
         return false
       }
       return isValid(presentation)
+    case .virtualInput(let selection, let presentation):
+      return isValidVirtualEndpointSelection(
+        selection,
+        presentation: presentation
+      )
     case .visualizer(let configuration):
       let requestedChannels = configuration.channelSelection.requestedChannels
       return (1...RoutingVisualizerConfiguration.maximumAvailableChannelCount).contains(
@@ -316,6 +326,18 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
       && sampleRate <= 768_000
       && abs(sampleRate.rounded() - sampleRate) < 0.001
       && (1...256).contains(channelCount)
+  }
+
+  private static func isValidVirtualEndpointSelection(
+    _ selection: RoutingVirtualAudioEndpointSelection?,
+    presentation: RoutingChannelPresentation
+  ) -> Bool {
+    if let selection,
+      selection.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    {
+      return false
+    }
+    return isValid(presentation)
   }
 
   private static func isValid(_ presentation: RoutingChannelPresentation) -> Bool {

@@ -3,6 +3,7 @@ import FlowingDayGraphCanvas
 import Foundation
 import RilliyaCapture
 import RilliyaCore
+import RilliyaVirtualAudio
 import Testing
 
 @testable import Rilliya
@@ -140,6 +141,58 @@ struct RoutingCaptureRequirementsTests {
     #expect(requirements.inputDeviceIDsByNode.count == 2)
     #expect(Set(requirements.inputDeviceIDsByNode.keys) == Set(sourceIDs))
     #expect(Set(requirements.inputDeviceIDsByNode.values) == [deviceID])
+  }
+
+  @Test @MainActor
+  func virtualOutputUsesItsStableHiddenReaderDeviceOnlyWhileRoutedAndRunning() throws {
+    let endpointID = VirtualAudioEndpointID(
+      rawValue: try #require(UUID(uuidString: "769B836F-B771-4C26-899D-3140893C9DC5"))
+    )
+    let endpoint = VirtualAudioEndpoint(
+      id: endpointID,
+      configuration: try VirtualAudioEndpointConfiguration(
+        name: "Remote Mac Output",
+        direction: .output
+      )
+    )
+    let catalog = try VirtualAudioEndpointCatalog(revision: 4, endpoints: [endpoint])
+    let bridgeDeviceID = try #require(AudioDeviceID(rawValue: endpoint.deviceUIDs.hostBridge))
+    let workflow = RoutingWorkflowModel(name: "Virtual Output")
+    let sourceID = workflow.workspace.addVirtualOutputNode(centeredAt: .zero)
+    let visualizerID = workflow.workspace.addVisualizerNode(
+      centeredAt: CGPoint(x: 400, y: 0)
+    )
+    workflow.workspace.selectVirtualOutput(
+      RoutingVirtualAudioEndpointSelection(
+        id: endpoint.id,
+        displayName: endpoint.configuration.name
+      ),
+      for: sourceID
+    )
+    try connect(sourceID: sourceID, targetID: visualizerID, in: workflow.workspace)
+
+    let paused = RoutingCaptureRequirementResolver.resolve(
+      workflows: [workflow],
+      catalogSnapshot: nil,
+      virtualAudioCatalog: catalog
+    )
+    #expect(paused.inputDeviceIDsByNode.isEmpty)
+
+    workflow.run()
+    let running = RoutingCaptureRequirementResolver.resolve(
+      workflows: [workflow],
+      catalogSnapshot: nil,
+      virtualAudioCatalog: catalog
+    )
+
+    #expect(running.inputDeviceIDsByNode == [sourceID: bridgeDeviceID])
+
+    let missing = RoutingCaptureRequirementResolver.resolve(
+      workflows: [workflow],
+      catalogSnapshot: nil,
+      virtualAudioCatalog: .empty
+    )
+    #expect(missing.inputDeviceIDsByNode.isEmpty)
   }
 
   @Test @MainActor
