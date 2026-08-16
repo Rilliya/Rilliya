@@ -518,7 +518,8 @@ struct RoutingCanvasView: View {
           captureFormat: captureFormat,
           audioSourceMeters: audioSourceMeters(for: node),
           audioChannelControls: node.audioChannelControls,
-          applicationIcon: applicationIcon(selection)
+          applicationIcon: applicationIcon(selection),
+          captureState: state
         )
       case .inputAudio(let selection, _):
         let state = inputCaptureController.state(for: node.id)
@@ -542,7 +543,8 @@ struct RoutingCanvasView: View {
           visualizerSignal: nil,
           captureFormat: captureFormat,
           audioSourceMeters: audioSourceMeters(for: node),
-          audioChannelControls: node.audioChannelControls
+          audioChannelControls: node.audioChannelControls,
+          inputCaptureState: state
         )
       case .systemOutput(let selection, _):
         let state = outputCaptureController.state(for: node.id)
@@ -590,7 +592,8 @@ struct RoutingCanvasView: View {
           captureFormat: captureFormat,
           audioSourceMeters: audioSourceMeters(for: node),
           audioChannelControls: node.audioChannelControls,
-          virtualAudioDriverAvailable: virtualAudioDriverAvailability
+          virtualAudioDriverAvailable: virtualAudioDriverAvailability,
+          inputCaptureState: state
         )
       case .outputAudio(let selection, _):
         supplements[node.id] = RoutingMetalNodeSupplement(
@@ -662,7 +665,13 @@ struct RoutingCanvasView: View {
       case .signalGenerator:
         supplements[node.id] = .empty
       case .filePlayback:
-        supplements[node.id] = .empty
+        supplements[node.id] = RoutingMetalNodeSupplement(
+          isRunning: false,
+          isCapturing: false,
+          captureConsumerCount: 0,
+          visualizerSignal: nil,
+          filePlaybackState: filePlaybackController.state(for: node.id)
+        )
       case .fileOutput:
         supplements[node.id] = RoutingMetalNodeSupplement(
           isRunning: false,

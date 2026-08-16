@@ -150,6 +150,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     static let edgeLabelMinimumZoom: CGFloat = 0.58
     static let waveformWidth: CGFloat = 2
     static let fitPadding: CGFloat = 58
+    static let runningBadgeSize: CGFloat = 9
+    static let failureBadgeSize: CGFloat = 14
+    static let failureBadgeSymbolSize: CGFloat = 8
+    static let badgeBorderWidth: CGFloat = 2
+    static let statusLineOrigin = CGPoint(x: 63, y: 14)
+    static let subtitleOrigin = CGPoint(x: 63, y: 31)
+    static let subtitleCharacterLimit = 27
+    static let statusLineCharacterLimit = 24
   }
 
   private let gridPipeline: any MTLRenderPipelineState
@@ -992,32 +1000,74 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         to: &geometry
       )
     }
-    if node.supplement.isRunning {
+    if node.showsFailureBadge {
+      let badge = CGRect(
+        x: iconFrame.maxX - Constants.failureBadgeSize / 2,
+        y: iconFrame.maxY - Constants.failureBadgeSize / 2,
+        width: Constants.failureBadgeSize,
+        height: Constants.failureBadgeSize
+      )
+      geometry.shapes.append(
+        RoutingMetalShapeInstance(
+          rect: badge,
+          fill: palette.poppy,
+          border: palette.node,
+          cornerRadius: Float(Constants.failureBadgeSize / 2),
+          borderWidth: Float(Constants.badgeBorderWidth / camera.zoom),
+          opacity: 1
+        )
+      )
+      append(
+        atlas: textAtlas.symbol(
+          "exclamationmark",
+          pointSize: Constants.failureBadgeSymbolSize,
+          weight: .bold
+        ),
+        centeredIn: badge,
+        color: SIMD4(1, 1, 1, 1),
+        to: &geometry
+      )
+    } else if node.supplement.isRunning {
       geometry.shapes.append(
         RoutingMetalShapeInstance(
           rect: CGRect(
-            x: iconFrame.maxX - 8,
-            y: iconFrame.maxY - 8,
-            width: 9,
-            height: 9
+            x: iconFrame.maxX - Constants.runningBadgeSize + 1,
+            y: iconFrame.maxY - Constants.runningBadgeSize + 1,
+            width: Constants.runningBadgeSize,
+            height: Constants.runningBadgeSize
           ),
           fill: palette.running,
           border: palette.node,
-          cornerRadius: 4.5,
-          borderWidth: Float(2 / camera.zoom),
+          cornerRadius: Float(Constants.runningBadgeSize / 2),
+          borderWidth: Float(Constants.badgeBorderWidth / camera.zoom),
           opacity: 1
         )
       )
     }
+    let statusLine = node.statusLine
     append(
-      atlas: textAtlas.text(node.title, size: 10, weight: .medium),
-      origin: CGPoint(x: frame.minX + 63, y: frame.minY + 14),
-      color: palette.muted,
+      atlas: textAtlas.text(
+        truncated(statusLine.text, limit: Constants.statusLineCharacterLimit),
+        size: 10,
+        weight: .medium
+      ),
+      origin: CGPoint(
+        x: frame.minX + Constants.statusLineOrigin.x,
+        y: frame.minY + Constants.statusLineOrigin.y
+      ),
+      color: statusLine.isFailure ? palette.poppy : palette.muted,
       to: &geometry
     )
     append(
-      atlas: textAtlas.text(truncated(node.subtitle, limit: 27), size: 13, weight: .semibold),
-      origin: CGPoint(x: frame.minX + 63, y: frame.minY + 31),
+      atlas: textAtlas.text(
+        truncated(node.subtitle, limit: Constants.subtitleCharacterLimit),
+        size: 13,
+        weight: .semibold
+      ),
+      origin: CGPoint(
+        x: frame.minX + Constants.subtitleOrigin.x,
+        y: frame.minY + Constants.subtitleOrigin.y
+      ),
       color: palette.ink,
       to: &geometry
     )

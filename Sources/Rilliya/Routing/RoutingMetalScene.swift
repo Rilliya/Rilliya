@@ -20,6 +20,22 @@ struct RoutingMetalNodeSupplement: Equatable {
   let networkSendState: RoutingNetworkSendState?
   let networkReceiveState: RoutingNetworkReceiveState?
   let virtualAudioDriverAvailable: Bool?
+  let captureState: RoutingCaptureState?
+  let inputCaptureState: RoutingInputCaptureState?
+  let filePlaybackState: RoutingFilePlaybackState?
+
+  /// The failure the canvas draws, whichever controller owns this node produced it.
+  var failure: RoutingNodeFailure? {
+    if case .failed(let failure) = captureState { return failure }
+    if case .failed(let failure) = inputCaptureState { return failure }
+    if case .failed(let failure) = outputCaptureState { return failure }
+    if case .failed(let failure) = audioOutputState { return failure }
+    if case .failed(let failure) = filePlaybackState { return failure }
+    if case .failed(let failure) = fileOutputState { return failure }
+    if case .failed(let failure) = networkSendState { return failure }
+    if case .failed(let failure) = networkReceiveState { return failure }
+    return nil
+  }
 
   init(
     isRunning: Bool,
@@ -36,7 +52,10 @@ struct RoutingMetalNodeSupplement: Equatable {
     fileOutputState: RoutingFileOutputState? = nil,
     networkSendState: RoutingNetworkSendState? = nil,
     networkReceiveState: RoutingNetworkReceiveState? = nil,
-    virtualAudioDriverAvailable: Bool? = nil
+    virtualAudioDriverAvailable: Bool? = nil,
+    captureState: RoutingCaptureState? = nil,
+    inputCaptureState: RoutingInputCaptureState? = nil,
+    filePlaybackState: RoutingFilePlaybackState? = nil
   ) {
     self.isRunning = isRunning
     self.isCapturing = isCapturing
@@ -53,6 +72,9 @@ struct RoutingMetalNodeSupplement: Equatable {
     self.networkSendState = networkSendState
     self.networkReceiveState = networkReceiveState
     self.virtualAudioDriverAvailable = virtualAudioDriverAvailable
+    self.captureState = captureState
+    self.inputCaptureState = inputCaptureState
+    self.filePlaybackState = filePlaybackState
   }
 
   static let empty = RoutingMetalNodeSupplement(
@@ -65,6 +87,11 @@ struct RoutingMetalNodeSupplement: Equatable {
     audioSourceMeters: [],
     audioChannelControls: [:]
   )
+}
+
+struct RoutingMetalNodeStatusLine: Equatable {
+  let text: String
+  let isFailure: Bool
 }
 
 enum RoutingMetalVisualizerPresentation: Equatable {
@@ -133,6 +160,20 @@ struct RoutingMetalScene {
       case .compressor:
         return "Compressor"
       }
+    }
+
+    /// Whether the canvas draws the failure badge in place of the running indicator.
+    var showsFailureBadge: Bool { supplement.failure != nil }
+
+    /// The small line above the subtitle.
+    ///
+    /// A failure the app cannot phrase in a few words leaves the node kind in place: the badge
+    /// already says something is wrong, and the first words of an arbitrary message read as noise.
+    var statusLine: RoutingMetalNodeStatusLine {
+      guard let summary = supplement.failure?.summary else {
+        return RoutingMetalNodeStatusLine(text: title, isFailure: false)
+      }
+      return RoutingMetalNodeStatusLine(text: summary, isFailure: true)
     }
 
     var subtitle: String {
