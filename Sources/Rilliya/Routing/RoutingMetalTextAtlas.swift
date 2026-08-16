@@ -428,6 +428,10 @@ final class RoutingMetalTextAtlas {
     private var cursorY = Constants.atlasPadding
     private var rowHeight = 0
 
+    init(textureSize: Int) {
+      self.textureSize = textureSize
+    }
+
     mutating func allocate(width: Int, height: Int) -> MTLOrigin? {
       let paddedWidth = width + Constants.atlasPadding
       let paddedHeight = height + Constants.atlasPadding
