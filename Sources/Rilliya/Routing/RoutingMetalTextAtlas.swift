@@ -328,16 +328,25 @@ final class RoutingMetalTextAtlas {
     rasterScale: CGFloat,
     draw: (CGRect) -> Void
   ) -> [UInt8] {
-    rasterize(
+    let rgba = rasterize(
       size: size,
       pixelWidth: pixelWidth,
       pixelHeight: pixelHeight,
       rasterScale: rasterScale,
-      bytesPerPixel: 1,
-      colorSpace: CGColorSpaceCreateDeviceGray(),
-      bitmapInfo: CGImageAlphaInfo.none.rawValue,
+      bytesPerPixel: 4,
+      colorSpace: CGColorSpaceCreateDeviceRGB(),
+      bitmapInfo: CGImageAlphaInfo.premultipliedLast.rawValue,
       draw: draw
     )
+
+    // SF Symbols are template images and may rasterize as black. Their coverage lives in the
+    // alpha channel, so using grayscale intensity as the mask makes valid symbols disappear.
+    // Extracting alpha also gives text and symbols the same antialiased coverage semantics.
+    var alpha = [UInt8](repeating: 0, count: pixelWidth * pixelHeight)
+    for index in alpha.indices {
+      alpha[index] = rgba[index * 4 + 3]
+    }
+    return alpha
   }
 
   private func rasterizeColor(

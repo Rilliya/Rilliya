@@ -38,4 +38,30 @@ struct RoutingMetalTextAtlasTests {
 
     #expect(atlas.cachedEntryCount <= 38)
   }
+
+  @Test @MainActor
+  func systemSymbolProducesANonemptyGlyphMask() throws {
+    let device = try #require(MTLCreateSystemDefaultDevice())
+    let atlas = RoutingMetalTextAtlas(device: device)
+    let entry = try #require(
+      atlas.symbol("waveform.badge.mic", pointSize: 16, weight: .semibold)
+    )
+
+    let textureWidth = atlas.glyphTexture.width
+    let width = Int(round(entry.textureSize.x * Float(textureWidth)))
+    let height = Int(round(entry.textureSize.y * Float(atlas.glyphTexture.height)))
+    let originX = Int(round(entry.textureOrigin.x * Float(textureWidth)))
+    let originY = Int(round(entry.textureOrigin.y * Float(atlas.glyphTexture.height)))
+    var mask = [UInt8](repeating: 0, count: width * height)
+    mask.withUnsafeMutableBytes { bytes in
+      atlas.glyphTexture.getBytes(
+        bytes.baseAddress!,
+        bytesPerRow: width,
+        from: MTLRegionMake2D(originX, originY, width, height),
+        mipmapLevel: 0
+      )
+    }
+
+    #expect(mask.contains { $0 > 0 })
+  }
 }
