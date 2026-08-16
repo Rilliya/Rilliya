@@ -10,8 +10,10 @@ fi
 application=$1
 output=$2
 temporary_root=${RUNNER_TEMP:-${TMPDIR:-/tmp}}
-staging="$(mktemp -d "$temporary_root/rilliya-dmg.XXXXXX")"
-trap 'rm -rf "$staging"' EXIT
+workspace="$(mktemp -d "$temporary_root/rilliya-dmg.XXXXXX")"
+staging="$workspace/Rilliya"
+mkdir -p "$staging"
+trap 'rm -rf "$workspace"' EXIT
 
 if [[ ! -d "$application" ]]; then
   echo "Application does not exist: $application" >&2
@@ -27,7 +29,6 @@ if [[ -e "$output" ]]; then
 fi
 
 diskutil image create from \
-  --volumeName Rilliya \
   --format UDZO \
   "$staging" \
   "$output"
