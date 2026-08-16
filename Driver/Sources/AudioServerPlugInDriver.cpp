@@ -29,6 +29,7 @@ namespace {
 const CFStringRef catalogStorageKey = CFSTR("VirtualAudioEndpointCatalog.v1");
 const CFStringRef manufacturerName = CFSTR("Rilliya");
 const CFStringRef plugInName = CFSTR("Rilliya Virtual Audio");
+const CFStringRef plugInBundleIdentifier = CFSTR("moe.uwucocoa.rilliya.virtual-audio-driver");
 const CFStringRef modelUID = CFSTR("moe.uwucocoa.rilliya.virtual-audio");
 constexpr std::uint32_t defaultBufferFrameSize = 512;
 constexpr std::uint32_t zeroTimestampPeriod = 16384;
@@ -576,6 +577,7 @@ AudioServerPlugInDriverRef driverReference = &driverInterfacePointer;
 
 [[nodiscard]] bool selectorIsPlugIn(AudioObjectPropertySelector selector) noexcept {
   return selectorIsCommon(selector) || selector == kAudioObjectPropertyCustomPropertyInfoList ||
+         selector == kAudioPlugInPropertyBundleID ||
          selector == kAudioPlugInPropertyResourceBundle ||
          selector == kAudioPlugInPropertyDeviceList ||
          selector == kAudioPlugInPropertyTranslateUIDToDevice ||
@@ -761,6 +763,7 @@ OSStatus getPropertyDataSize(AudioServerPlugInDriverRef driver, AudioObjectID ob
       return noErr;
     case kAudioObjectPropertyName:
     case kAudioObjectPropertyManufacturer:
+    case kAudioPlugInPropertyBundleID:
     case kAudioPlugInPropertyResourceBundle:
     case endpointCatalogProperty:
       *dataSize = sizeof(CFTypeRef);
@@ -889,6 +892,8 @@ OSStatus getPropertyData(AudioServerPlugInDriverRef driver, AudioObjectID object
       return writeCFString(dataSize, outputDataSize, outputData, plugInName);
     case kAudioObjectPropertyManufacturer:
       return writeCFString(dataSize, outputDataSize, outputData, manufacturerName);
+    case kAudioPlugInPropertyBundleID:
+      return writeCFString(dataSize, outputDataSize, outputData, plugInBundleIdentifier);
     case kAudioObjectPropertyOwnedObjects:
     case kAudioPlugInPropertyDeviceList: {
       const std::vector<AudioObjectID> devices = driverState().deviceList();

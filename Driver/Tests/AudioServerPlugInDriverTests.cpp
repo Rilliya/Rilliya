@@ -159,6 +159,17 @@ Value property(AudioServerPlugInDriverRef driver, AudioObjectID objectID,
   return value;
 }
 
+std::string stringProperty(AudioServerPlugInDriverRef driver, AudioObjectID objectID,
+                           AudioObjectPropertySelector selector) {
+  const CFStringRef value = property<CFStringRef>(driver, objectID, selector);
+  std::array<char, 256> buffer{};
+  const bool converted = CFStringGetCString(
+      value, buffer.data(), static_cast<CFIndex>(buffer.size()), kCFStringEncodingUTF8);
+  CFRelease(value);
+  expect(converted, "string property should contain bounded UTF-8");
+  return buffer.data();
+}
+
 void testFactoryAndInterfaceDiscovery() {
   const CFUUIDRef wrongType = CFUUIDCreate(kCFAllocatorDefault);
   expect(RilliyaVirtualAudioDriverFactory(nullptr, wrongType) == nullptr,
@@ -171,6 +182,9 @@ void testFactoryAndInterfaceDiscovery() {
       (*driver)->QueryInterface(driver, CFUUIDGetUUIDBytes(IUnknownUUID), &queried);
   expect(result == S_OK && queried == driver, "driver should implement IUnknown");
   (*driver)->Release(driver);
+  expect(stringProperty(driver, kAudioObjectPlugInObject, kAudioPlugInPropertyBundleID) ==
+             "moe.uwucocoa.rilliya.virtual-audio-driver",
+         "plug-in should publish the bundle identity used for HAL discovery");
 }
 
 void testCatalogPublishesVisibleAndHiddenPairs() {
