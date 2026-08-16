@@ -7,7 +7,7 @@ struct RoutingAccentGrid: View {
   let inheritedLabel: String
   let setSelection: (RoutingAccentID?) -> Void
 
-  private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 7)
+  private let columns = Array(repeating: GridItem(.flexible(), spacing: 7), count: 7)
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -42,34 +42,19 @@ struct RoutingAccentGrid: View {
       .accessibilityLabel("Use \(inheritedLabel), \(inheritedAccentID.displayName)")
       .accessibilityValue(selection == nil ? "Selected" : "Not selected")
 
-      LazyVGrid(columns: columns, spacing: 8) {
-        ForEach(RoutingAccentID.allCases, id: \.self) { accentID in
-          Button {
-            setSelection(accentID)
-          } label: {
-            ZStack {
-              Circle()
-                .fill(accentID.accent.fill)
-              Circle()
-                .strokeBorder(
-                  selection == accentID
-                    ? FlowingPalette.ink.opacity(0.72)
-                    : accentID.accent.foreground.opacity(0.24),
-                  lineWidth: selection == accentID ? 2 : 1
-                )
-              if selection == accentID {
-                Image(systemName: "checkmark")
-                  .font(.system(size: 8, weight: .heavy))
-                  .foregroundStyle(accentID.accent.foreground)
+      VStack(spacing: 7) {
+        ForEach(Array(RoutingAccentID.families.enumerated()), id: \.offset) { _, family in
+          LazyVGrid(columns: columns, spacing: 7) {
+            ForEach(family.accents, id: \.self) { accentID in
+              FlowingChip(accentID.displayName) {
+                setSelection(accentID)
               }
+              .flowingAccent(accentID.accent)
+              .accessibilityValue(selection == accentID ? "Selected" : "Not selected")
             }
-            .frame(width: 25, height: 25)
-            .contentShape(Circle())
           }
-          .buttonStyle(.plain)
-          .help(accentID.displayName)
-          .accessibilityLabel(accentID.displayName)
-          .accessibilityValue(selection == accentID ? "Selected" : "Not selected")
+          .accessibilityElement(children: .contain)
+          .accessibilityLabel(family.name)
         }
       }
       .accessibilityElement(children: .contain)

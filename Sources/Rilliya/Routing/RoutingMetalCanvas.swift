@@ -533,6 +533,13 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   }
 
   override func keyDown(with event: NSEvent) {
+    let modifiers = event.modifierFlags.intersection(.deviceIndependentFlagsMask)
+    if modifiers == .command,
+      event.charactersIgnoringModifiers?.lowercased() == "a"
+    {
+      selectAll(nil)
+      return
+    }
     if event.keyCode == 51 || event.keyCode == 117 {
       let nodeIDs = Set(
         scene.nodes.filter { selection.contains($0.id) }.map(\.workspaceID)
@@ -552,6 +559,10 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       return
     }
     super.keyDown(with: event)
+  }
+
+  override func selectAll(_ sender: Any?) {
+    updateSelection(scene.selectableElementIDs)
   }
 
   func update(

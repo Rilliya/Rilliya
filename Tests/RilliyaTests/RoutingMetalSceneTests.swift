@@ -1,4 +1,5 @@
 import CoreGraphics
+import FlowingDayGraphCanvas
 import FlowingDayGraphLayout
 import Foundation
 import Testing
@@ -61,6 +62,43 @@ struct RoutingMetalSceneTests {
     let firstElementID = try #require(model.elementID(for: firstID))
     let secondElementID = try #require(model.elementID(for: secondID))
     #expect(matches == [firstElementID, secondElementID])
+  }
+
+  @Test @MainActor
+  func selectAllIncludesEveryNodeAndConnectionButNotPorts() throws {
+    let model = RoutingWorkspaceModel()
+    let sourceID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    let targetID = model.addVisualizerNode(centeredAt: CGPoint(x: 500, y: 100))
+    let content = try #require(model.canvasContent)
+    let source = try #require(
+      content.presentation.ports.first {
+        guard case .port(let key) = $0.address.elementID else { return false }
+        return key.nodeID == sourceID && $0.value.audioChannel == .all
+      }
+    )
+    let target = try #require(
+      content.presentation.ports.first {
+        guard case .port(let key) = $0.address.elementID else { return false }
+        return key.nodeID == targetID && $0.value.audioChannel == .all
+      }
+    )
+    model.send(
+      .connectionCompleted(
+        FlowingGraphCanvasConnectionCompletionIntent(
+          operation: .create(sourcePortID: source.id, targetPortID: target.id),
+          basePresentationSnapshotID: content.presentation.snapshotID,
+          baseLayoutInputID: content.id
+        )
+      )
+    )
+    let scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [:]
+    )
+
+    #expect(scene.selectableElementIDs == Set(scene.nodes.map(\.id) + scene.edges.map(\.id)))
+    #expect(
+      scene.selectableElementIDs.isDisjoint(with: Set(scene.nodes.flatMap(\.ports).map(\.id))))
   }
 
   @Test @MainActor

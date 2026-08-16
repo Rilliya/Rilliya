@@ -30,10 +30,22 @@ enum RoutingSeparateChannelLayout: String, CaseIterable, Hashable, Sendable {
   }
 }
 
+enum RilliyaAppearance: String, CaseIterable, Hashable, Sendable {
+  case system
+  case light
+  case dark
+}
+
 @MainActor
 @Observable
 final class RilliyaSettings {
   static let shared = RilliyaSettings()
+
+  var appearance: RilliyaAppearance {
+    didSet {
+      defaults.set(appearance.rawValue, forKey: Keys.appearance)
+    }
+  }
 
   var connectionInformationLevel: RoutingConnectionInformationLevel {
     didSet {
@@ -77,6 +89,10 @@ final class RilliyaSettings {
 
   init(defaults: UserDefaults = .standard) {
     self.defaults = defaults
+    appearance =
+      defaults.string(forKey: Keys.appearance)
+      .flatMap(RilliyaAppearance.init(rawValue:))
+      ?? .system
     connectionInformationLevel =
       defaults.string(forKey: Keys.connectionInformationLevel)
       .flatMap(RoutingConnectionInformationLevel.init(rawValue:))
@@ -135,6 +151,7 @@ final class RilliyaSettings {
   }
 
   private enum Keys {
+    static let appearance = "moe.uwucocoa.rilliya.appearance"
     static let connectionInformationLevel =
       "moe.uwucocoa.rilliya.connection-information-level"
     static let defaultSeparateChannelLayout =

@@ -12,6 +12,7 @@ struct RilliyaSettingsTests {
     defer { defaults.removePersistentDomain(forName: suiteName) }
 
     let first = RilliyaSettings(defaults: defaults)
+    #expect(first.appearance == .system)
     #expect(first.connectionInformationLevel == .format)
     #expect(first.defaultSeparateChannelLayout == .stereo)
     #expect(first.showsMiniMapByDefault)
@@ -19,6 +20,7 @@ struct RilliyaSettingsTests {
     #expect(!first.addsNodesOnPaletteClick)
     #expect(first.nodeAccentOverrides.isEmpty)
 
+    first.appearance = .dark
     first.connectionInformationLevel = .channels
     first.defaultSeparateChannelLayout = .surround71
     first.showsMiniMapByDefault = false
@@ -28,6 +30,7 @@ struct RilliyaSettingsTests {
     first.setNodeAccentOverride(.mint, for: .inputAudio)
     let restored = RilliyaSettings(defaults: defaults)
 
+    #expect(restored.appearance == .dark)
     #expect(restored.connectionInformationLevel == .channels)
     #expect(restored.defaultSeparateChannelLayout == .surround71)
     #expect(!restored.showsMiniMapByDefault)

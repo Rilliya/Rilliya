@@ -31,7 +31,7 @@ private struct RilliyaPreferencesRoot: View {
             PreferencesPage(
               id: .general,
               title: "General",
-              subtitle: "Workflow overview and node insertion",
+              subtitle: "Appearance and application behavior",
               icon: .system("gearshape")
             ) {
               RilliyaGeneralPreferencesPane(settings: settings)
@@ -39,7 +39,7 @@ private struct RilliyaPreferencesRoot: View {
             PreferencesPage(
               id: .canvas,
               title: "Canvas",
-              subtitle: "Connections and channel presentation",
+              subtitle: "Overview, insertion, and connections",
               icon: .system("point.3.connected.trianglepath.dotted")
             ) {
               RilliyaCanvasPreferencesPane(settings: settings)
@@ -60,7 +60,7 @@ private struct RilliyaPreferencesRoot: View {
             PreferencesPage(
               id: .about,
               title: "About",
-              subtitle: "Version, foundation, and interface credits",
+              subtitle: "Version, requirements, and acknowledgements",
               icon: .system("info.circle"),
               headerIcon: .application
             ) {
@@ -70,13 +70,13 @@ private struct RilliyaPreferencesRoot: View {
         ),
       ]
     )
+    .preferredColorScheme(settings.appearance.preferredColorScheme)
   }
 
   private static var versionText: String {
     let info = Bundle.main.infoDictionary
     let version = info?["CFBundleShortVersionString"] as? String ?? "0.1.0"
-    let build = info?["CFBundleVersion"] as? String
-    return build.map { "Version \(version) (\($0))" } ?? "Version \(version)"
+    return "Version \(version)"
   }
 }
 
@@ -90,6 +90,26 @@ private struct RilliyaGeneralPreferencesPane: View {
         "Application",
         footer: "macOS controls login-item approval in System Settings."
       ) {
+        PreferencesPopupRow(
+          symbol: "circle.lefthalf.filled",
+          title: "Appearance",
+          caption: "Follow macOS or keep Rilliya in a light or dark appearance.",
+          minimumControlWidth: 120,
+          selection: Binding(
+            get: { settings.appearance },
+            set: { appearance in
+              settings.appearance = appearance
+              appearance.applyToApplication()
+            }
+          ),
+          options: [
+            FlowingSelectOption(.system, label: "System"),
+            FlowingSelectOption(.light, label: "Light"),
+            FlowingSelectOption(.dark, label: "Dark"),
+          ]
+        )
+
+        PreferencesRowSeparator(leadingEdge: .iconText)
         PreferencesSwitchRow(
           symbol: "power",
           title: "Launch at login",
@@ -117,6 +137,18 @@ private struct RilliyaGeneralPreferencesPane: View {
         }
       }
 
+    }
+    .onAppear {
+      launchAtLoginController.refresh()
+    }
+  }
+}
+
+private struct RilliyaCanvasPreferencesPane: View {
+  @Bindable var settings: RilliyaSettings
+
+  var body: some View {
+    PreferencesPaneStack {
       PreferencesSection(
         "Canvas Overview",
         footer:
@@ -141,18 +173,7 @@ private struct RilliyaGeneralPreferencesPane: View {
           isOn: $settings.addsNodesOnPaletteClick
         )
       }
-    }
-    .onAppear {
-      launchAtLoginController.refresh()
-    }
-  }
-}
 
-private struct RilliyaCanvasPreferencesPane: View {
-  @Bindable var settings: RilliyaSettings
-
-  var body: some View {
-    PreferencesPaneStack {
       PreferencesSection(
         "Connection Information",
         footer:
@@ -171,6 +192,7 @@ private struct RilliyaCanvasPreferencesPane: View {
           ]
         )
 
+        PreferencesRowSeparator(leadingEdge: .iconText)
         PreferencesSwitchRow(
           symbol: "xmark.circle",
           title: "Mark disabled ports",
@@ -248,9 +270,15 @@ private struct RilliyaAboutPreferencesPane: View {
           .padding(.top, 4)
       }
 
-      PreferencesSection("Foundation") {
-        PreferencesLinkRow(
-          symbol: "waveform.path.ecg",
+      PreferencesSection("Details") {
+        PreferencesValueRow(title: "Requirements", value: "macOS 14.2 or later")
+        PreferencesRowSeparator()
+        PreferencesValueRow(title: "Audio Engine", value: "Core Audio · Metal · RilliyaKit")
+      }
+
+      PreferencesSection("Acknowledgements") {
+        RilliyaAcknowledgementLinkRow(
+          icon: Self.rilliyaKitIcon,
           title: "RilliyaKit",
           caption: "The open-source capture, DSP, playback, graph, and realtime audio foundation.",
           buttonTitle: "GitHub",
@@ -258,8 +286,8 @@ private struct RilliyaAboutPreferencesPane: View {
           help: "Open RilliyaKit on GitHub"
         )
         PreferencesRowSeparator(leadingEdge: .iconText)
-        PreferencesLinkRow(
-          symbol: "paintpalette",
+        RilliyaAcknowledgementLinkRow(
+          icon: Self.flowingDayIcon,
           title: "FlowingDayUI",
           caption: "The open-source SwiftUI component library used throughout Rilliya.",
           buttonTitle: "GitHub",
@@ -267,14 +295,11 @@ private struct RilliyaAboutPreferencesPane: View {
           help: "Open FlowingDayUI on GitHub"
         )
       }
-
-      PreferencesSection("Details") {
-        PreferencesValueRow(title: "Requirements", value: "macOS 14.2 or later")
-        PreferencesRowSeparator()
-        PreferencesValueRow(title: "Audio Engine", value: "Core Audio · Metal · RilliyaKit")
-      }
     }
   }
+
+  private static let rilliyaKitIcon = acknowledgementIcon(named: "RilliyaKitMark")
+  private static let flowingDayIcon = acknowledgementIcon(named: "FlowingDayUIMark")
 
   private static let rilliyaKitURL = githubURL(owner: "Rilliya", repository: "RilliyaKit")
   private static let flowingDayURL = githubURL(
@@ -291,6 +316,32 @@ private struct RilliyaAboutPreferencesPane: View {
       preconditionFailure("The static GitHub URL must be valid.")
     }
     return url
+  }
+
+  private static func acknowledgementIcon(named name: String) -> NSImage {
+    guard let url = Bundle.main.url(forResource: name, withExtension: "svg"),
+      let image = NSImage(contentsOf: url)
+    else {
+      return NSImage(size: NSSize(width: 32, height: 32))
+    }
+    return image
+  }
+}
+
+private struct RilliyaAcknowledgementLinkRow: View {
+  let icon: NSImage
+  let title: String
+  let caption: String
+  let buttonTitle: String
+  let destination: URL
+  let help: String
+
+  var body: some View {
+    PreferencesRow(icon: .image(icon), title: title, caption: caption) {
+      Link(buttonTitle, destination: destination)
+        .buttonStyle(FlowingSoftButtonStyle())
+        .help(help)
+    }
   }
 }
 

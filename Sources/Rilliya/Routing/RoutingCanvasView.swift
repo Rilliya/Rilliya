@@ -1112,14 +1112,14 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
       ScrollView {
         VStack(spacing: 18) {
           RoutingPaletteSection(
-            "Audio Loads",
+            "Audio Nodes",
             footer:
-              "Drag a load onto the canvas. Search matches every category."
+              "Drag a node onto the canvas. Search matches every category."
           ) {
             FlowingTextField(
-              "Search audio loads",
+              "Search audio nodes",
               text: $searchText,
-              placeholder: "Search loads",
+              placeholder: "Search nodes",
               systemImage: "magnifyingglass",
               emphasis: .standard
             )

@@ -514,6 +514,10 @@ struct RoutingMetalScene {
     miniMapStyleIndexByID[id] ?? 0
   }
 
+  var selectableElementIDs: Set<RoutingCanvasElementID> {
+    Set(nodes.lazy.map(\.id)).union(edges.lazy.map(\.id))
+  }
+
   func nodesInRenderOrder(
     selection: Set<RoutingCanvasElementID>
   ) -> [Node] {

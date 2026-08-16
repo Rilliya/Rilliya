@@ -1,0 +1,9 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">FlowingDayUI mark</title>
+  <g transform="rotate(-4 28 29)">
+    <rect x="10" y="12" width="35" height="34" rx="12" fill="#FFD0E4" fill-opacity="0.98"/>
+  </g>
+  <g transform="rotate(4 37 35)">
+    <rect x="20" y="18" width="34" height="34" rx="12" fill="#FAA8C9" fill-opacity="0.95"/>
+  </g>
+</svg>
