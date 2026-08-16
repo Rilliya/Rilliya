@@ -5,13 +5,13 @@ import Testing
 
 struct RoutingMetalTextAtlasTests {
   @Test @MainActor
-  func textAndIconAtlasesHaveAFixedFiveMebibyteNominalBudget() throws {
+  func textAndIconAtlasesHaveAFixedTwentyMebibyteNominalBudget() throws {
     let device = try #require(MTLCreateSystemDefaultDevice())
     let atlas = RoutingMetalTextAtlas(device: device)
 
-    #expect(RoutingMetalTextAtlas.nominalTextureMemoryByteCount == 5 * 1_024 * 1_024)
-    #expect(atlas.glyphTexture.width == 1_024)
-    #expect(atlas.glyphTexture.height == 1_024)
+    #expect(RoutingMetalTextAtlas.nominalTextureMemoryByteCount == 20 * 1_024 * 1_024)
+    #expect(atlas.glyphTexture.width == 4_096)
+    #expect(atlas.glyphTexture.height == 4_096)
     #expect(atlas.glyphTexture.pixelFormat == .r8Unorm)
     #expect(atlas.colorTexture.width == 1_024)
     #expect(atlas.colorTexture.height == 1_024)

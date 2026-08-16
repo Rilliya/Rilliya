@@ -1,42 +1,80 @@
 import FlowingDayControls
 import SwiftUI
 
-struct RoutingAccentPicker: View {
+struct RoutingAccentGrid: View {
   let selection: RoutingAccentID?
   let inheritedAccentID: RoutingAccentID
   let inheritedLabel: String
   let setSelection: (RoutingAccentID?) -> Void
 
+  private let columns = Array(repeating: GridItem(.flexible(), spacing: 8), count: 7)
+
   var body: some View {
-    FlowingMenu(
-      selection?.displayName ?? inheritedLabel,
-      systemImage: "paintpalette",
-      minimumWidth: 150
-    ) {
+    VStack(alignment: .leading, spacing: 10) {
       Button {
         setSelection(nil)
       } label: {
-        Label(inheritedLabel, systemImage: selection == nil ? "checkmark" : "arrow.uturn.backward")
-      }
-
-      Divider()
-
-      ForEach(RoutingAccentID.families, id: \.name) { family in
-        Menu(family.name) {
-          ForEach(family.accents, id: \.self) { accentID in
-            Button {
-              setSelection(accentID)
-            } label: {
-              Label(
-                accentID.displayName,
-                systemImage: selection == accentID ? "checkmark.circle.fill" : "circle.fill"
-              )
-            }
+        HStack(spacing: 9) {
+          RoutingAccentSwatch(accentID: inheritedAccentID)
+          VStack(alignment: .leading, spacing: 1) {
+            Text(inheritedLabel)
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(FlowingPalette.ink)
+            Text(inheritedAccentID.displayName)
+              .font(.caption2)
+              .foregroundStyle(FlowingPalette.muted)
+          }
+          Spacer(minLength: 8)
+          if selection == nil {
+            Image(systemName: "checkmark")
+              .font(.system(size: 10, weight: .bold))
+              .foregroundStyle(inheritedAccentID.accent.foreground)
           }
         }
+        .padding(.horizontal, 10)
+        .frame(minHeight: 38)
+        .background(
+          selection == nil ? inheritedAccentID.accent.veil : FlowingPalette.field,
+          in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+        )
       }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Use \(inheritedLabel), \(inheritedAccentID.displayName)")
+      .accessibilityValue(selection == nil ? "Selected" : "Not selected")
+
+      LazyVGrid(columns: columns, spacing: 8) {
+        ForEach(RoutingAccentID.allCases, id: \.self) { accentID in
+          Button {
+            setSelection(accentID)
+          } label: {
+            ZStack {
+              Circle()
+                .fill(accentID.accent.fill)
+              Circle()
+                .strokeBorder(
+                  selection == accentID
+                    ? FlowingPalette.ink.opacity(0.72)
+                    : accentID.accent.foreground.opacity(0.24),
+                  lineWidth: selection == accentID ? 2 : 1
+                )
+              if selection == accentID {
+                Image(systemName: "checkmark")
+                  .font(.system(size: 8, weight: .heavy))
+                  .foregroundStyle(accentID.accent.foreground)
+              }
+            }
+            .frame(width: 25, height: 25)
+            .contentShape(Circle())
+          }
+          .buttonStyle(.plain)
+          .help(accentID.displayName)
+          .accessibilityLabel(accentID.displayName)
+          .accessibilityValue(selection == accentID ? "Selected" : "Not selected")
+        }
+      }
+      .accessibilityElement(children: .contain)
+      .accessibilityLabel("Color palette")
     }
-    .flowingAccent((selection ?? inheritedAccentID).accent)
   }
 }
 

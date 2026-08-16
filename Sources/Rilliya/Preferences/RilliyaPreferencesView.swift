@@ -6,7 +6,7 @@ import SwiftUI
 private enum RilliyaPreferencesPage: Hashable {
   case general
   case canvas
-  case appearance
+  case customization
   case about
 }
 
@@ -45,12 +45,12 @@ private struct RilliyaPreferencesRoot: View {
               RilliyaCanvasPreferencesPane(settings: settings)
             },
             PreferencesPage(
-              id: .appearance,
-              title: "Appearance",
-              subtitle: "Default colors for every audio load",
+              id: .customization,
+              title: "Customization",
+              subtitle: "Default colors for every audio node",
               icon: .system("paintpalette")
             ) {
-              RilliyaAppearancePreferencesPane(settings: settings)
+              RilliyaCustomizationPreferencesPane(settings: settings)
             },
           ]
         ),
@@ -82,9 +82,41 @@ private struct RilliyaPreferencesRoot: View {
 
 private struct RilliyaGeneralPreferencesPane: View {
   @Bindable var settings: RilliyaSettings
+  @State private var launchAtLoginController = RilliyaLaunchAtLoginController()
 
   var body: some View {
     PreferencesPaneStack {
+      PreferencesSection(
+        "Application",
+        footer: "macOS controls login-item approval in System Settings."
+      ) {
+        PreferencesSwitchRow(
+          symbol: "power",
+          title: "Launch at login",
+          caption: "Open Rilliya after you sign in so launch-enabled workflows can resume.",
+          isOn: Binding(
+            get: { launchAtLoginController.isEnabled },
+            set: launchAtLoginController.setEnabled
+          )
+        )
+
+        if launchAtLoginController.status == .requiresApproval {
+          PreferencesRowSeparator(leadingEdge: .iconText)
+          PreferencesButtonRow(
+            symbol: "gearshape",
+            title: "Approval required",
+            caption: "Allow Rilliya in Login Items to finish enabling this setting.",
+            buttonTitle: "Open Settings",
+            action: launchAtLoginController.openSystemSettings
+          )
+        }
+
+        if let issue = launchAtLoginController.issue {
+          PreferencesRowSeparator(leadingEdge: .iconText)
+          PreferencesEmptyRow(issue, symbol: "exclamationmark.triangle")
+        }
+      }
+
       PreferencesSection(
         "Canvas Overview",
         footer:
@@ -109,6 +141,9 @@ private struct RilliyaGeneralPreferencesPane: View {
           isOn: $settings.addsNodesOnPaletteClick
         )
       }
+    }
+    .onAppear {
+      launchAtLoginController.refresh()
     }
   }
 }
@@ -168,7 +203,7 @@ private struct RilliyaCanvasPreferencesPane: View {
   }
 }
 
-private struct RilliyaAppearancePreferencesPane: View {
+private struct RilliyaCustomizationPreferencesPane: View {
   @Bindable var settings: RilliyaSettings
 
   var body: some View {
@@ -179,7 +214,10 @@ private struct RilliyaAppearancePreferencesPane: View {
         footer:
           "These colors are the default for each node type. A node-specific color chosen in a workflow takes priority."
       ) {
-        ForEach(RoutingNodeKind.allCases, id: \.self) { kind in
+        ForEach(Array(RoutingNodeKind.allCases.enumerated()), id: \.element) { index, kind in
+          if index > 0 {
+            PreferencesRowSeparator(leadingEdge: .iconText)
+          }
           RilliyaNodeColorPreferenceRow(
             kind: kind,
             selection: settings.nodeAccentOverride(for: kind),
@@ -261,30 +299,34 @@ private struct RilliyaNodeColorPreferenceRow: View {
   let selection: RoutingAccentID?
   let setSelection: (RoutingAccentID?) -> Void
 
+  @State private var isExpanded = false
+
   var body: some View {
-    HStack(spacing: 12) {
-      RoutingAccentSwatch(accentID: selection ?? kind.builtInAccentID)
-
-      Image(systemName: kind.systemImage)
-        .font(.system(size: 13, weight: .semibold))
-        .foregroundStyle((selection ?? kind.builtInAccentID).accent.foreground)
-        .frame(width: 18)
-
-      Text(kind.title)
-        .font(.callout)
-        .foregroundStyle(FlowingPalette.ink)
-
-      Spacer(minLength: 12)
-
-      RoutingAccentPicker(
-        selection: selection,
-        inheritedAccentID: kind.builtInAccentID,
-        inheritedLabel: "Rilliya Default",
-        setSelection: setSelection
+    VStack(spacing: 0) {
+      PreferencesExpandableRow(
+        symbol: kind.systemImage,
+        title: kind.title,
+        caption: currentColorDescription,
+        isExpanded: $isExpanded
       )
+      PreferencesDependentRows(isVisible: isExpanded, showsSeparator: false) {
+        RoutingAccentGrid(
+          selection: selection,
+          inheritedAccentID: kind.builtInAccentID,
+          inheritedLabel: "Use Rilliya Default",
+          setSelection: setSelection
+        )
+        .padding(.horizontal, 14)
+        .padding(.vertical, 8)
+      }
     }
-    .padding(.horizontal, 14)
-    .frame(minHeight: 44)
+  }
+
+  private var currentColorDescription: String {
+    if let selection {
+      return "Custom · \(selection.displayName)"
+    }
+    return "Rilliya default · \(kind.builtInAccentID.displayName)"
   }
 }
 

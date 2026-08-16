@@ -44,6 +44,8 @@ final class NSWorkspaceInstalledApplicationIconResolver: InstalledApplicationIco
     static let logicalSize = CGSize(width: 32, height: 32)
     static let pixelDimension = 96
     static let iconCost = pixelDimension * pixelDimension * 4
+    static let maximumCachedIconCount = 64
+    static let maximumCachedIconByteCount = 4 * 1_024 * 1_024
     static let maximumPendingLoadCount = 16
     static let maximumPinnedIconCount = 128
     static let maximumConcurrentLoadCount = 4
@@ -63,8 +65,8 @@ final class NSWorkspaceInstalledApplicationIconResolver: InstalledApplicationIco
       .rasterizedIcon
   ) {
     cachedIcons = NSCache()
-    cachedIcons.countLimit = 64
-    cachedIcons.totalCostLimit = 4 * 1_024 * 1_024
+    cachedIcons.countLimit = Constants.maximumCachedIconCount
+    cachedIcons.totalCostLimit = Constants.maximumCachedIconByteCount
     limiter = InstalledApplicationIconLoadLimiter(limit: Constants.maximumConcurrentLoadCount)
     self.iconLoader = iconLoader
   }
