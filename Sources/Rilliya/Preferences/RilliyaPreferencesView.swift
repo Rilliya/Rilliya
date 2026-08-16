@@ -316,12 +316,6 @@ private struct RilliyaAboutPreferencesPane: View {
           .padding(.top, 4)
       }
 
-      PreferencesSection("Details") {
-        PreferencesValueRow(title: "Requirements", value: "macOS 14.2 or later")
-        PreferencesRowSeparator()
-        PreferencesValueRow(title: "Audio Engine", value: "Core Audio · Metal · RilliyaKit")
-      }
-
       PreferencesSection("Acknowledgements") {
         RilliyaAcknowledgementLinkRow(
           icon: Self.rilliyaKitIcon,
