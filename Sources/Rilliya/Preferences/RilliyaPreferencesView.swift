@@ -1,43 +1,86 @@
+import AppKit
 import FlowingDayControls
 import FlowingDayPreferences
 import SwiftUI
 
 private enum RilliyaPreferencesPage: Hashable {
+  case general
   case canvas
+  case appearance
+  case about
 }
 
 private struct RilliyaPreferencesRoot: View {
   let settings: RilliyaSettings
 
-  @State private var selection = RilliyaPreferencesPage.canvas
+  @State private var selection = RilliyaPreferencesPage.general
 
   var body: some View {
     PreferencesView(
       selection: $selection,
       configuration: PreferencesViewConfiguration(
         applicationName: "Rilliya",
+        applicationIcon: NSApp.applicationIconImage,
         defaultAccent: .fern
       ),
       groups: [
         PreferencesPageGroup(
-          id: "routing",
+          id: "workspace",
+          title: "Workspace",
           pages: [
+            PreferencesPage(
+              id: .general,
+              title: "General",
+              subtitle: "Workflow overview and node insertion",
+              icon: .system("gearshape")
+            ) {
+              RilliyaGeneralPreferencesPane(settings: settings)
+            },
             PreferencesPage(
               id: .canvas,
               title: "Canvas",
-              subtitle: "Connection labels and routing details",
+              subtitle: "Connections and channel presentation",
               icon: .system("point.3.connected.trianglepath.dotted")
             ) {
               RilliyaCanvasPreferencesPane(settings: settings)
+            },
+            PreferencesPage(
+              id: .appearance,
+              title: "Appearance",
+              subtitle: "Default colors for every audio load",
+              icon: .system("paintpalette")
+            ) {
+              RilliyaAppearancePreferencesPane(settings: settings)
+            },
+          ]
+        ),
+        PreferencesPageGroup(
+          id: "application",
+          pages: [
+            PreferencesPage(
+              id: .about,
+              title: "About",
+              subtitle: "Version, foundation, and interface credits",
+              icon: .system("info.circle"),
+              headerIcon: .application
+            ) {
+              RilliyaAboutPreferencesPane(versionText: Self.versionText)
             }
           ]
-        )
+        ),
       ]
     )
   }
+
+  private static var versionText: String {
+    let info = Bundle.main.infoDictionary
+    let version = info?["CFBundleShortVersionString"] as? String ?? "0.1.0"
+    let build = info?["CFBundleVersion"] as? String
+    return build.map { "Version \(version) (\($0))" } ?? "Version \(version)"
+  }
 }
 
-private struct RilliyaCanvasPreferencesPane: View {
+private struct RilliyaGeneralPreferencesPane: View {
   @Bindable var settings: RilliyaSettings
 
   var body: some View {
@@ -66,21 +109,15 @@ private struct RilliyaCanvasPreferencesPane: View {
           isOn: $settings.addsNodesOnPaletteClick
         )
       }
+    }
+  }
+}
 
-      PreferencesSection(
-        "Node Colors",
-        footer:
-          "These colors are the default for each node type. A node-specific color chosen in a workflow takes priority."
-      ) {
-        ForEach(RoutingNodeKind.allCases, id: \.self) { kind in
-          RilliyaNodeColorPreferenceRow(
-            kind: kind,
-            selection: settings.nodeAccentOverride(for: kind),
-            setSelection: { settings.setNodeAccentOverride($0, for: kind) }
-          )
-        }
-      }
+private struct RilliyaCanvasPreferencesPane: View {
+  @Bindable var settings: RilliyaSettings
 
+  var body: some View {
+    PreferencesPaneStack {
       PreferencesSection(
         "Connection Information",
         footer:
@@ -128,6 +165,94 @@ private struct RilliyaCanvasPreferencesPane: View {
         )
       }
     }
+  }
+}
+
+private struct RilliyaAppearancePreferencesPane: View {
+  @Bindable var settings: RilliyaSettings
+
+  var body: some View {
+    PreferencesPaneStack {
+
+      PreferencesSection(
+        "Node Colors",
+        footer:
+          "These colors are the default for each node type. A node-specific color chosen in a workflow takes priority."
+      ) {
+        ForEach(RoutingNodeKind.allCases, id: \.self) { kind in
+          RilliyaNodeColorPreferenceRow(
+            kind: kind,
+            selection: settings.nodeAccentOverride(for: kind),
+            setSelection: { settings.setNodeAccentOverride($0, for: kind) }
+          )
+        }
+      }
+    }
+  }
+}
+
+private struct RilliyaAboutPreferencesPane: View {
+  @Environment(\.flowingTypography) private var typography
+  let versionText: String
+
+  var body: some View {
+    PreferencesPaneStack {
+      VStack(alignment: .leading, spacing: 4) {
+        Text("Rilliya")
+          .font(typography.contentTitle.font)
+          .foregroundStyle(FlowingPalette.ink)
+        Text(versionText)
+          .font(typography.rowCaption.font)
+          .foregroundStyle(FlowingPalette.faint)
+        Text("A gentle, modular audio routing workspace for macOS.")
+          .font(typography.body.font)
+          .foregroundStyle(FlowingPalette.muted)
+          .padding(.top, 4)
+      }
+
+      PreferencesSection("Foundation") {
+        PreferencesLinkRow(
+          symbol: "waveform.path.ecg",
+          title: "RilliyaKit",
+          caption: "The open-source capture, DSP, playback, graph, and realtime audio foundation.",
+          buttonTitle: "GitHub",
+          destination: Self.rilliyaKitURL,
+          help: "Open RilliyaKit on GitHub"
+        )
+        PreferencesRowSeparator(leadingEdge: .iconText)
+        PreferencesLinkRow(
+          symbol: "paintpalette",
+          title: "FlowingDayUI",
+          caption: "The open-source SwiftUI component library used throughout Rilliya.",
+          buttonTitle: "GitHub",
+          destination: Self.flowingDayURL,
+          help: "Open FlowingDayUI on GitHub"
+        )
+      }
+
+      PreferencesSection("Details") {
+        PreferencesValueRow(title: "Requirements", value: "macOS 14.2 or later")
+        PreferencesRowSeparator()
+        PreferencesValueRow(title: "Audio Engine", value: "Core Audio · Metal · RilliyaKit")
+      }
+    }
+  }
+
+  private static let rilliyaKitURL = githubURL(owner: "Rilliya", repository: "RilliyaKit")
+  private static let flowingDayURL = githubURL(
+    owner: "cocoa-xu",
+    repository: "flowing-day-ui"
+  )
+
+  private static func githubURL(owner: String, repository: String) -> URL {
+    var components = URLComponents()
+    components.scheme = "https"
+    components.host = "github.com"
+    components.path = "/\(owner)/\(repository)"
+    guard let url = components.url else {
+      preconditionFailure("The static GitHub URL must be valid.")
+    }
+    return url
   }
 }
 

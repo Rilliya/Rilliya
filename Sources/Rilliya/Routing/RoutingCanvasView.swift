@@ -8,7 +8,7 @@ import RilliyaDSP
 import SwiftUI
 import UniformTypeIdentifiers
 
-private enum RoutingPaletteItem: String, Codable, Transferable {
+private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Transferable {
   case applicationAudio = "moe.uwucocoa.rilliya.node.application-audio"
   case inputAudio = "moe.uwucocoa.rilliya.node.input-audio"
   case outputAudio = "moe.uwucocoa.rilliya.node.output-audio"
@@ -21,6 +21,8 @@ private enum RoutingPaletteItem: String, Codable, Transferable {
   case delay = "moe.uwucocoa.rilliya.node.delay"
   case noiseGate = "moe.uwucocoa.rilliya.node.noise-gate"
   case compressor = "moe.uwucocoa.rilliya.node.compressor"
+
+  var id: String { rawValue }
 
   var kind: RoutingNodeKind {
     switch self {
@@ -39,8 +41,66 @@ private enum RoutingPaletteItem: String, Codable, Transferable {
     }
   }
 
+  var title: String { kind.title }
+
+  var subtitle: String {
+    switch self {
+    case .applicationAudio: "Capture an app output"
+    case .inputAudio: "Capture an input device"
+    case .outputAudio: "Play through an output device"
+    case .visualizer: "Inspect routed channels"
+    case .audioMixer: "Mix routed channel levels"
+    case .gain: "Adjust level and polarity"
+    case .channelRouter: "Reorder and duplicate channels"
+    case .peakLevel: "Measure the strongest sample"
+    case .signalGenerator: "Create tones and colored noise"
+    case .delay: "Add time and feedback"
+    case .noiseGate: "Attenuate quiet passages"
+    case .compressor: "Control dynamics and peaks"
+    }
+  }
+
+  var category: RoutingPaletteCategory {
+    switch self {
+    case .applicationAudio, .inputAudio, .signalGenerator:
+      .sources
+    case .outputAudio:
+      .destinations
+    case .audioMixer, .gain, .channelRouter:
+      .routing
+    case .visualizer, .peakLevel:
+      .measurement
+    case .delay, .noiseGate, .compressor:
+      .processing
+    }
+  }
+
   static var transferRepresentation: some TransferRepresentation {
     CodableRepresentation(contentType: .plainText)
+  }
+}
+
+private enum RoutingPaletteCategory: String, CaseIterable, Identifiable {
+  case sources
+  case destinations
+  case routing
+  case measurement
+  case processing
+
+  var id: String { rawValue }
+
+  var title: String {
+    switch self {
+    case .sources: "Sources"
+    case .destinations: "Destinations"
+    case .routing: "Routing & Level"
+    case .measurement: "Measurement"
+    case .processing: "Dynamics & Effects"
+    }
+  }
+
+  var items: [RoutingPaletteItem] {
+    RoutingPaletteItem.allCases.filter { $0.category == self }
   }
 }
 
@@ -913,25 +973,22 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
         .padding(.vertical, 12)
 
       ScrollView {
-        VStack(spacing: 0) {
+        VStack(spacing: 18) {
           RoutingPaletteSection(
-            "Audio Nodes",
+            "Audio Loads",
             footer:
-              "Drag a node onto the canvas, then choose the source or visualization it should use."
+              "Drag a load onto the canvas. Search matches every category."
           ) {
-            VStack(spacing: 10) {
-              FlowingTextField(
-                "Search audio nodes",
-                text: $searchText,
-                placeholder: "Search nodes",
-                systemImage: "magnifyingglass",
-                emphasis: .standard
-              )
-              .padding(.bottom, 1)
-
-              paletteResults
-            }
+            FlowingTextField(
+              "Search audio loads",
+              text: $searchText,
+              placeholder: "Search loads",
+              systemImage: "magnifyingglass",
+              emphasis: .standard
+            )
           }
+
+          paletteResults
 
           catalogIssue
             .padding(.top, 14)
@@ -969,149 +1026,6 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     .background(Color.clear)
   }
 
-  private var visualizerItem: some View {
-    RoutingPaletteNodeItem(
-      item: .visualizer,
-      title: "Visualizer",
-      subtitle: "Inspect routed channels",
-      systemImage: "waveform",
-      foreground: accent(for: .visualizer).foreground,
-      veil: accent(for: .visualizer).veil,
-      allowsClickInsertion: allowsClickInsertion,
-      action: insertVisualizer
-    )
-  }
-
-  private var inputAudioItem: some View {
-    RoutingPaletteNodeItem(
-      item: .inputAudio,
-      title: "Input Audio",
-      subtitle: "Capture an input device",
-      systemImage: "waveform.badge.mic",
-      foreground: accent(for: .inputAudio).foreground,
-      veil: accent(for: .inputAudio).veil,
-      allowsClickInsertion: allowsClickInsertion,
-      action: insertInputAudio
-    )
-  }
-
-  private var outputAudioItem: some View {
-    RoutingPaletteNodeItem(
-      item: .outputAudio,
-      title: "Output Audio",
-      subtitle: "Play through an output device",
-      systemImage: "speaker.wave.2",
-      foreground: accent(for: .outputAudio).foreground,
-      veil: accent(for: .outputAudio).veil,
-      allowsClickInsertion: allowsClickInsertion,
-      action: insertOutputAudio
-    )
-  }
-
-  private var audioMixerItem: some View {
-    RoutingPaletteNodeItem(
-      item: .audioMixer,
-      title: "Audio Mixer",
-      subtitle: "Mix routed channel levels",
-      systemImage: "slider.horizontal.3",
-      foreground: accent(for: .audioMixer).foreground,
-      veil: accent(for: .audioMixer).veil,
-      allowsClickInsertion: allowsClickInsertion,
-      action: insertAudioMixer
-    )
-  }
-
-  private var gainItem: some View {
-    RoutingPaletteNodeItem(
-      item: .gain,
-      title: "Gain",
-      subtitle: "Adjust level and polarity",
-      systemImage: "plusminus",
-      foreground: accent(for: .gain).foreground,
-      veil: accent(for: .gain).veil,
-      allowsClickInsertion: allowsClickInsertion,
-      action: insertGain
-    )
-  }
-
-  private var channelRouterItem: some View {
-    RoutingPaletteNodeItem(
-      item: .channelRouter,
-      title: "Channel Router",
-      subtitle: "Reorder and duplicate channels",
-      systemImage: "arrow.left.arrow.right",
-      foreground: accent(for: .channelRouter).foreground,
-      veil: accent(for: .channelRouter).veil,
-      allowsClickInsertion: allowsClickInsertion,
-      action: insertChannelRouter
-    )
-  }
-
-  private var peakLevelItem: some View {
-    RoutingPaletteNodeItem(
-      item: .peakLevel,
-      title: "Peak Level",
-      subtitle: "Measure the strongest sample",
-      systemImage: "gauge.with.dots.needle.50percent",
-      foreground: accent(for: .peakLevel).foreground,
-      veil: accent(for: .peakLevel).veil,
-      allowsClickInsertion: allowsClickInsertion,
-      action: insertPeakLevel
-    )
-  }
-
-  private var signalGeneratorItem: some View {
-    RoutingPaletteNodeItem(
-      item: .signalGenerator,
-      title: "Signal Generator",
-      subtitle: "Create tones and colored noise",
-      systemImage: "waveform.path",
-      foreground: accent(for: .signalGenerator).foreground,
-      veil: accent(for: .signalGenerator).veil,
-      allowsClickInsertion: allowsClickInsertion,
-      action: insertSignalGenerator
-    )
-  }
-
-  private var delayItem: some View {
-    RoutingPaletteNodeItem(
-      item: .delay,
-      title: "Delay",
-      subtitle: "Add time and feedback",
-      systemImage: "clock.arrow.trianglehead.counterclockwise.rotate.90",
-      foreground: accent(for: .delay).foreground,
-      veil: accent(for: .delay).veil,
-      allowsClickInsertion: allowsClickInsertion,
-      action: insertDelay
-    )
-  }
-
-  private var noiseGateItem: some View {
-    RoutingPaletteNodeItem(
-      item: .noiseGate,
-      title: "Noise Gate",
-      subtitle: "Attenuate quiet passages",
-      systemImage: "waveform.badge.minus",
-      foreground: accent(for: .noiseGate).foreground,
-      veil: accent(for: .noiseGate).veil,
-      allowsClickInsertion: allowsClickInsertion,
-      action: insertNoiseGate
-    )
-  }
-
-  private var compressorItem: some View {
-    RoutingPaletteNodeItem(
-      item: .compressor,
-      title: "Compressor",
-      subtitle: "Control dynamics and peaks",
-      systemImage: "arrow.down.right.and.arrow.up.left",
-      foreground: accent(for: .compressor).foreground,
-      veil: accent(for: .compressor).veil,
-      allowsClickInsertion: allowsClickInsertion,
-      action: insertCompressor
-    )
-  }
-
   private var header: some View {
     HStack(alignment: .center, spacing: 10) {
       VStack(alignment: .leading, spacing: 2) {
@@ -1145,19 +1059,6 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     .background(NativeWindowDragRegion().accessibilityHidden(true))
   }
 
-  private var applicationAudioItem: some View {
-    RoutingPaletteNodeItem(
-      item: .applicationAudio,
-      title: "Application Audio",
-      subtitle: "Capture an app output",
-      systemImage: "macwindow.on.rectangle",
-      foreground: accent(for: .applicationAudio).foreground,
-      veil: accent(for: .applicationAudio).veil,
-      allowsClickInsertion: allowsClickInsertion,
-      action: insertApplicationAudio
-    )
-  }
-
   @ViewBuilder
   private var catalogIssue: some View {
     if let errorMessage = applicationCatalog.state.rootErrorMessage {
@@ -1176,41 +1077,17 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
 
   @ViewBuilder
   private var paletteResults: some View {
-    if showsPaletteItem(title: "Application Audio", subtitle: "Capture an app output") {
-      applicationAudioItem
-    }
-    if showsPaletteItem(title: "Input Audio", subtitle: "Capture an input device") {
-      inputAudioItem
-    }
-    if showsPaletteItem(title: "Output Audio", subtitle: "Play through an output device") {
-      outputAudioItem
-    }
-    if showsPaletteItem(title: "Visualizer", subtitle: "Inspect routed channels") {
-      visualizerItem
-    }
-    if showsPaletteItem(title: "Audio Mixer", subtitle: "Mix routed channel levels") {
-      audioMixerItem
-    }
-    if showsPaletteItem(title: "Gain", subtitle: "Adjust level and polarity") {
-      gainItem
-    }
-    if showsPaletteItem(title: "Channel Router", subtitle: "Reorder and duplicate channels") {
-      channelRouterItem
-    }
-    if showsPaletteItem(title: "Peak Level", subtitle: "Measure the strongest sample") {
-      peakLevelItem
-    }
-    if showsPaletteItem(title: "Signal Generator", subtitle: "Create tones and colored noise") {
-      signalGeneratorItem
-    }
-    if showsPaletteItem(title: "Delay", subtitle: "Add time and feedback") {
-      delayItem
-    }
-    if showsPaletteItem(title: "Noise Gate", subtitle: "Attenuate quiet passages") {
-      noiseGateItem
-    }
-    if showsPaletteItem(title: "Compressor", subtitle: "Control dynamics and peaks") {
-      compressorItem
+    ForEach(RoutingPaletteCategory.allCases) { category in
+      let matchingItems = category.items.filter(matchesSearch)
+      if !matchingItems.isEmpty {
+        RoutingPaletteSection(category.title) {
+          VStack(spacing: 10) {
+            ForEach(matchingItems) { item in
+              paletteItem(item)
+            }
+          }
+        }
+      }
     }
     if !hasPaletteResults {
       FlowingEmptyState(systemImage: "magnifyingglass") {
@@ -1222,28 +1099,46 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   }
 
   private var hasPaletteResults: Bool {
-    [
-      ("Application Audio", "Capture an app output"),
-      ("Input Audio", "Capture an input device"),
-      ("Output Audio", "Play through an output device"),
-      ("Visualizer", "Inspect routed channels"),
-      ("Audio Mixer", "Mix routed channel levels"),
-      ("Gain", "Adjust level and polarity"),
-      ("Channel Router", "Reorder and duplicate channels"),
-      ("Peak Level", "Measure the strongest sample"),
-      ("Signal Generator", "Create tones and colored noise"),
-      ("Delay", "Add time and feedback"),
-      ("Noise Gate", "Attenuate quiet passages"),
-      ("Compressor", "Control dynamics and peaks"),
-    ].contains { showsPaletteItem(title: $0.0, subtitle: $0.1) }
+    RoutingPaletteItem.allCases.contains(where: matchesSearch)
   }
 
-  private func showsPaletteItem(title: String, subtitle: String) -> Bool {
+  private func matchesSearch(_ item: RoutingPaletteItem) -> Bool {
     RoutingPaletteSearch.matches(
       query: searchText,
-      title: title,
-      description: subtitle
+      title: item.title,
+      description: item.subtitle
     )
+  }
+
+  private func paletteItem(_ item: RoutingPaletteItem) -> some View {
+    let accent = accent(for: item.kind)
+    return RoutingPaletteNodeItem(
+      item: item,
+      title: item.title,
+      subtitle: item.subtitle,
+      systemImage: item.kind.systemImage,
+      foreground: accent.foreground,
+      veil: accent.veil,
+      allowsClickInsertion: allowsClickInsertion,
+      action: action(for: item)
+    )
+  }
+
+  private func action(for item: RoutingPaletteItem) -> () -> Void {
+    switch item {
+    case .applicationAudio: insertApplicationAudio
+    case .inputAudio: insertInputAudio
+    case .outputAudio: insertOutputAudio
+    case .visualizer: insertVisualizer
+    case .audioMixer: insertAudioMixer
+    case .gain: insertGain
+    case .channelRouter: insertChannelRouter
+    case .peakLevel: insertPeakLevel
+    case .signalGenerator: insertSignalGenerator
+    case .delay: insertDelay
+    case .noiseGate: insertNoiseGate
+    case .compressor: insertCompressor
+    }
   }
 }
 
@@ -1507,12 +1402,12 @@ private struct RoutingCanvasDropPreview: View {
 
 private struct RoutingPaletteSection<Content: View>: View {
   let title: String
-  let footer: String
+  let footer: String?
   let content: Content
 
   init(
     _ title: String,
-    footer: String,
+    footer: String? = nil,
     @ViewBuilder content: () -> Content
   ) {
     self.title = title
@@ -1532,13 +1427,15 @@ private struct RoutingPaletteSection<Content: View>: View {
 
       content
 
-      Text(footer)
-        .font(.caption)
-        .foregroundStyle(FlowingPalette.faint)
-        .fixedSize(horizontal: false, vertical: true)
-        .padding(.horizontal, 12)
-        .padding(.top, 7)
-        .allowsHitTesting(false)
+      if let footer {
+        Text(footer)
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.faint)
+          .fixedSize(horizontal: false, vertical: true)
+          .padding(.horizontal, 12)
+          .padding(.top, 7)
+          .allowsHitTesting(false)
+      }
     }
     .frame(maxWidth: .infinity, alignment: .leading)
     .background(Color.clear)
