@@ -310,6 +310,10 @@ public:
         CFRelease(persisted);
         return kAudioHardwareIllegalOperationError;
       }
+      if (decoded.catalog.revision <= catalog_.revision) {
+        CFRelease(persisted);
+        return kAudioHardwareIllegalOperationError;
+      }
       previous = catalog_;
       const DriverRuntimeResult result = runtimes_.replace(decoded.catalog.endpoints);
       if (!result) {

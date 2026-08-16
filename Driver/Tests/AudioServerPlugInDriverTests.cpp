@@ -200,6 +200,14 @@ void testCatalogPublishesVisibleAndHiddenPairs() {
   expect(fakeHostState.storage != nullptr, "accepted catalog should be persisted by the host");
   expect(fakeHostState.propertyNotificationCount == 1,
          "accepted catalog should notify the host exactly once");
+  setCatalog(driver,
+             DriverEndpointCatalog{
+                 .revision = 1,
+                 .endpoints = {endpoint(1, "Stale Name", EndpointDirection::input)},
+             },
+             kAudioHardwareIllegalOperationError);
+  expect(deviceList(driver).size() == 4,
+         "stale catalog revisions should not replace published devices");
 
   expect(property<UInt32>(driver, devices[0], kAudioDevicePropertyIsHidden) == 0,
          "visible endpoint should not be hidden");
