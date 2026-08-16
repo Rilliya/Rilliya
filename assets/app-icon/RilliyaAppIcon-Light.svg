@@ -1,0 +1,26 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024" role="img" aria-labelledby="title description">
+  <title id="title">Rilliya app icon — light appearance</title>
+  <desc id="description">The Rilliya brand mark on a flat pearl tile.</desc>
+  <defs>
+    <linearGradient id="first-surface" x1="112" y1="142" x2="343" y2="347" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3DCE87"/>
+      <stop offset="1" stop-color="#5DD9B6"/>
+    </linearGradient>
+    <linearGradient id="second-surface" x1="399" y1="174" x2="151" y2="374" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#42C851"/>
+      <stop offset="1" stop-color="#B7E46A"/>
+    </linearGradient>
+    <filter id="tile-shadow" x="-20%" y="-20%" width="140%" height="150%">
+      <feDropShadow dx="0" dy="22" stdDeviation="27" flood-color="#344A41" flood-opacity="0.12"/>
+    </filter>
+    <filter id="mark-shadow" x="-30%" y="-30%" width="160%" height="170%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#155A47" flood-opacity="0.18"/>
+    </filter>
+  </defs>
+  <rect x="72" y="64" width="880" height="880" rx="210" fill="#FAFCFA" filter="url(#tile-shadow)"/>
+  <rect x="76" y="68" width="872" height="872" rx="206" fill="none" stroke="#D8E9E1" stroke-opacity="0.86" stroke-width="5"/>
+  <g transform="translate(-17 -12) scale(2.05)" filter="url(#mark-shadow)">
+    <path fill="url(#first-surface)" d="M101 339 C144 340 176 320 194 282 C218 231 226 184 286 151 C322 131 369 128 411 142 C355 151 327 177 312 219 C290 281 260 332 199 357 C166 371 126 365 101 339 Z"/>
+    <path fill="url(#second-surface)" fill-opacity="0.84" transform="translate(-11 15)" d="M411 173 C368 172 336 192 318 230 C294 281 286 328 226 361 C190 381 143 384 101 370 C157 361 185 335 200 293 C222 231 252 180 313 155 C346 141 386 147 411 173 Z"/>
+  </g>
+</svg>

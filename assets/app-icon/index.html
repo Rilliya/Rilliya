@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Rilliya — App Icon Family</title>
+    <style>
+      :root {
+        color-scheme: light;
+        font-family: -apple-system, BlinkMacSystemFont, "SF Pro Display", sans-serif;
+        background: #f4f6f3;
+        color: #18211d;
+      }
+      * { box-sizing: border-box; }
+      body { margin: 0; min-width: 760px; }
+      main { width: min(1420px, calc(100vw - 72px)); margin: 0 auto; padding: 46px 0 64px; }
+      header { display: flex; align-items: end; justify-content: space-between; gap: 28px; margin: 0 4px 30px; }
+      h1 { margin: 0; font-size: 30px; line-height: 1.08; letter-spacing: -0.03em; font-weight: 720; }
+      header p { margin: 7px 0 0; color: #67716b; font-size: 14px; }
+      .note { max-width: 330px; color: #78817c; font-size: 12px; text-align: right; line-height: 1.45; }
+      .grid { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 22px; }
+      .candidate {
+        min-width: 0;
+        padding: 18px 18px 15px;
+        border: 1px solid rgba(46, 75, 63, 0.11);
+        border-radius: 24px;
+        background: rgba(255, 255, 255, 0.8);
+        box-shadow: 0 12px 34px rgba(31, 58, 47, 0.07);
+      }
+      .stage {
+        display: grid;
+        place-items: center;
+        aspect-ratio: 1.08;
+        border-radius: 17px;
+        overflow: hidden;
+        background:
+          linear-gradient(45deg, #edf0ec 25%, transparent 25%, transparent 75%, #edf0ec 75%),
+          linear-gradient(45deg, #edf0ec 25%, #fafbf9 25%, #fafbf9 75%, #edf0ec 75%);
+        background-position: 0 0, 8px 8px;
+        background-size: 16px 16px;
+      }
+      .stage img { width: min(90%, 360px); height: auto; display: block; }
+      .stage.clear-context {
+        background:
+          radial-gradient(circle at 23% 22%, rgba(255, 217, 119, 0.94), transparent 31%),
+          radial-gradient(circle at 78% 30%, rgba(93, 217, 182, 0.92), transparent 36%),
+          radial-gradient(circle at 36% 82%, rgba(90, 150, 246, 0.88), transparent 40%),
+          linear-gradient(145deg, #f283a8, #675fd2 58%, #174b65);
+      }
+      .footer { display: flex; align-items: center; justify-content: space-between; gap: 18px; padding: 13px 5px 0; }
+      .identity { display: flex; align-items: baseline; gap: 9px; min-width: 0; }
+      .name { font-size: 14px; font-weight: 740; }
+      .detail { color: #727b76; font-size: 12px; }
+      .sizes { display: flex; align-items: end; gap: 9px; flex: none; }
+      .sizes img { display: block; }
+    </style>
+  </head>
+  <body>
+    <main>
+      <header>
+        <div>
+          <h1>Rilliya — App Icon Family</h1>
+          <p>One mark, adapted for the system appearance rather than redesigned for it.</p>
+        </div>
+        <div class="note">Mono is source artwork. macOS produces the final clear and tinted appearances from it.</div>
+      </header>
+      <section class="grid" aria-label="Rilliya app icon appearances">
+        <article class="candidate">
+          <div class="stage"><img src="RilliyaAppIcon-Light.svg" alt="Rilliya light app icon"></div>
+          <div class="footer"><span class="identity"><span class="name">Light</span><span class="detail">Default</span></span><span class="sizes"><img src="RilliyaAppIcon-Light.svg" width="64" height="64" alt=""><img src="RilliyaAppIcon-Light.svg" width="32" height="32" alt=""><img src="RilliyaAppIcon-Light.svg" width="16" height="16" alt=""></span></div>
+        </article>
+        <article class="candidate">
+          <div class="stage"><img src="RilliyaAppIcon-Dark.svg" alt="Rilliya dark app icon"></div>
+          <div class="footer"><span class="identity"><span class="name">Dark</span><span class="detail">Dark</span></span><span class="sizes"><img src="RilliyaAppIcon-Dark.svg" width="64" height="64" alt=""><img src="RilliyaAppIcon-Dark.svg" width="32" height="32" alt=""><img src="RilliyaAppIcon-Dark.svg" width="16" height="16" alt=""></span></div>
+        </article>
+        <article class="candidate">
+          <div class="stage clear-context"><img src="RilliyaAppIcon-Mono.svg" alt="Rilliya clear app icon source on a sample wallpaper"></div>
+          <div class="footer"><span class="identity"><span class="name">Clear</span><span class="detail">Mono source · sample wallpaper</span></span><span class="sizes"><img src="RilliyaAppIcon-Mono.svg" width="64" height="64" alt=""><img src="RilliyaAppIcon-Mono.svg" width="32" height="32" alt=""><img src="RilliyaAppIcon-Mono.svg" width="16" height="16" alt=""></span></div>
+        </article>
+      </section>
+    </main>
+  </body>
+</html>

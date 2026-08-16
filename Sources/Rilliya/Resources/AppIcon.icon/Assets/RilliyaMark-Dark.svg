@@ -1,0 +1,17 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 1024 1024">
+  <defs>
+    <linearGradient id="first-surface" x1="112" y1="142" x2="343" y2="347" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#3DCE87"/>
+      <stop offset="1" stop-color="#5DD9B6"/>
+    </linearGradient>
+    <linearGradient id="second-surface" x1="399" y1="174" x2="151" y2="374" gradientUnits="userSpaceOnUse">
+      <stop offset="0" stop-color="#42C851"/>
+      <stop offset="1" stop-color="#B7E46A"/>
+    </linearGradient>
+  </defs>
+  <g transform="translate(-17 -12) scale(2.05)">
+    <path fill="url(#first-surface)" d="M101 339 C144 340 176 320 194 282 C218 231 226 184 286 151 C322 131 369 128 411 142 C355 151 327 177 312 219 C290 281 260 332 199 357 C166 371 126 365 101 339 Z"/>
+    <path fill="url(#second-surface)" fill-opacity="0.84" transform="translate(-11 15)" d="M411 173 C368 172 336 192 318 230 C294 281 286 328 226 361 C190 381 143 384 101 370 C157 361 185 335 200 293 C222 231 252 180 313 155 C346 141 386 147 411 173 Z"/>
+  </g>
+</svg>
