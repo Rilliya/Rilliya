@@ -34,6 +34,7 @@ final class InstalledApplicationCatalogController {
 
   @ObservationIgnored private let loader: any InstalledApplicationCatalogLoading
   @ObservationIgnored private var refreshTask: Task<InstalledApplicationCatalogSnapshot, any Error>?
+  @ObservationIgnored private var scheduledRefreshTask: Task<Void, Never>?
   @ObservationIgnored private var generation: UInt = 0
 
   init(loader: any InstalledApplicationCatalogLoading = SystemInstalledApplicationCatalogLoader()) {
@@ -41,10 +42,18 @@ final class InstalledApplicationCatalogController {
   }
 
   func refresh() async {
+    await refresh(indicatesActivity: true)
+  }
+
+  private func refresh(indicatesActivity: Bool) async {
+    scheduledRefreshTask?.cancel()
+    scheduledRefreshTask = nil
     generation &+= 1
     let currentGeneration = generation
     refreshTask?.cancel()
-    state.beginLoading()
+    if indicatesActivity {
+      state.beginLoading()
+    }
 
     let loader = loader
     let task = Task {
@@ -60,11 +69,20 @@ final class InstalledApplicationCatalogController {
       }
       try Task.checkCancellation()
       guard generation == currentGeneration, !task.isCancelled else { return }
+      if !indicatesActivity,
+        state.snapshot == snapshot,
+        state.rootErrorMessage == nil
+      {
+        refreshTask = nil
+        return
+      }
       state.receive(snapshot)
       refreshTask = nil
     } catch is CancellationError {
       guard generation == currentGeneration else { return }
-      state.cancelLoading()
+      if indicatesActivity {
+        state.cancelLoading()
+      }
       refreshTask = nil
     } catch {
       guard generation == currentGeneration else { return }
@@ -73,7 +91,26 @@ final class InstalledApplicationCatalogController {
     }
   }
 
+  func scheduleRefresh(after delay: Duration = .milliseconds(250)) {
+    scheduledRefreshTask?.cancel()
+    scheduledRefreshTask = Task { @MainActor [weak self] in
+      do {
+        try await Task.sleep(for: delay)
+        try Task.checkCancellation()
+        guard let self else { return }
+        self.scheduledRefreshTask = nil
+        await self.refresh(indicatesActivity: false)
+      } catch is CancellationError {
+        return
+      } catch {
+        return
+      }
+    }
+  }
+
   func cancelRefresh() {
+    scheduledRefreshTask?.cancel()
+    scheduledRefreshTask = nil
     generation &+= 1
     refreshTask?.cancel()
     refreshTask = nil
@@ -81,6 +118,7 @@ final class InstalledApplicationCatalogController {
   }
 
   deinit {
+    scheduledRefreshTask?.cancel()
     refreshTask?.cancel()
   }
 }

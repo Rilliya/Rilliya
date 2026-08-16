@@ -195,6 +195,25 @@ struct InstalledApplicationCatalogTests {
     #expect(controller.state.rootErrorMessage == nil)
     #expect(!controller.state.isLoading)
   }
+
+  @Test @MainActor
+  func scheduledRefreshesAreCoalescedBeforeLoadingBegins() async throws {
+    let loader = ControlledInstalledApplicationCatalogLoader()
+    let controller = InstalledApplicationCatalogController(loader: loader)
+    let snapshot = emptySnapshot(named: "Automatic")
+
+    controller.scheduleRefresh(after: .milliseconds(30))
+    controller.scheduleRefresh(after: .milliseconds(30))
+    try await Task.sleep(for: .milliseconds(60))
+    await loader.waitForRequestCount(1)
+    await loader.succeedRequest(at: 0, with: snapshot)
+    while controller.state.snapshot == nil {
+      await Task.yield()
+    }
+
+    #expect(await loader.requestCount == 1)
+    #expect(controller.state.snapshot == snapshot)
+  }
 }
 
 private func applicationURL(_ name: String) -> URL {
@@ -296,6 +315,8 @@ private struct StubApplicationBundleMetadataReader: ApplicationBundleMetadataRea
 
 private actor ControlledInstalledApplicationCatalogLoader: InstalledApplicationCatalogLoading {
   private var continuations: [CheckedContinuation<InstalledApplicationCatalogSnapshot, Never>?] = []
+
+  var requestCount: Int { continuations.count }
 
   func snapshot() async throws -> InstalledApplicationCatalogSnapshot {
     await withCheckedContinuation { continuation in

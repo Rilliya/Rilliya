@@ -28,20 +28,12 @@ protocol ApplicationBundleMetadataReading: Sendable {
 struct StandardApplicationDirectoryDiscoverer: ApplicationCandidateDiscovering {
   func candidates() throws -> [ApplicationFileCandidate] {
     let fileManager = FileManager.default
-    let domains: FileManager.SearchPathDomainMask = [
-      .userDomainMask,
-      .localDomainMask,
-      .systemDomainMask,
-    ]
     let resourceKeys: [URLResourceKey] = [
       .fileResourceIdentifierKey,
       .isApplicationKey,
       .localizedNameKey,
     ]
-    let roots = fileManager.urls(for: .applicationDirectory, in: domains)
-      .map(canonicalApplicationURL)
-      .uniqued()
-      .sorted { $0.absoluteString < $1.absoluteString }
+    let roots = standardApplicationDirectoryURLs(fileManager: fileManager)
     var candidates: [ApplicationFileCandidate] = []
 
     for root in roots {
@@ -71,6 +63,18 @@ struct StandardApplicationDirectoryDiscoverer: ApplicationCandidateDiscovering {
 
     return candidates
   }
+}
+
+func standardApplicationDirectoryURLs(fileManager: FileManager = .default) -> [URL] {
+  let domains: FileManager.SearchPathDomainMask = [
+    .userDomainMask,
+    .localDomainMask,
+    .systemDomainMask,
+  ]
+  return fileManager.urls(for: .applicationDirectory, in: domains)
+    .map(canonicalApplicationURL)
+    .uniqued()
+    .sorted { $0.absoluteString < $1.absoluteString }
 }
 
 func applicationFileCandidate(

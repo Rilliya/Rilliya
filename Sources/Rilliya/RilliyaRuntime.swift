@@ -27,8 +27,18 @@ final class RilliyaRuntime {
 
   @ObservationIgnored private var isObservingAudioState = false
   @ObservationIgnored private var applicationMixerWorkflow: RoutingWorkflowModel?
+  @ObservationIgnored private let applicationDirectoryMonitor:
+    any InstalledApplicationDirectoryMonitoring
+  @ObservationIgnored private var applicationDirectoryTask: Task<Void, Never>?
   @ObservationIgnored private var applicationLaunchTask: Task<Void, Never>?
   @ObservationIgnored private var applicationTerminationTask: Task<Void, Never>?
+
+  init(
+    applicationDirectoryMonitor: any InstalledApplicationDirectoryMonitoring =
+      SystemInstalledApplicationDirectoryMonitor()
+  ) {
+    self.applicationDirectoryMonitor = applicationDirectoryMonitor
+  }
 
   func start(settings: RilliyaSettings) {
     audioCatalog.start()
@@ -197,13 +207,24 @@ final class RilliyaRuntime {
   }
 
   private func startApplicationObservation() {
-    guard applicationLaunchTask == nil, applicationTerminationTask == nil else { return }
+    guard
+      applicationDirectoryTask == nil,
+      applicationLaunchTask == nil,
+      applicationTerminationTask == nil
+    else { return }
+    let directoryChanges = applicationDirectoryMonitor.changes()
+    applicationDirectoryTask = Task { @MainActor [weak self] in
+      for await _ in directoryChanges {
+        guard let self else { return }
+        self.applicationCatalog.scheduleRefresh()
+      }
+    }
     applicationLaunchTask = Task { @MainActor [weak self] in
       for await _ in NSWorkspace.shared.notificationCenter.notifications(
         named: NSWorkspace.didLaunchApplicationNotification
       ) {
         guard let self else { return }
-        await self.applicationCatalog.refresh()
+        self.applicationCatalog.scheduleRefresh(after: .milliseconds(100))
       }
     }
     applicationTerminationTask = Task { @MainActor [weak self] in
@@ -217,7 +238,7 @@ final class RilliyaRuntime {
         {
           self.captureController.stop(processID: processID)
         }
-        await self.applicationCatalog.refresh()
+        self.applicationCatalog.scheduleRefresh(after: .milliseconds(100))
       }
     }
   }
