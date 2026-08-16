@@ -147,7 +147,9 @@ private struct RilliyaGeneralPreferencesPane: View {
           caption: "Keep quick workflow and application controls in the menu bar.",
           isOn: Binding(
             get: { settings.showsInStatusBar },
-            set: settings.setShowsInStatusBar
+            set: { isVisible in
+              settings.setShowsInStatusBar(isVisible)
+            }
           )
         )
 
@@ -158,7 +160,9 @@ private struct RilliyaGeneralPreferencesPane: View {
           caption: "Open Rilliya after you sign in so launch-enabled workflows can resume.",
           isOn: Binding(
             get: { launchAtLoginController.isEnabled },
-            set: launchAtLoginController.setEnabled
+            set: { isEnabled in
+              launchAtLoginController.setEnabled(isEnabled)
+            }
           )
         )
 
