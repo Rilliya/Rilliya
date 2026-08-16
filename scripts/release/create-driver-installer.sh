@@ -31,7 +31,8 @@ if [[ -e "$output" ]]; then
   exit 73
 fi
 
-driver_executable="$driver/Contents/MacOS/RilliyaVirtualAudioDriver"
+driver_product_name=RilliyaVADriver
+driver_executable="$driver/Contents/MacOS/$driver_product_name"
 architectures=$(lipo -archs "$driver_executable")
 if [[ "$architectures" != *arm64* || "$architectures" != *x86_64* ]]; then
   echo "Installer requires a Universal driver" >&2
@@ -44,9 +45,9 @@ install_directory="$staging/Library/Audio/Plug-Ins/HAL"
 mkdir -p "$install_directory" "$(dirname "$output")"
 ditto --noextattr --noacl --noqtn \
   "$driver" \
-  "$install_directory/RilliyaVirtualAudioDriver.driver"
+  "$install_directory/$driver_product_name.driver"
 codesign --verify --deep --strict --verbose=2 \
-  "$install_directory/RilliyaVirtualAudioDriver.driver"
+  "$install_directory/$driver_product_name.driver"
 
 pkgbuild \
   --root "$staging" \

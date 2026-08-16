@@ -12,5 +12,3 @@ xcodebuild \
   -derivedDataPath .build/DerivedData \
   CODE_SIGNING_ALLOWED=NO \
   test
-
-./scripts/check-driver-bundle.sh

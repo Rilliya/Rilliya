@@ -24,6 +24,5 @@ for script in scripts/release/*.sh; do
   bash -n "$script"
 done
 
-./scripts/check-driver.sh
 ./scripts/test.sh
 ./scripts/build.sh

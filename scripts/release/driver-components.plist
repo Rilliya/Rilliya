@@ -12,7 +12,7 @@
     <key>BundleOverwriteAction</key>
     <string>upgrade</string>
     <key>RootRelativeBundlePath</key>
-    <string>Library/Audio/Plug-Ins/HAL/RilliyaVirtualAudioDriver.driver</string>
+    <string>Library/Audio/Plug-Ins/HAL/RilliyaVADriver.driver</string>
   </dict>
 </array>
 </plist>

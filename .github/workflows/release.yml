@@ -12,6 +12,10 @@ on:
         description: Full 40-character RilliyaKit commit SHA
         required: true
         type: string
+      rilliya_va_driver_ref:
+        description: Full 40-character RilliyaVADriver commit SHA
+        required: true
+        type: string
       flowing_day_ui_ref:
         description: Full 40-character FlowingDayUI commit SHA
         required: true
@@ -61,7 +65,7 @@ jobs:
             echo "Release version is not valid: $RELEASE_VERSION" >&2
             exit 1
           fi
-          for ref in '${{ inputs.rilliya_kit_ref }}' '${{ inputs.flowing_day_ui_ref }}'; do
+          for ref in '${{ inputs.rilliya_kit_ref }}' '${{ inputs.rilliya_va_driver_ref }}' '${{ inputs.flowing_day_ui_ref }}'; do
             if [[ ! "$ref" =~ ^[0-9a-fA-F]{40}$ ]]; then
               echo "Release dependencies must use full commit SHAs" >&2
               exit 1
@@ -84,11 +88,20 @@ jobs:
           path: flowing-day-ui
           persist-credentials: false
 
+      - name: Check out RilliyaVADriver
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: Rilliya/RilliyaVADriver
+          ref: ${{ inputs.rilliya_va_driver_ref }}
+          path: RilliyaVADriver
+          persist-credentials: false
+
       - name: Verify dependency revisions
         shell: bash
         run: |
           set -euo pipefail
           [[ "$(git -C ../RilliyaKit rev-parse HEAD)" == '${{ inputs.rilliya_kit_ref }}' ]]
+          [[ "$(git -C ../RilliyaVADriver rev-parse HEAD)" == '${{ inputs.rilliya_va_driver_ref }}' ]]
           [[ "$(git -C ../flowing-day-ui rev-parse HEAD)" == '${{ inputs.flowing_day_ui_ref }}' ]]
 
       - name: Validate release configuration
@@ -177,15 +190,18 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          pushd ../RilliyaVADriver >/dev/null
+          ./scripts/generate-project.sh
+
           build_driver() {
             local name=$1
             local architecture=$2
             xcodebuild build \
-              -project Rilliya.xcodeproj \
-              -target RilliyaVirtualAudioDriver \
+              -project RilliyaVADriver.xcodeproj \
+              -scheme RilliyaVADriver \
               -configuration Release \
-              SYMROOT="$RUNNER_TEMP/RilliyaDriver-$name" \
-              OBJROOT="$RUNNER_TEMP/RilliyaDriverIntermediates-$name" \
+              -destination 'generic/platform=macOS' \
+              -derivedDataPath "$RUNNER_TEMP/RilliyaVADriver-$name" \
               ARCHS="$architecture" \
               ONLY_ACTIVE_ARCH=NO \
               CODE_SIGNING_ALLOWED=NO \
@@ -194,12 +210,14 @@ jobs:
 
           build_driver arm64 arm64
           build_driver intel x86_64
+          popd >/dev/null
 
-          arm64_driver="$RUNNER_TEMP/RilliyaDriver-arm64/Release/RilliyaVirtualAudioDriver.driver"
-          intel_driver="$RUNNER_TEMP/RilliyaDriver-intel/Release/RilliyaVirtualAudioDriver.driver"
-          universal_driver="$RUNNER_TEMP/RilliyaVirtualAudioDriver.driver"
-          scripts/release/create-universal-driver.sh \
+          arm64_driver="$RUNNER_TEMP/RilliyaVADriver-arm64/Build/Products/Release/RilliyaVADriver.driver"
+          intel_driver="$RUNNER_TEMP/RilliyaVADriver-intel/Build/Products/Release/RilliyaVADriver.driver"
+          universal_driver="$RUNNER_TEMP/RilliyaVADriver.driver"
+          ../RilliyaVADriver/scripts/create-universal-driver.sh \
             "$arm64_driver" "$intel_driver" "$universal_driver"
+          ../RilliyaVADriver/scripts/check-bundle.sh "$universal_driver"
           codesign \
             --force \
             --options runtime \
@@ -208,7 +226,7 @@ jobs:
             --sign "$CODE_SIGN_IDENTITY" \
             "$universal_driver"
           codesign --verify --deep --strict --verbose=2 "$universal_driver"
-          architectures="$(lipo -archs "$universal_driver/Contents/MacOS/RilliyaVirtualAudioDriver")"
+          architectures="$(lipo -archs "$universal_driver/Contents/MacOS/RilliyaVADriver")"
           [[ "$architectures" == *arm64* && "$architectures" == *x86_64* ]]
 
       - name: Create and notarize driver installer
@@ -220,9 +238,9 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p release
-          driver_package="release/RilliyaVirtualAudioDriver-$RELEASE_VERSION.pkg"
+          driver_package="release/RilliyaVADriver-$RELEASE_VERSION.pkg"
           scripts/release/create-driver-installer.sh \
-            "$RUNNER_TEMP/RilliyaVirtualAudioDriver.driver" \
+            "$RUNNER_TEMP/RilliyaVADriver.driver" \
             "$RELEASE_VERSION" \
             "$driver_package"
           xcrun notarytool submit "$driver_package" \
@@ -240,7 +258,7 @@ jobs:
         run: |
           set -euo pipefail
           entitlements="Sources/Rilliya/Resources/Rilliya.entitlements"
-          driver_package="release/RilliyaVirtualAudioDriver-$RELEASE_VERSION.pkg"
+          driver_package="release/RilliyaVADriver-$RELEASE_VERSION.pkg"
           plutil -lint "$entitlements"
           if plutil -extract com.apple.security.get-task-allow raw "$entitlements" >/dev/null 2>&1; then
             echo "Release entitlements must not include get-task-allow" >&2
@@ -251,7 +269,7 @@ jobs:
             local application=$1
             local installer_directory="$application/Contents/Resources/Installers"
             mkdir -p "$installer_directory"
-            ditto "$driver_package" "$installer_directory/RilliyaVirtualAudioDriver.pkg"
+            ditto "$driver_package" "$installer_directory/RilliyaVADriver.pkg"
             rm -rf "$application/Contents/_CodeSignature"
             codesign \
               --force \
@@ -295,7 +313,7 @@ jobs:
           universal_app="$RUNNER_TEMP/Rilliya-universal.app"
 
           for app in "$arm64_app" "$intel_app" "$universal_app"; do
-            installer="$app/Contents/Resources/Installers/RilliyaVirtualAudioDriver.pkg"
+            installer="$app/Contents/Resources/Installers/RilliyaVADriver.pkg"
             [[ -f "$installer" ]]
             pkgutil --check-signature "$installer"
             codesign --verify --deep --strict --verbose=2 "$app"

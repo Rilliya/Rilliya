@@ -15,8 +15,9 @@ Rilliya scans the standard user, local, and system Applications directories and
 overlays live running state from `NSWorkspace`. Input-device capture requests
 microphone permission only when a connected Input Audio node needs to run.
 
-Virtual Input and Virtual Output nodes use Rilliya's clean-room Audio Server
-plug-in. Release builds include a separately signed and notarized installer in
+Virtual Input and Virtual Output nodes use the clean-room Audio Server plug-in
+from [RilliyaVADriver](https://github.com/Rilliya/RilliyaVADriver). Release builds include a
+separately signed and notarized installer in
 the application bundle. The Preferences window opens that package through the
 standard macOS Installer; installation requires an administrator password and
 a restart before Core Audio loads the driver. Development builds deliberately
@@ -86,7 +87,7 @@ Application identity, and signs its installer package with a Developer ID
 Installer identity. The package installs only:
 
 ```text
-/Library/Audio/Plug-Ins/HAL/RilliyaVirtualAudioDriver.driver
+/Library/Audio/Plug-Ins/HAL/RilliyaVADriver.driver
 ```
 
 The driver installer and all three application disk images are notarized before

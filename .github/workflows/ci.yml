@@ -35,6 +35,14 @@ jobs:
           path: RilliyaKit
           persist-credentials: false
 
+      - name: Check out RilliyaVADriver
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: Rilliya/RilliyaVADriver
+          ref: 03785bcda5ba7cea5d83e837a7bd7b7d758b5be2
+          path: RilliyaVADriver
+          persist-credentials: false
+
       - name: Check out FlowingDayUI
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
@@ -97,19 +105,45 @@ jobs:
           build arm64 arm64
           build intel x86_64
 
+      - name: Build driver release architectures
+        shell: bash
+        run: |
+          set -euo pipefail
+          pushd ../RilliyaVADriver >/dev/null
+          ./scripts/generate-project.sh
+
+          build() {
+            local name=$1
+            local architecture=$2
+            xcodebuild build \
+              -project RilliyaVADriver.xcodeproj \
+              -scheme RilliyaVADriver \
+              -configuration Release \
+              -destination 'generic/platform=macOS' \
+              -derivedDataPath "$RUNNER_TEMP/RilliyaVADriverBuild-$name" \
+              CODE_SIGNING_ALLOWED=NO \
+              ONLY_ACTIVE_ARCH=NO \
+              ARCHS="$architecture"
+          }
+
+          build arm64 arm64
+          build intel x86_64
+          popd >/dev/null
+
       - name: Verify Universal assembly
         run: |
           arm64_app="$RUNNER_TEMP/RilliyaBuild-arm64/Build/Products/Release/Rilliya.app"
           intel_app="$RUNNER_TEMP/RilliyaBuild-intel/Build/Products/Release/Rilliya.app"
           universal_app="$RUNNER_TEMP/Rilliya-Universal.app"
-          arm64_driver="$RUNNER_TEMP/RilliyaBuild-arm64/Build/Products/Release/RilliyaVirtualAudioDriver.driver"
-          intel_driver="$RUNNER_TEMP/RilliyaBuild-intel/Build/Products/Release/RilliyaVirtualAudioDriver.driver"
-          universal_driver="$RUNNER_TEMP/RilliyaVirtualAudioDriver-Universal.driver"
+          arm64_driver="$RUNNER_TEMP/RilliyaVADriverBuild-arm64/Build/Products/Release/RilliyaVADriver.driver"
+          intel_driver="$RUNNER_TEMP/RilliyaVADriverBuild-intel/Build/Products/Release/RilliyaVADriver.driver"
+          universal_driver="$RUNNER_TEMP/RilliyaVADriver-Universal.driver"
           scripts/release/create-universal-application.sh \
             "$arm64_app" "$intel_app" "$universal_app"
-          scripts/release/create-universal-driver.sh \
+          ../RilliyaVADriver/scripts/create-universal-driver.sh \
             "$arm64_driver" "$intel_driver" "$universal_driver"
+          ../RilliyaVADriver/scripts/check-bundle.sh "$universal_driver"
           architectures="$(lipo -archs "$universal_app/Contents/MacOS/Rilliya")"
           [[ "$architectures" == *arm64* && "$architectures" == *x86_64* ]]
-          driver_architectures="$(lipo -archs "$universal_driver/Contents/MacOS/RilliyaVirtualAudioDriver")"
+          driver_architectures="$(lipo -archs "$universal_driver/Contents/MacOS/RilliyaVADriver")"
           [[ "$driver_architectures" == *arm64* && "$driver_architectures" == *x86_64* ]]

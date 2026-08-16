@@ -26,7 +26,7 @@ enum RilliyaVirtualAudioDriverInstallerError: Error, LocalizedError {
 
 @MainActor
 struct SystemRilliyaVirtualAudioDriverInstaller: RilliyaVirtualAudioDriverInstalling {
-  private static let resourceName = "RilliyaVirtualAudioDriver"
+  private static let resourceName = "RilliyaVADriver"
   private static let resourceExtension = "pkg"
   private static let resourceSubdirectory = "Installers"
 
