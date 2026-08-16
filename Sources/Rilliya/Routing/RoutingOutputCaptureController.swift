@@ -15,7 +15,12 @@ protocol RoutingOutputCaptureSession: AnyObject, Sendable {
   var format: DeviceOutputCaptureFormat { get }
   var frameBuffer: AudioRealtimeFrameBuffer { get }
 
+  func subscribeToFrames() throws -> AudioRealtimeFrameSubscription?
   func stop() async
+}
+
+extension RoutingOutputCaptureSession {
+  func subscribeToFrames() throws -> AudioRealtimeFrameSubscription? { nil }
 }
 
 protocol RoutingOutputCaptureStarting: Sendable {
@@ -33,6 +38,7 @@ struct SystemRoutingOutputCaptureStarter: RoutingOutputCaptureStarting {
     try await Task.detached(priority: .userInitiated) {
       let capture = try DeviceOutputCapture(
         deviceID: deviceID,
+        configuration: RoutingCaptureCapacity.configuration,
         snapshotHandler: snapshotHandler
       )
       do {
@@ -58,6 +64,10 @@ private final class SystemRoutingOutputCaptureSession: RoutingOutputCaptureSessi
     self.capture = capture
     format = capture.format
     frameBuffer = capture.frameBuffer
+  }
+
+  func subscribeToFrames() throws -> AudioRealtimeFrameSubscription? {
+    try capture.subscribeToFrames()
   }
 
   func stop() async {
@@ -113,6 +123,25 @@ final class RoutingOutputCaptureController {
       case .running(let capture) = source.phase
     else { return nil }
     return capture.frameBuffer
+  }
+
+  func captureSource(for nodeID: UUID) throws -> RoutingRealtimeCaptureSource? {
+    guard let deviceID = deviceIDsByNode[nodeID],
+      let source = sources[deviceID],
+      case .running(let capture) = source.phase
+    else { return nil }
+    if let subscription = try capture.subscribeToFrames() {
+      return .subscription(subscription)
+    }
+    return .frameBuffer(capture.frameBuffer)
+  }
+
+  func captureSessionIdentity(for nodeID: UUID) -> ObjectIdentifier? {
+    guard let deviceID = deviceIDsByNode[nodeID],
+      let source = sources[deviceID],
+      case .running(let capture) = source.phase
+    else { return nil }
+    return ObjectIdentifier(capture)
   }
 
   func consumerCount(for nodeID: UUID) -> Int {

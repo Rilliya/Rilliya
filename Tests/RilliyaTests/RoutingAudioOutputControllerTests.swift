@@ -256,7 +256,7 @@ struct RoutingAudioOutputControllerTests {
   }
 
   @Test @MainActor
-  func oneCaptureBufferCannotFeedTwoIndependentOutputClocks() async throws {
+  func sharedCaptureFeedsTwoOutputClocksThroughIndependentSubscriptions() async throws {
     let processID = try #require(AudioProcessID(rawValue: 142))
     let sourceID = UUID()
     let firstOutputID = UUID()
@@ -279,18 +279,13 @@ struct RoutingAudioOutputControllerTests {
       inputCaptureController: inputController
     )
 
-    #expect(await eventually { await outputStarter.startCount == 1 })
+    #expect(await eventually { await outputStarter.startCount == 2 })
     let states = [
       outputController.state(for: firstOutputID),
       outputController.state(for: secondOutputID),
     ]
-    #expect(states.count(where: \.isRunning) == 1)
-    #expect(
-      states.contains {
-        guard case .failed(let message) = $0 else { return false }
-        return message.contains("another output clock")
-      }
-    )
+    let allOutputsAreRunning = states.allSatisfy { $0.isRunning }
+    #expect(allOutputsAreRunning)
 
     outputController.stopAll()
     captureController.stopAll()
@@ -521,10 +516,20 @@ private final class OutputTestCaptureSession: RoutingProcessCaptureSession,
 {
   let format: ProcessOutputCaptureFormat
   let frameBuffer: AudioRealtimeFrameBuffer
+  private let distributor: AudioRealtimeFrameDistributor
 
-  init(format: ProcessOutputCaptureFormat, frameBuffer: AudioRealtimeFrameBuffer) {
+  init(format: ProcessOutputCaptureFormat, frameBuffer: AudioRealtimeFrameBuffer) throws {
     self.format = format
     self.frameBuffer = frameBuffer
+    distributor = try AudioRealtimeFrameDistributor(
+      format: frameBuffer.format,
+      capacityFrameCount: frameBuffer.capacityFrameCount,
+      maximumSubscriberCount: RoutingCaptureCapacity.maximumIndependentDestinationCount
+    )
+  }
+
+  func subscribeToFrames() throws -> AudioRealtimeFrameSubscription? {
+    try distributor.subscribe()
   }
 
   func stop() async {}

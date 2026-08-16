@@ -214,12 +214,30 @@ final class RoutingPreparedAudioGraphSource: PreparedAudioSource, @unchecked Sen
   private let operations: [RoutingPreparedAudioOperation]
   private let finalMix: RoutingPreparedMixOperation
 
-  init(
+  convenience init(
     preparation: AudioRenderPreparation,
     nodes: [RoutingWorkspaceNode],
     edges: [RoutingWorkspaceEdge],
     outputNodeID: UUID,
     frameBuffers: [UUID: AudioRealtimeFrameBuffer],
+    resourceBudget: RoutingAudioGraphResourceBudget = .standard
+  ) throws {
+    try self.init(
+      preparation: preparation,
+      nodes: nodes,
+      edges: edges,
+      outputNodeID: outputNodeID,
+      captureSources: frameBuffers.mapValues(RoutingRealtimeCaptureSource.frameBuffer),
+      resourceBudget: resourceBudget
+    )
+  }
+
+  init(
+    preparation: AudioRenderPreparation,
+    nodes: [RoutingWorkspaceNode],
+    edges: [RoutingWorkspaceEdge],
+    outputNodeID: UUID,
+    captureSources: [UUID: RoutingRealtimeCaptureSource],
     resourceBudget: RoutingAudioGraphResourceBudget = .standard
   ) throws {
     let enabledEdges = edges.filter(\.isEnabled)
@@ -232,7 +250,7 @@ final class RoutingPreparedAudioGraphSource: PreparedAudioSource, @unchecked Sen
       nodes: nodes,
       edges: enabledEdges,
       outputNodeID: outputNodeID,
-      frameBuffers: frameBuffers,
+      captureSources: captureSources,
       maximumBufferCount: try resourceBudget.maximumBufferCount(
         maximumFrameCount: preparation.maximumFrameCount
       )
@@ -351,7 +369,7 @@ private struct RoutingCompiledAudioChannel: Hashable {
 }
 
 private struct RoutingCaptureReadPlan {
-  let frameBuffer: AudioRealtimeFrameBuffer
+  let source: RoutingRealtimeCaptureSource
   let outputBufferIndices: [Int]
 }
 
@@ -431,12 +449,12 @@ private struct RoutingPreparedAudioGraphCompiler {
   private let nodesByID: [UUID: RoutingWorkspaceNode]
   private let incomingEdgesByNodeID: [UUID: [RoutingWorkspaceEdge]]
   private let outputNodeID: UUID
-  private let frameBuffers: [UUID: AudioRealtimeFrameBuffer]
+  private let captureSources: [UUID: RoutingRealtimeCaptureSource]
   private let maximumBufferCount: Int
 
   private var nextBufferIndex = 0
   private var operationPlans: [RoutingPreparedAudioOperationPlan] = []
-  private var rawSignalsByBuffer: [ObjectIdentifier: [RoutingCompiledAudioChannel]] = [:]
+  private var rawSignalsBySource: [ObjectIdentifier: [RoutingCompiledAudioChannel]] = [:]
   private var sourceSignalsByNodeID: [UUID: [RoutingCompiledAudioChannel]] = [:]
   private var signalsByAddress: [RoutingWorkspacePortAddress: [RoutingCompiledAudioChannel]] = [:]
 
@@ -445,14 +463,14 @@ private struct RoutingPreparedAudioGraphCompiler {
     nodes: [RoutingWorkspaceNode],
     edges: [RoutingWorkspaceEdge],
     outputNodeID: UUID,
-    frameBuffers: [UUID: AudioRealtimeFrameBuffer],
+    captureSources: [UUID: RoutingRealtimeCaptureSource],
     maximumBufferCount: Int
   ) {
     self.preparation = preparation
     nodesByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
     incomingEdgesByNodeID = Dictionary(grouping: edges, by: { $0.target.nodeID })
     self.outputNodeID = outputNodeID
-    self.frameBuffers = frameBuffers
+    self.captureSources = captureSources
     self.maximumBufferCount = maximumBufferCount
   }
 
@@ -626,26 +644,26 @@ private struct RoutingPreparedAudioGraphCompiler {
     if let existing = sourceSignalsByNodeID[node.id] {
       processed = existing
     } else {
-      guard let frameBuffer = frameBuffers[node.id] else {
+      guard let captureSource = captureSources[node.id] else {
         throw RoutingPreparedAudioGraphError.missingCapture(node.id)
       }
-      guard frameBuffer.format.sampleRate == preparation.format.sampleRate else {
+      guard captureSource.format.sampleRate == preparation.format.sampleRate else {
         throw RoutingPreparedAudioGraphError.incompatibleSampleRate(node.id)
       }
       let raw: [RoutingCompiledAudioChannel]
-      let bufferIdentity = ObjectIdentifier(frameBuffer)
-      if let existing = rawSignalsByBuffer[bufferIdentity] {
+      let sourceIdentity = captureSource.identity
+      if let existing = rawSignalsBySource[sourceIdentity] {
         raw = existing
       } else {
-        let indices = try allocateBuffers(count: frameBuffer.format.channelCount)
+        let indices = try allocateBuffers(count: captureSource.format.channelCount)
         raw = indices.enumerated().map {
           RoutingCompiledAudioChannel(channelIndex: $0.offset, bufferIndex: $0.element)
         }
-        rawSignalsByBuffer[bufferIdentity] = raw
+        rawSignalsBySource[sourceIdentity] = raw
         operationPlans.append(
           .captureRead(
             RoutingCaptureReadPlan(
-              frameBuffer: frameBuffer,
+              source: captureSource,
               outputBufferIndices: indices
             )
           )
@@ -1138,7 +1156,7 @@ private enum RoutingPreparedAudioOperation {
 }
 
 private final class RoutingPreparedCaptureRead {
-  private let source: PreparedAudioFrameBufferSource
+  private let source: RoutingRealtimeCaptureSource
   private let outputs: RoutingPreparedPointerList
   private let maximumBufferedFrameCount: Int
 
@@ -1147,13 +1165,13 @@ private final class RoutingPreparedCaptureRead {
     storage: RoutingPreparedAudioStorage,
     maximumFrameCount: Int
   ) throws {
-    source = try PreparedAudioFrameBufferSource(
-      frameBuffer: plan.frameBuffer,
-      maximumFrameCount: maximumFrameCount
-    )
+    source = plan.source
+    guard source.format.channelCount == plan.outputBufferIndices.count else {
+      throw RoutingPreparedAudioGraphError.invalidRoute
+    }
     maximumBufferedFrameCount =
-      maximumFrameCount >= plan.frameBuffer.capacityFrameCount / 2
-      ? plan.frameBuffer.capacityFrameCount
+      maximumFrameCount >= source.capacityFrameCount / 2
+      ? source.capacityFrameCount
       : maximumFrameCount * 2
     outputs = RoutingPreparedPointerList(
       bufferIndices: plan.outputBufferIndices,
@@ -1162,8 +1180,8 @@ private final class RoutingPreparedCaptureRead {
   }
 
   func render(frameCount: Int) -> AudioRenderResult {
-    source.frameBuffer.discardOldestFrames(keepingLatest: maximumBufferedFrameCount)
-    return source.render(outputChannels: outputs.mutableBuffer, frameCount: frameCount)
+    source.discardOldestFrames(keepingLatest: maximumBufferedFrameCount)
+    return source.read(into: outputs.mutableBuffer, frameCount: frameCount)
   }
 }
 

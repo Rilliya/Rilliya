@@ -111,7 +111,7 @@ private struct RoutingNetworkSendNodeSignature: Equatable, Sendable {
   let value: RoutingNodeValue
 }
 
-private struct RoutingNetworkSendBufferSignature: Equatable, Sendable {
+private struct RoutingNetworkSendSourceSignature: Equatable, Sendable {
   let nodeID: UUID
   let identity: ObjectIdentifier
 }
@@ -121,14 +121,14 @@ private struct RoutingNetworkSendRequestSignature: Equatable, Sendable {
   let configuration: RoutingNetworkSendConfiguration
   let nodes: [RoutingNetworkSendNodeSignature]
   let edges: [RoutingWorkspaceEdge]
-  let buffers: [RoutingNetworkSendBufferSignature]
+  let sources: [RoutingNetworkSendSourceSignature]
 }
 
 private struct RoutingNetworkSendRequest: Sendable {
   let signature: RoutingNetworkSendRequestSignature
   let nodes: [RoutingWorkspaceNode]
   let edges: [RoutingWorkspaceEdge]
-  let frameBuffers: [UUID: AudioRealtimeFrameBuffer]
+  let captureSources: [UUID: RoutingRealtimeCaptureSource]
 }
 
 private enum RoutingNetworkSendPlan {
@@ -173,6 +173,7 @@ final class RoutingNetworkSendController {
   @ObservationIgnored private var generations: [UUID: UInt64] = [:]
   @ObservationIgnored private var desiredStates: [UUID: RoutingNetworkSendDesiredState] = [:]
   @ObservationIgnored private var latestRequests: [UUID: RoutingNetworkSendRequest] = [:]
+  @ObservationIgnored private var captureCursorCache = RoutingCaptureCursorCache()
 
   init(starter: any RoutingNetworkSendStarting = SystemRoutingNetworkSendStarter()) {
     self.starter = starter
@@ -211,6 +212,7 @@ final class RoutingNetworkSendController {
     for nodeID in Set(states.keys).union(sessions.keys).union(lifecycleTasks.keys) {
       apply(.idle, to: nodeID)
     }
+    captureCursorCache.removeAll()
   }
 
   private func apply(_ plan: RoutingNetworkSendPlan, to nodeID: UUID) {
@@ -273,7 +275,7 @@ final class RoutingNetworkSendController {
               nodes: request.nodes,
               edges: request.edges,
               outputNodeID: request.signature.nodeID,
-              frameBuffers: request.frameBuffers
+              captureSources: request.captureSources
             )
             rendererHolder.store(renderer)
             return renderer
@@ -332,6 +334,7 @@ final class RoutingNetworkSendController {
       filePlaybackController: filePlaybackController,
       networkReceiveController: networkReceiveController
     )
+    var activeCaptureCursorKeys = Set<RoutingCaptureCursorKey>()
 
     for workflow in workflows where workflow.isRunning {
       let workspace = workflow.workspace
@@ -348,39 +351,62 @@ final class RoutingNetworkSendController {
         let edges = activeEdges.filter {
           reachable.contains($0.source.nodeID) && reachable.contains($0.target.nodeID)
         }
-        var frameBuffers: [UUID: AudioRealtimeFrameBuffer] = [:]
+        var captureSources: [UUID: RoutingRealtimeCaptureSource] = [:]
+        var candidateCaptureCursorKeys = Set<RoutingCaptureCursorKey>()
         var waiting = false
         var failure: String?
         for node in nodes {
-          let buffer: AudioRealtimeFrameBuffer?
+          let source: RoutingRealtimeCaptureSource?
           switch node.value {
           case .applicationAudio:
-            buffer = captureController.frameBuffer(for: node.id)
+            source = captureCursorCache.resolvedSource(
+              for: node.id,
+              consumerID: sendNode.id,
+              provider: captureController,
+              activeKeys: &candidateCaptureCursorKeys,
+              failureMessage: &failure
+            )
           case .inputAudio:
-            buffer = inputCaptureController.frameBuffer(for: node.id)
+            source = captureCursorCache.resolvedSource(
+              for: node.id,
+              consumerID: sendNode.id,
+              provider: inputCaptureController,
+              activeKeys: &candidateCaptureCursorKeys,
+              failureMessage: &failure
+            )
           case .systemOutput:
-            buffer = outputCaptureController.frameBuffer(for: node.id)
+            source = captureCursorCache.resolvedSource(
+              for: node.id,
+              consumerID: sendNode.id,
+              provider: outputCaptureController,
+              activeKeys: &candidateCaptureCursorKeys,
+              failureMessage: &failure
+            )
             if case .failed(let message) = outputCaptureController.state(for: node.id) {
               failure = message
             }
           case .filePlayback:
-            buffer = filePlaybackController.frameBuffer(for: node.id)
+            source = filePlaybackController.frameBuffer(for: node.id).map {
+              .frameBuffer($0)
+            }
             if case .failed(let message) = filePlaybackController.state(for: node.id) {
               failure = message
             }
           case .networkReceive:
-            buffer = networkReceiveController.frameBuffer(for: node.id)
+            source = networkReceiveController.frameBuffer(for: node.id).map {
+              .frameBuffer($0)
+            }
             if case .failed(let message) = networkReceiveController.state(for: node.id) {
               failure = message
             }
           default:
             continue
           }
-          guard let buffer else {
+          guard let source else {
             waiting = true
             continue
           }
-          frameBuffers[node.id] = buffer
+          captureSources[node.id] = source
         }
         if let failure {
           plans[sendNode.id] = .blocked(failure)
@@ -390,7 +416,7 @@ final class RoutingNetworkSendController {
           plans[sendNode.id] = .waiting
           continue
         }
-        let localBuffers = Set(frameBuffers.values.map(ObjectIdentifier.init))
+        let localBuffers = Set(captureSources.values.map(\.identity))
         guard claimedBuffers.isDisjoint(with: localBuffers) else {
           plans[sendNode.id] = .blocked(
             "A captured or streamed source can feed only one independent output clock. Add an explicit clocked fan-out before sending it to multiple destinations."
@@ -400,8 +426,8 @@ final class RoutingNetworkSendController {
         claimedBuffers.formUnion(localBuffers)
         let sortedNodes = nodes.sorted { $0.id.uuidString < $1.id.uuidString }
         let sortedEdges = edges.sorted { $0.id.uuidString < $1.id.uuidString }
-        let buffers = frameBuffers.map {
-          RoutingNetworkSendBufferSignature(nodeID: $0.key, identity: ObjectIdentifier($0.value))
+        let sources = captureSources.map {
+          RoutingNetworkSendSourceSignature(nodeID: $0.key, identity: $0.value.identity)
         }.sorted { $0.nodeID.uuidString < $1.nodeID.uuidString }
         let signature = RoutingNetworkSendRequestSignature(
           nodeID: sendNode.id,
@@ -413,18 +439,20 @@ final class RoutingNetworkSendController {
             )
           },
           edges: sortedEdges,
-          buffers: buffers
+          sources: sources
         )
         plans[sendNode.id] = .ready(
           RoutingNetworkSendRequest(
             signature: signature,
             nodes: sortedNodes,
             edges: sortedEdges,
-            frameBuffers: frameBuffers
+            captureSources: captureSources
           )
         )
+        activeCaptureCursorKeys.formUnion(candidateCaptureCursorKeys)
       }
     }
+    captureCursorCache.retain(activeCaptureCursorKeys)
     return plans
   }
 

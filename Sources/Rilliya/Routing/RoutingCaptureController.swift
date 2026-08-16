@@ -15,7 +15,12 @@ protocol RoutingProcessCaptureSession: AnyObject, Sendable {
   var format: ProcessOutputCaptureFormat { get }
   var frameBuffer: AudioRealtimeFrameBuffer { get }
 
+  func subscribeToFrames() throws -> AudioRealtimeFrameSubscription?
   func stop() async
+}
+
+extension RoutingProcessCaptureSession {
+  func subscribeToFrames() throws -> AudioRealtimeFrameSubscription? { nil }
 }
 
 protocol RoutingProcessCaptureStarting: Sendable {
@@ -35,6 +40,7 @@ struct SystemRoutingProcessCaptureStarter: RoutingProcessCaptureStarting {
     try await Task.detached(priority: .userInitiated) {
       let capture = try ProcessOutputCapture(
         processID: processID,
+        configuration: RoutingCaptureCapacity.configuration,
         muteBehavior: muteBehavior,
         snapshotHandler: snapshotHandler
       )
@@ -61,6 +67,10 @@ private final class SystemRoutingProcessCaptureSession: RoutingProcessCaptureSes
     self.capture = capture
     format = capture.format
     frameBuffer = capture.frameBuffer
+  }
+
+  func subscribeToFrames() throws -> AudioRealtimeFrameSubscription? {
+    try capture.subscribeToFrames()
   }
 
   func stop() async {
@@ -116,6 +126,25 @@ final class RoutingCaptureController {
       case .running(let capture) = source.phase
     else { return nil }
     return capture.frameBuffer
+  }
+
+  func captureSource(for nodeID: UUID) throws -> RoutingRealtimeCaptureSource? {
+    guard let processID = processIDsByNode[nodeID],
+      let source = sources[processID],
+      case .running(let capture) = source.phase
+    else { return nil }
+    if let subscription = try capture.subscribeToFrames() {
+      return .subscription(subscription)
+    }
+    return .frameBuffer(capture.frameBuffer)
+  }
+
+  func captureSessionIdentity(for nodeID: UUID) -> ObjectIdentifier? {
+    guard let processID = processIDsByNode[nodeID],
+      let source = sources[processID],
+      case .running(let capture) = source.phase
+    else { return nil }
+    return ObjectIdentifier(capture)
   }
 
   func consumerCount(for nodeID: UUID) -> Int {
