@@ -1648,7 +1648,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     append(
       atlas: textAtlas.text("\(amplitude)% amplitude", size: 10, weight: .medium),
       origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
-      color: palette.muted,
+      color: accent,
       to: &geometry
     )
   }
@@ -1687,7 +1687,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     append(
       atlas: textAtlas.text(detail, size: 10, weight: .medium),
       origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
-      color: palette.muted,
+      color: accent,
       to: &geometry
     )
   }
@@ -1721,7 +1721,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     append(
       atlas: textAtlas.text(configuration.formatDescription, size: 10, weight: .medium),
       origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
-      color: palette.muted,
+      color: accent,
       to: &geometry
     )
   }
@@ -1772,7 +1772,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     append(
       atlas: textAtlas.text(detail, size: 10, weight: .medium),
       origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
-      color: palette.muted,
+      color: accent,
       to: &geometry
     )
   }
@@ -1807,7 +1807,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     append(
       atlas: textAtlas.text("\(wet)% wet", size: 10, weight: .medium),
       origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
-      color: palette.muted,
+      color: accent,
       to: &geometry
     )
   }
@@ -1842,7 +1842,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     append(
       atlas: textAtlas.text("\(reduction) dB reduction", size: 10, weight: .medium),
       origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
-      color: palette.muted,
+      color: accent,
       to: &geometry
     )
   }
@@ -1877,7 +1877,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     append(
       atlas: textAtlas.text("\(ratio):1 ratio", size: 10, weight: .medium),
       origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
-      color: palette.muted,
+      color: accent,
       to: &geometry
     )
   }

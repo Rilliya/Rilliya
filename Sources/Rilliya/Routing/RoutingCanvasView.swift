@@ -2508,7 +2508,7 @@ private struct SignalGeneratorNodeView: View {
 
       Text("\(Int((configuration.amplitude * 100).rounded()))% amplitude")
         .font(.caption.monospacedDigit())
-        .foregroundStyle(FlowingPalette.muted)
+        .foregroundStyle(accent.foreground)
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
         .background(
@@ -2578,7 +2578,7 @@ private struct FilePlaybackNodeView: View {
 
       Text(fileDetail)
         .font(.caption.monospacedDigit())
-        .foregroundStyle(FlowingPalette.muted)
+        .foregroundStyle(accent.foreground)
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
         .background(
@@ -2642,7 +2642,7 @@ private struct FileOutputNodeView: View {
 
       Text(configuration.formatDescription)
         .font(.caption.monospacedDigit())
-        .foregroundStyle(FlowingPalette.muted)
+        .foregroundStyle(accent.foreground)
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
         .background(
@@ -2705,7 +2705,7 @@ private struct NetworkAudioNodeView: View {
 
       Text("\(channelCount) ch · \(sampleRateDescription) kHz")
         .font(.caption.monospacedDigit())
-        .foregroundStyle(FlowingPalette.muted)
+        .foregroundStyle(accent.foreground)
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
         .background(
@@ -2770,7 +2770,7 @@ private struct DelayNodeView: View {
 
       Text("\(Int((configuration.dryWetMix * 100).rounded()))% wet")
         .font(.caption.monospacedDigit())
-        .foregroundStyle(FlowingPalette.muted)
+        .foregroundStyle(accent.foreground)
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
         .background(
@@ -2837,7 +2837,7 @@ private struct NoiseGateNodeView: View {
 
       Text("\(Int(configuration.reductionDecibels.rounded())) dB reduction")
         .font(.caption.monospacedDigit())
-        .foregroundStyle(FlowingPalette.muted)
+        .foregroundStyle(accent.foreground)
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
         .background(
@@ -2895,7 +2895,7 @@ private struct CompressorNodeView: View {
 
       Text("\(configuration.ratio.formatted(.number.precision(.fractionLength(1)))):1 ratio")
         .font(.caption.monospacedDigit())
-        .foregroundStyle(FlowingPalette.muted)
+        .foregroundStyle(accent.foreground)
         .padding(.horizontal, 12)
         .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
         .background(
