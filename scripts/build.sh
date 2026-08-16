@@ -10,4 +10,5 @@ xcodebuild \
   -configuration Debug \
   -destination 'platform=macOS' \
   -derivedDataPath .build/DerivedData \
+  -onlyUsePackageVersionsFromResolvedFile \
   build

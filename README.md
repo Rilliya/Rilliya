@@ -1,8 +1,8 @@
 # Rilliya
 
 Rilliya is a macOS audio routing workspace. This repository contains the
-SwiftUI application; its reusable audio foundation lives in the sibling
-RilliyaKit package.
+SwiftUI application; its reusable audio foundation is published as the
+[RilliyaKit](https://github.com/Rilliya/RilliyaKit) Swift package.
 
 The application opens directly into the FlowingDayUI routing canvas. Application
 Audio nodes capture installed macOS applications, Input Audio nodes capture
@@ -24,15 +24,10 @@ a restart before Core Audio loads the driver. Development builds deliberately
 do not bundle an unsigned installer.
 
 The initial application foundation requires macOS 14.2 or later, Xcode, and
-[XcodeGen](https://github.com/yonaskolb/XcodeGen). It also expects these local
-Swift packages beside this checkout:
-
-```text
-workspace/
-├── Rilliya/
-├── RilliyaKit/
-└── flowing-day-ui/
-```
+[XcodeGen](https://github.com/yonaskolb/XcodeGen). Xcode resolves the exact
+RilliyaKit and FlowingDayUI release versions declared in `project.yml` through
+Swift Package Manager. The committed `Package.resolved` also pins transitive
+dependencies for reproducible application builds.
 
 ## Build and run
 

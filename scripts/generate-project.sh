@@ -23,3 +23,7 @@ export DEVELOPMENT_TEAM="${DEVELOPMENT_TEAM:-}"
 export CODE_SIGN_IDENTITY="${CODE_SIGN_IDENTITY:--}"
 
 xcodegen generate
+
+swiftpm_directory="Rilliya.xcodeproj/project.xcworkspace/xcshareddata/swiftpm"
+mkdir -p "$swiftpm_directory"
+cp Package.resolved "$swiftpm_directory/Package.resolved"

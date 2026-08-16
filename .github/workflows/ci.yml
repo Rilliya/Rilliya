@@ -28,26 +28,12 @@ jobs:
           path: Rilliya
           persist-credentials: false
 
-      - name: Check out RilliyaKit
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          repository: Rilliya/RilliyaKit
-          path: RilliyaKit
-          persist-credentials: false
-
       - name: Check out RilliyaVADriver
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
           repository: Rilliya/RilliyaVADriver
           ref: 03785bcda5ba7cea5d83e837a7bd7b7d758b5be2
           path: RilliyaVADriver
-          persist-credentials: false
-
-      - name: Check out FlowingDayUI
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          repository: cocoa-xu/flowing-day-ui
-          path: flowing-day-ui
           persist-credentials: false
 
       - name: Select Xcode 26.3
@@ -73,7 +59,7 @@ jobs:
           path: |
             ~/.swiftpm
             ~/Library/Caches/org.swift.swiftpm
-          key: rilliya-swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.fingerprint }}-${{ hashFiles('Rilliya/project.yml', 'RilliyaKit/Package.swift', 'flowing-day-ui/Package.swift') }}
+          key: rilliya-swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.fingerprint }}-${{ hashFiles('Rilliya/project.yml', 'Rilliya/Package.resolved') }}
 
       - name: Install XcodeGen
         run: brew install xcodegen
@@ -97,6 +83,7 @@ jobs:
               -destination 'generic/platform=macOS' \
               -derivedDataPath "$RUNNER_TEMP/RilliyaBuild-$name" \
               -clonedSourcePackagesDirPath "$RUNNER_TEMP/RilliyaSourcePackages" \
+              -onlyUsePackageVersionsFromResolvedFile \
               CODE_SIGNING_ALLOWED=NO \
               ONLY_ACTIVE_ARCH=NO \
               ARCHS="$architecture"

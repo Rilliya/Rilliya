@@ -58,6 +58,7 @@ xcodebuild \
   -configuration Release \
   -destination "platform=macOS,arch=$architecture" \
   -derivedDataPath "$derived_data" \
+  -onlyUsePackageVersionsFromResolvedFile \
   CODE_SIGNING_ALLOWED=NO \
   ONLY_ACTIVE_ARCH=YES \
   SWIFT_ACTIVE_COMPILATION_CONDITIONS=PROFILE \

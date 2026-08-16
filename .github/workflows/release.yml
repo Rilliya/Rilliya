@@ -8,16 +8,8 @@ on:
         required: true
         default: 0.1.0
         type: string
-      rilliya_kit_ref:
-        description: Full 40-character RilliyaKit commit SHA
-        required: true
-        type: string
       rilliya_va_driver_ref:
         description: Full 40-character RilliyaVADriver commit SHA
-        required: true
-        type: string
-      flowing_day_ui_ref:
-        description: Full 40-character FlowingDayUI commit SHA
         required: true
         type: string
 
@@ -65,28 +57,10 @@ jobs:
             echo "Release version is not valid: $RELEASE_VERSION" >&2
             exit 1
           fi
-          for ref in '${{ inputs.rilliya_kit_ref }}' '${{ inputs.rilliya_va_driver_ref }}' '${{ inputs.flowing_day_ui_ref }}'; do
-            if [[ ! "$ref" =~ ^[0-9a-fA-F]{40}$ ]]; then
-              echo "Release dependencies must use full commit SHAs" >&2
-              exit 1
-            fi
-          done
-
-      - name: Check out RilliyaKit
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          repository: Rilliya/RilliyaKit
-          ref: ${{ inputs.rilliya_kit_ref }}
-          path: RilliyaKit
-          persist-credentials: false
-
-      - name: Check out FlowingDayUI
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-        with:
-          repository: cocoa-xu/flowing-day-ui
-          ref: ${{ inputs.flowing_day_ui_ref }}
-          path: flowing-day-ui
-          persist-credentials: false
+          if [[ ! '${{ inputs.rilliya_va_driver_ref }}' =~ ^[0-9a-fA-F]{40}$ ]]; then
+            echo "The driver release dependency must use a full commit SHA" >&2
+            exit 1
+          fi
 
       - name: Check out RilliyaVADriver
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -100,9 +74,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          [[ "$(git -C ../RilliyaKit rev-parse HEAD)" == '${{ inputs.rilliya_kit_ref }}' ]]
           [[ "$(git -C ../RilliyaVADriver rev-parse HEAD)" == '${{ inputs.rilliya_va_driver_ref }}' ]]
-          [[ "$(git -C ../flowing-day-ui rev-parse HEAD)" == '${{ inputs.flowing_day_ui_ref }}' ]]
 
       - name: Validate release configuration
         env:
@@ -174,6 +146,7 @@ jobs:
               -archivePath "$RUNNER_TEMP/Rilliya-$name.xcarchive" \
               -derivedDataPath "$RUNNER_TEMP/RilliyaArchive-$name" \
               -clonedSourcePackagesDirPath "$RUNNER_TEMP/RilliyaSourcePackages" \
+              -onlyUsePackageVersionsFromResolvedFile \
               ARCHS="$architecture" \
               ONLY_ACTIVE_ARCH=NO \
               CODE_SIGN_STYLE=Manual \
