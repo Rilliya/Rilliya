@@ -27,7 +27,7 @@ permissions:
 jobs:
   release:
     name: Sign, notarize, and publish
-    runs-on: macos-26
+    runs-on: macos-15
     timeout-minutes: 50
     defaults:
       run:

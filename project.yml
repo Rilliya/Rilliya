@@ -73,12 +73,19 @@ targets:
     sources:
       - path: Sources/Rilliya
         excludes:
+          - Resources/AppIcon.icon
+          - Resources/Assets.xcassets
+          - Resources/GeneratedAppAssets
           - Resources/Info.plist
           - Resources/Rilliya.entitlements
+      - path: Sources/Rilliya/Resources/GeneratedAppAssets/Assets.car
+      - path: Sources/Rilliya/Resources/GeneratedAppAssets/AppIcon.icns
     info:
       path: Sources/Rilliya/Resources/Info.plist
       properties:
         CFBundleDisplayName: Rilliya
+        CFBundleIconFile: AppIcon
+        CFBundleIconName: AppIcon
         CFBundleShortVersionString: "$(MARKETING_VERSION)"
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSApplicationCategoryType: public.app-category.music
@@ -92,10 +99,10 @@ targets:
         com.apple.security.device.audio-input: true
     settings:
       base:
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
         CODE_SIGN_IDENTITY: "${CODE_SIGN_IDENTITY}"
         CODE_SIGN_STYLE: Manual
         CURRENT_PROJECT_VERSION: 1
-        ASSETCATALOG_COMPILER_APPICON_NAME: AppIcon
         ENABLE_APP_SANDBOX: NO
         ENABLE_HARDENED_RUNTIME: YES
         GENERATE_INFOPLIST_FILE: NO
