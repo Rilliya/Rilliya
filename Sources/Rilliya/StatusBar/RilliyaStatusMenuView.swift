@@ -2,11 +2,22 @@ import AppKit
 import FlowingDayControls
 import SwiftUI
 
+enum RilliyaStatusMenuLayout {
+  static let width: CGFloat = 340
+  static let maximumInlineApplicationCount = 3
+  static let maximumApplicationListHeight: CGFloat = 276
+
+  static func usesScrollableApplicationList(for count: Int) -> Bool {
+    count > maximumInlineApplicationCount
+  }
+}
+
 struct RilliyaStatusMenuView: View {
   @Environment(\.openWindow) private var openWindow
+  @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
   @Bindable var runtime: RilliyaRuntime
-  let settings: RilliyaSettings
+  @Bindable var settings: RilliyaSettings
 
   @State private var isApplicationsExpanded = true
   @State private var isApplicationPickerPresented = false
@@ -15,23 +26,7 @@ struct RilliyaStatusMenuView: View {
     VStack(alignment: .leading, spacing: 12) {
       header
 
-      VStack(alignment: .leading, spacing: 6) {
-        Text("Workflows")
-          .font(.caption.weight(.semibold))
-          .foregroundStyle(FlowingPalette.muted)
-          .textCase(.uppercase)
-
-        FlowingCard(spacing: 0, contentInsets: .init(top: 4, leading: 8, bottom: 4, trailing: 8)) {
-          ForEach(Array(runtime.workflowLibrary.workflows.enumerated()), id: \.element.id) {
-            index, workflow in
-            if index > 0 {
-              Divider()
-                .overlay(FlowingPalette.hairline)
-            }
-            workflowRow(workflow)
-          }
-        }
-      }
+      workflowsSection
 
       applicationsSection
 
@@ -53,9 +48,56 @@ struct RilliyaStatusMenuView: View {
       }
     }
     .padding(14)
-    .frame(width: 340)
+    .frame(width: RilliyaStatusMenuLayout.width)
     .flowingAccent(.fern)
+    .flowingSurfaces(statusMenuSurfaces)
     .preferredColorScheme(settings.appearance.preferredColorScheme)
+  }
+
+  private var workflowsSection: some View {
+    VStack(alignment: .leading, spacing: 6) {
+      Button {
+        settings.showsWorkflowsInStatusMenu.toggle()
+      } label: {
+        HStack(spacing: 8) {
+          Text("Workflows")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(FlowingPalette.muted)
+            .textCase(.uppercase)
+
+          Spacer(minLength: 8)
+
+          Image(systemName: "chevron.down")
+            .font(.system(size: 9, weight: .semibold))
+            .foregroundStyle(FlowingPalette.faint)
+            .rotationEffect(.degrees(settings.showsWorkflowsInStatusMenu ? 180 : 0))
+        }
+        .contentShape(Rectangle())
+      }
+      .buttonStyle(.plain)
+      .accessibilityLabel("Workflow controls")
+      .accessibilityValue(settings.showsWorkflowsInStatusMenu ? "Expanded" : "Collapsed")
+
+      FlowingDisclosureContent(isExpanded: settings.showsWorkflowsInStatusMenu) {
+        FlowingCard(
+          spacing: 0,
+          contentInsets: .init(top: 4, leading: 8, bottom: 4, trailing: 8)
+        ) {
+          ForEach(Array(runtime.workflowLibrary.workflows.enumerated()), id: \.element.id) {
+            index, workflow in
+            if index > 0 {
+              Divider()
+                .overlay(FlowingPalette.hairline)
+            }
+            workflowRow(workflow)
+          }
+        }
+      }
+    }
+    .animation(
+      reduceMotion ? nil : .easeOut(duration: FlowingMotion.expand),
+      value: settings.showsWorkflowsInStatusMenu
+    )
   }
 
   private var applicationsSection: some View {
@@ -77,10 +119,10 @@ struct RilliyaStatusMenuView: View {
           contentInsets: EdgeInsets(top: 10, leading: 10, bottom: 10, trailing: 10)
         ) {
           Image(systemName: "plus")
-            .font(.system(size: 11, weight: .semibold))
-            .foregroundStyle(FlowingPalette.ink)
-            .frame(width: 24, height: 22)
-            .background(FlowingPalette.field, in: RoundedRectangle(cornerRadius: 7))
+            .font(.system(size: 10, weight: .semibold))
+            .foregroundStyle(FlowingPalette.muted)
+            .frame(width: 22, height: 22)
+            .contentShape(Rectangle())
         } content: {
           InstalledApplicationSearchPicker(
             items: availableCatalogItems,
@@ -112,22 +154,17 @@ struct RilliyaStatusMenuView: View {
             .padding(.horizontal, 4)
             .padding(.bottom, 8)
           } else {
-            ScrollView {
-              VStack(spacing: 0) {
-                ForEach(
-                  Array(runtime.managedApplicationStore.applications.enumerated()),
-                  id: \.element.id
-                ) { index, application in
-                  if index > 0 {
-                    Divider()
-                      .overlay(FlowingPalette.hairline)
-                  }
-                  managedApplicationRow(application)
-                }
+            if RilliyaStatusMenuLayout.usesScrollableApplicationList(
+              for: runtime.managedApplicationStore.applications.count
+            ) {
+              ScrollView {
+                managedApplicationRows
               }
+              .scrollIndicators(.automatic)
+              .frame(height: RilliyaStatusMenuLayout.maximumApplicationListHeight)
+            } else {
+              managedApplicationRows
             }
-            .scrollIndicators(.automatic)
-            .frame(height: managedApplicationListHeight)
           }
         }
       }
@@ -171,7 +208,7 @@ struct RilliyaStatusMenuView: View {
       FlowingIconButton(
         workflow.isRunning ? "Pause \(workflow.name)" : "Run \(workflow.name)",
         systemImage: workflow.isRunning ? "pause.fill" : "play.fill",
-        emphasis: .standard,
+        emphasis: .quiet,
         isSelected: workflow.isRunning
       ) {
         runtime.setWorkflowRunning(!workflow.isRunning, id: workflow.id)
@@ -207,7 +244,7 @@ struct RilliyaStatusMenuView: View {
           application.isMuted
             ? "Unmute \(application.displayName)" : "Mute \(application.displayName)",
           systemImage: application.isMuted ? "speaker.slash.fill" : "speaker.wave.2.fill",
-          emphasis: .standard,
+          emphasis: .quiet,
           isSelected: application.isMuted
         ) {
           runtime.managedApplicationStore.setMuted(!application.isMuted, id: application.id)
@@ -217,7 +254,7 @@ struct RilliyaStatusMenuView: View {
         FlowingIconButton(
           "Remove \(application.displayName)",
           systemImage: "xmark",
-          emphasis: .standard
+          emphasis: .quiet
         ) {
           runtime.managedApplicationStore.remove(id: application.id)
         }
@@ -242,7 +279,22 @@ struct RilliyaStatusMenuView: View {
           .frame(width: 42, alignment: .trailing)
       }
     }
-    .padding(.vertical, 8)
+    .padding(.vertical, 5)
+  }
+
+  private var managedApplicationRows: some View {
+    VStack(spacing: 0) {
+      ForEach(
+        Array(runtime.managedApplicationStore.applications.enumerated()),
+        id: \.element.id
+      ) { index, application in
+        if index > 0 {
+          Divider()
+            .overlay(FlowingPalette.hairline)
+        }
+        managedApplicationRow(application)
+      }
+    }
   }
 
   @ViewBuilder
@@ -303,8 +355,13 @@ struct RilliyaStatusMenuView: View {
     return count == 1 ? "1 managed application" : "\(count) managed applications"
   }
 
-  private var managedApplicationListHeight: CGFloat {
-    min(CGFloat(runtime.managedApplicationStore.applications.count) * 92, 300)
+  private var statusMenuSurfaces: FlowingSurfaces {
+    FlowingSurfaces(
+      canvas: FlowingPalette.canvas,
+      card: FlowingPalette.control.opacity(0.78),
+      control: FlowingPalette.control.opacity(0.78),
+      field: FlowingPalette.field.opacity(0.72)
+    )
   }
 
   private var runningWorkflowDescription: String {

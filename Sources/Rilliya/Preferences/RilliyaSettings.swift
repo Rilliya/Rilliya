@@ -59,6 +59,12 @@ final class RilliyaSettings {
     }
   }
 
+  var showsWorkflowsInStatusMenu: Bool {
+    didSet {
+      defaults.set(showsWorkflowsInStatusMenu, forKey: Keys.showsWorkflowsInStatusMenu)
+    }
+  }
+
   var connectionInformationLevel: RoutingConnectionInformationLevel {
     didSet {
       defaults.set(
@@ -115,6 +121,9 @@ final class RilliyaSettings {
       showsInDock = true
       showsInStatusBar = false
     }
+    showsWorkflowsInStatusMenu =
+      defaults.object(forKey: Keys.showsWorkflowsInStatusMenu) as? Bool
+      ?? true
     connectionInformationLevel =
       defaults.string(forKey: Keys.connectionInformationLevel)
       .flatMap(RoutingConnectionInformationLevel.init(rawValue:))
@@ -192,6 +201,8 @@ final class RilliyaSettings {
     static let appearance = "moe.uwucocoa.rilliya.appearance"
     static let showsInDock = "moe.uwucocoa.rilliya.shows-in-dock"
     static let showsInStatusBar = "moe.uwucocoa.rilliya.shows-in-status-bar"
+    static let showsWorkflowsInStatusMenu =
+      "moe.uwucocoa.rilliya.shows-workflows-in-status-menu"
     static let connectionInformationLevel =
       "moe.uwucocoa.rilliya.connection-information-level"
     static let defaultSeparateChannelLayout =

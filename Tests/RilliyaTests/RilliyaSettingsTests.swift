@@ -15,6 +15,7 @@ struct RilliyaSettingsTests {
     #expect(first.appearance == .system)
     #expect(first.showsInDock)
     #expect(!first.showsInStatusBar)
+    #expect(first.showsWorkflowsInStatusMenu)
     #expect(first.connectionInformationLevel == .format)
     #expect(first.defaultSeparateChannelLayout == .stereo)
     #expect(first.showsMiniMapByDefault)
@@ -25,6 +26,7 @@ struct RilliyaSettingsTests {
     first.appearance = .dark
     first.setShowsInStatusBar(true)
     first.setShowsInDock(false)
+    first.showsWorkflowsInStatusMenu = false
     first.connectionInformationLevel = .channels
     first.defaultSeparateChannelLayout = .surround71
     first.showsMiniMapByDefault = false
@@ -37,6 +39,7 @@ struct RilliyaSettingsTests {
     #expect(restored.appearance == .dark)
     #expect(!restored.showsInDock)
     #expect(restored.showsInStatusBar)
+    #expect(!restored.showsWorkflowsInStatusMenu)
     #expect(restored.connectionInformationLevel == .channels)
     #expect(restored.defaultSeparateChannelLayout == .surround71)
     #expect(!restored.showsMiniMapByDefault)
