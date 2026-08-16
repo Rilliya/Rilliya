@@ -110,6 +110,10 @@ final class RoutingWorkspaceModel {
         .signalGenerator(configuration: .initial)
       case .filePlayback:
         .filePlayback(configuration: .initial)
+      case .networkSend:
+        .networkSend(configuration: .initial)
+      case .networkReceive:
+        .networkReceive(configuration: .initial)
       case .delay:
         .delay(configuration: .initial)
       case .noiseGate:
@@ -343,6 +347,30 @@ final class RoutingWorkspaceModel {
       value: .filePlayback(configuration: .initial),
       centeredAt: worldPoint
     )
+    rebuildCanvas()
+    return id
+  }
+
+  @discardableResult
+  func addNetworkSendNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    appendNode(id: id, value: .networkSend(configuration: .initial), centeredAt: worldPoint)
+    rebuildCanvas()
+    return id
+  }
+
+  @discardableResult
+  func addNetworkReceiveNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    appendNode(id: id, value: .networkReceive(configuration: .initial), centeredAt: worldPoint)
     rebuildCanvas()
     return id
   }
@@ -656,6 +684,30 @@ final class RoutingWorkspaceModel {
     nodes[index].audioChannelControls = nodes[index].audioChannelControls.filter {
       $0.key < channelCount
     }
+    rebuildCanvas()
+  }
+
+  func configureNetworkSend(
+    _ configuration: RoutingNetworkSendConfiguration,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      case .networkSend(let previous) = nodes[index].value,
+      previous != configuration
+    else { return }
+    nodes[index].value = .networkSend(configuration: configuration)
+    rebuildCanvas()
+  }
+
+  func configureNetworkReceive(
+    _ configuration: RoutingNetworkReceiveConfiguration,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      case .networkReceive(let previous) = nodes[index].value,
+      previous != configuration
+    else { return }
+    nodes[index].value = .networkReceive(configuration: configuration)
     rebuildCanvas()
   }
 

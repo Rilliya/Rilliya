@@ -352,7 +352,7 @@ enum RoutingCanvasContentBuilder {
       guard rowFrames.indices.contains(value.ordinal) else { return nil }
       return rowFrames[value.ordinal].midY
     case .applicationAudio, .inputAudio, .outputAudio, .gain, .peakLevel, .signalGenerator,
-      .filePlayback, .delay, .noiseGate, .compressor:
+      .filePlayback, .networkSend, .networkReceive, .delay, .noiseGate, .compressor:
       return nil
     }
   }
@@ -397,6 +397,12 @@ enum RoutingCanvasContentBuilder {
     case .filePlayback(let configuration):
       value = configuration.selection?.displayName ?? "No audio file selected"
       hint = "Choose a local audio file, then connect this source to an audio destination."
+    case .networkSend(let configuration):
+      value = "\(configuration.host):\(configuration.port)"
+      hint = "Connect audio to send it to one trusted local-network peer."
+    case .networkReceive(let configuration):
+      value = "UDP port \(configuration.port)"
+      hint = "Connect this source to receive audio from one trusted local-network peer."
     case .delay(let configuration):
       value = "\(Int((configuration.delaySeconds * 1_000).rounded())) milliseconds"
       hint = "Connect audio through this node to add a realtime delay."

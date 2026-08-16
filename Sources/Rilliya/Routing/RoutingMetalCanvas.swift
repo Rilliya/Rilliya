@@ -1031,6 +1031,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         palette: palette,
         to: &geometry
       )
+    case .networkSend, .networkReceive:
+      appendNetworkAudio(
+        node: node,
+        frame: frame,
+        accent: accent,
+        palette: palette,
+        to: &geometry
+      )
     case .delay:
       appendDelay(
         node: node,
@@ -1640,6 +1648,57 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     } else {
       detail = "Select this node to configure"
     }
+    append(
+      atlas: textAtlas.text(detail, size: 10, weight: .medium),
+      origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
+      color: palette.muted,
+      to: &geometry
+    )
+  }
+
+  private func appendNetworkAudio(
+    node: RoutingMetalScene.Node,
+    frame: CGRect,
+    accent: SIMD4<Float>,
+    palette: RoutingMetalPalette,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
+    let sampleRate: Double
+    let channelCount: Int
+    switch node.value {
+    case .networkSend(let configuration):
+      sampleRate = configuration.sampleRate
+      channelCount = configuration.channelCount
+    case .networkReceive(let configuration):
+      sampleRate = configuration.sampleRate
+      channelCount = configuration.channelCount
+    default:
+      return
+    }
+    let valueFrame = CGRect(
+      x: frame.minX + RoutingVisualizerLayout.horizontalInset
+        + RoutingVisualizerLayout.portLabelGutter,
+      y: frame.maxY - 48,
+      width: frame.width - 2 * RoutingVisualizerLayout.horizontalInset
+        - 2 * RoutingVisualizerLayout.portLabelGutter,
+      height: 34
+    )
+    geometry.shapes.append(
+      RoutingMetalShapeInstance(
+        rect: valueFrame,
+        fill: accent.withAlpha(0.09),
+        border: .zero,
+        cornerRadius: 8,
+        borderWidth: 0,
+        opacity: 1
+      )
+    )
+    let kilohertz = sampleRate / 1_000
+    let detail =
+      "\(channelCount) ch · "
+      + kilohertz.formatted(
+        .number.precision(.fractionLength(kilohertz == kilohertz.rounded() ? 0 : 1)))
+      + " kHz"
     append(
       atlas: textAtlas.text(detail, size: 10, weight: .medium),
       origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),

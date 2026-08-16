@@ -87,7 +87,7 @@ private struct RoutingAudioOutputNodeConfiguration: Equatable, Sendable {
 }
 
 extension RoutingNodeValue {
-  fileprivate var audioOutputTopologySignatureValue: RoutingNodeValue {
+  var audioOutputTopologySignatureValue: RoutingNodeValue {
     switch self {
     case .noiseGate:
       .noiseGate(configuration: .initial)
@@ -178,13 +178,15 @@ final class RoutingAudioOutputController {
     workflows: [RoutingWorkflowModel],
     captureController: RoutingCaptureController,
     inputCaptureController: RoutingInputCaptureController,
-    filePlaybackController: RoutingFilePlaybackController = RoutingFilePlaybackController()
+    filePlaybackController: RoutingFilePlaybackController = RoutingFilePlaybackController(),
+    networkReceiveController: RoutingNetworkReceiveController = RoutingNetworkReceiveController()
   ) {
     let plans = makePlans(
       workflows: workflows,
       captureController: captureController,
       inputCaptureController: inputCaptureController,
-      filePlaybackController: filePlaybackController
+      filePlaybackController: filePlaybackController,
+      networkReceiveController: networkReceiveController
     )
     let knownNodeIDs = Set(plans.keys)
       .union(states.keys)
@@ -337,7 +339,8 @@ final class RoutingAudioOutputController {
     workflows: [RoutingWorkflowModel],
     captureController: RoutingCaptureController,
     inputCaptureController: RoutingInputCaptureController,
-    filePlaybackController: RoutingFilePlaybackController
+    filePlaybackController: RoutingFilePlaybackController,
+    networkReceiveController: RoutingNetworkReceiveController
   ) -> [UUID: RoutingAudioOutputPlan] {
     var plans: [UUID: RoutingAudioOutputPlan] = [:]
     var claimedBuffers = Set<ObjectIdentifier>()
@@ -379,8 +382,13 @@ final class RoutingAudioOutputController {
             if case .failed(let message) = filePlaybackController.state(for: node.id) {
               sourceFailureMessage = message
             }
+          case .networkReceive:
+            buffer = networkReceiveController.frameBuffer(for: node.id)
+            if case .failed(let message) = networkReceiveController.state(for: node.id) {
+              sourceFailureMessage = message
+            }
           case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
-            .signalGenerator, .delay, .noiseGate, .compressor:
+            .signalGenerator, .networkSend, .delay, .noiseGate, .compressor:
             continue
           }
           guard let buffer else {

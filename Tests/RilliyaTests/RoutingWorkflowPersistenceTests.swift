@@ -108,6 +108,33 @@ struct RoutingWorkflowPersistenceTests {
   }
 
   @Test
+  func networkConfigurationsRoundTripThroughTheWorkflowValueCodec() throws {
+    let values: [RoutingNodeValue] = [
+      .networkSend(
+        configuration: RoutingNetworkSendConfiguration(
+          host: "studio.local",
+          port: 49_101,
+          sampleRate: 96_000,
+          channelCount: 8
+        )
+      ),
+      .networkReceive(
+        configuration: RoutingNetworkReceiveConfiguration(
+          port: 49_102,
+          sampleRate: 44_100,
+          channelCount: 2
+        )
+      ),
+    ]
+
+    for value in values {
+      let encoded = try JSONEncoder().encode(value)
+      let decoded = try JSONDecoder().decode(RoutingNodeValue.self, from: encoded)
+      #expect(decoded == value)
+    }
+  }
+
+  @Test
   func storeRoundTripRestoresGraphsSelectionViewportAndWorkflowOverrides() async throws {
     let fixture = try makeFixture()
     let store = RoutingWorkflowPersistenceStore(fileURL: fixture.fileURL)

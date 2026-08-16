@@ -248,6 +248,20 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
       case .playCount(let count):
         return (1...10_000).contains(count)
       }
+    case .networkSend(let configuration):
+      return !configuration.host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        && configuration.host.utf8.count <= 255
+        && configuration.port > 0
+        && isValidNetworkFormat(
+          sampleRate: configuration.sampleRate,
+          channelCount: configuration.channelCount
+        )
+    case .networkReceive(let configuration):
+      return configuration.port > 0
+        && isValidNetworkFormat(
+          sampleRate: configuration.sampleRate,
+          channelCount: configuration.channelCount
+        )
     case .delay(let configuration):
       return configuration.delaySeconds.isFinite
         && (RoutingDelayConfiguration
@@ -264,6 +278,14 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
     case .compressor(let configuration):
       return configuration.isValid
     }
+  }
+
+  private static func isValidNetworkFormat(sampleRate: Double, channelCount: Int) -> Bool {
+    sampleRate.isFinite
+      && sampleRate >= 1
+      && sampleRate <= 768_000
+      && abs(sampleRate.rounded() - sampleRate) < 0.001
+      && (1...256).contains(channelCount)
   }
 
   private static func isValid(_ presentation: RoutingChannelPresentation) -> Bool {

@@ -166,6 +166,46 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func networkNodesExposeOneBoundedAggregateEndpointInTheCorrectDirection() throws {
+    let model = RoutingWorkspaceModel()
+    let sendID = model.addNetworkSendNode(centeredAt: CGPoint(x: 240, y: 180))
+    let receiveID = model.addNetworkReceiveNode(centeredAt: CGPoint(x: 560, y: 180))
+    let sendConfiguration = RoutingNetworkSendConfiguration(
+      host: "192.0.2.1",
+      port: 49_001,
+      sampleRate: 96_000,
+      channelCount: 4
+    )
+    let receiveConfiguration = RoutingNetworkReceiveConfiguration(
+      port: 49_002,
+      sampleRate: 44_100,
+      channelCount: 1
+    )
+
+    model.configureNetworkSend(sendConfiguration, for: sendID)
+    model.configureNetworkReceive(receiveConfiguration, for: receiveID)
+
+    let sendNode = try #require(model.node(id: sendID))
+    let receiveNode = try #require(model.node(id: receiveID))
+    #expect(sendNode.value == .networkSend(configuration: sendConfiguration))
+    #expect(receiveNode.value == .networkReceive(configuration: receiveConfiguration))
+
+    let sendPorts = RoutingGraphPorts.values(for: sendNode)
+    #expect(sendPorts.count == 1)
+    let sendPort = try #require(sendPorts.first)
+    #expect(sendPort.direction == .input)
+    #expect(sendPort.audioChannel == .all)
+    #expect(sendPort.connectionPolicy == .singleInput)
+
+    let receivePorts = RoutingGraphPorts.values(for: receiveNode)
+    #expect(receivePorts.count == 1)
+    let receivePort = try #require(receivePorts.first)
+    #expect(receivePort.direction == .output)
+    #expect(receivePort.audioChannel == .all)
+    #expect(receivePort.connectionPolicy == .fanOut)
+  }
+
+  @Test @MainActor
   func delayInsertionBuildsOneTypedInputAndOutput() throws {
     let model = RoutingWorkspaceModel()
     let center = CGPoint(x: 420, y: 260)

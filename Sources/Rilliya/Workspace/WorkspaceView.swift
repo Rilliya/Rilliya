@@ -17,6 +17,8 @@ struct WorkspaceView: View {
   @State private var captureController = RoutingCaptureController()
   @State private var inputCaptureController = RoutingInputCaptureController()
   @State private var filePlaybackController = RoutingFilePlaybackController()
+  @State private var networkSendController = RoutingNetworkSendController()
+  @State private var networkReceiveController = RoutingNetworkReceiveController()
   @State private var outputController = RoutingAudioOutputController()
   @State private var workflowPersistenceStore = RoutingWorkflowPersistenceStore()
   @State private var didRestoreWorkflows = false
@@ -43,6 +45,8 @@ struct WorkspaceView: View {
         insertPeakLevel: insertPeakLevel,
         insertSignalGenerator: insertSignalGenerator,
         insertFilePlayback: insertFilePlayback,
+        insertNetworkSend: insertNetworkSend,
+        insertNetworkReceive: insertNetworkReceive,
         insertDelay: insertDelay,
         insertNoiseGate: insertNoiseGate,
         insertCompressor: insertCompressor
@@ -136,12 +140,23 @@ struct WorkspaceView: View {
     .onChange(of: filePlaybackRequirements, initial: true) { _, requirements in
       filePlaybackController.reconcile(requirements: requirements)
     }
+    .onChange(of: networkReceiveRequirements, initial: true) { _, requirements in
+      networkReceiveController.reconcile(requirements: requirements)
+    }
     .onChange(of: outputReconciliationToken, initial: true) {
       outputController.reconcile(
         workflows: workflowLibrary.workflows,
         captureController: captureController,
         inputCaptureController: inputCaptureController,
-        filePlaybackController: filePlaybackController
+        filePlaybackController: filePlaybackController,
+        networkReceiveController: networkReceiveController
+      )
+      networkSendController.reconcile(
+        workflows: workflowLibrary.workflows,
+        captureController: captureController,
+        inputCaptureController: inputCaptureController,
+        filePlaybackController: filePlaybackController,
+        networkReceiveController: networkReceiveController
       )
     }
     .onChange(of: settings.defaultSeparateChannelLayout, initial: true) { _, layout in
@@ -184,6 +199,8 @@ struct WorkspaceView: View {
       captureController.stopAll()
       inputCaptureController.stopAll()
       filePlaybackController.stopAll()
+      networkSendController.stopAll()
+      networkReceiveController.stopAll()
       outputController.stopAll()
     }
   }
@@ -197,7 +214,8 @@ struct WorkspaceView: View {
       workflows: workflowLibrary.workflows,
       processStates: captureController.states,
       inputStates: inputCaptureController.states,
-      fileStates: filePlaybackController.states
+      fileStates: filePlaybackController.states,
+      networkReceiveStates: networkReceiveController.states
     )
   }
 
@@ -300,6 +318,10 @@ struct WorkspaceView: View {
     )
   }
 
+  private var networkReceiveRequirements: [UUID: RoutingNetworkReceiveConfiguration] {
+    RoutingNetworkReceiveRequirementResolver.resolve(workflows: workflowLibrary.workflows)
+  }
+
   private var workflowCanvas: some View {
     RoutingWorkflowCanvas(
       workflow: workflowLibrary.selectedWorkflow,
@@ -310,6 +332,8 @@ struct WorkspaceView: View {
       captureController: captureController,
       inputCaptureController: inputCaptureController,
       filePlaybackController: filePlaybackController,
+      networkSendController: networkSendController,
+      networkReceiveController: networkReceiveController,
       outputController: outputController
     )
   }
@@ -424,6 +448,28 @@ struct WorkspaceView: View {
     selectNode(nodeID, in: workflow)
   }
 
+  private func insertNetworkSend() {
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addNetworkSendNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
+      )
+    )
+    selectNode(nodeID, in: workflow)
+  }
+
+  private func insertNetworkReceive() {
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addNetworkReceiveNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
+      )
+    )
+    selectNode(nodeID, in: workflow)
+  }
+
   private func insertDelay() {
     let workflow = workflowLibrary.selectedWorkflow
     let nodeID = workflow.workspace.addDelayNode(
@@ -486,17 +532,24 @@ private struct RoutingAudioOutputReconciliationToken: Equatable {
     let state: RoutingFilePlaybackState
   }
 
+  struct NetworkReceiveState: Equatable {
+    let nodeID: UUID
+    let state: RoutingNetworkReceiveState
+  }
+
   let workflows: [Workflow]
   let processStates: [ProcessState]
   let inputStates: [InputState]
   let fileStates: [FileState]
+  let networkReceiveStates: [NetworkReceiveState]
 
   @MainActor
   init(
     workflows: [RoutingWorkflowModel],
     processStates: [UUID: RoutingCaptureState],
     inputStates: [UUID: RoutingInputCaptureState],
-    fileStates: [UUID: RoutingFilePlaybackState]
+    fileStates: [UUID: RoutingFilePlaybackState],
+    networkReceiveStates: [UUID: RoutingNetworkReceiveState]
   ) {
     self.workflows = workflows.map {
       Workflow(
@@ -514,6 +567,9 @@ private struct RoutingAudioOutputReconciliationToken: Equatable {
     self.fileStates = fileStates.map {
       FileState(nodeID: $0.key, state: $0.value)
     }.sorted { $0.nodeID.uuidString < $1.nodeID.uuidString }
+    self.networkReceiveStates = networkReceiveStates.map {
+      NetworkReceiveState(nodeID: $0.key, state: $0.value)
+    }.sorted { $0.nodeID.uuidString < $1.nodeID.uuidString }
   }
 }
 
@@ -527,6 +583,8 @@ private struct RoutingWorkflowCanvas: View {
   let captureController: RoutingCaptureController
   let inputCaptureController: RoutingInputCaptureController
   let filePlaybackController: RoutingFilePlaybackController
+  let networkSendController: RoutingNetworkSendController
+  let networkReceiveController: RoutingNetworkReceiveController
   let outputController: RoutingAudioOutputController
 
   var body: some View {
@@ -539,6 +597,8 @@ private struct RoutingWorkflowCanvas: View {
       captureController: captureController,
       inputCaptureController: inputCaptureController,
       filePlaybackController: filePlaybackController,
+      networkSendController: networkSendController,
+      networkReceiveController: networkReceiveController,
       outputController: outputController,
       sessionID: workflow.canvasSessionID,
       isWorkflowRunning: workflow.isRunning,

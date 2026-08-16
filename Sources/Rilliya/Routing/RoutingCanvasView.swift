@@ -20,6 +20,8 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
   case peakLevel = "moe.uwucocoa.rilliya.node.peak-level"
   case signalGenerator = "moe.uwucocoa.rilliya.node.signal-generator"
   case filePlayback = "moe.uwucocoa.rilliya.node.file-playback"
+  case networkSend = "moe.uwucocoa.rilliya.node.network-send"
+  case networkReceive = "moe.uwucocoa.rilliya.node.network-receive"
   case delay = "moe.uwucocoa.rilliya.node.delay"
   case noiseGate = "moe.uwucocoa.rilliya.node.noise-gate"
   case compressor = "moe.uwucocoa.rilliya.node.compressor"
@@ -38,6 +40,8 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
     case .peakLevel: .peakLevel
     case .signalGenerator: .signalGenerator
     case .filePlayback: .filePlayback
+    case .networkSend: .networkSend
+    case .networkReceive: .networkReceive
     case .delay: .delay
     case .noiseGate: .noiseGate
     case .compressor: .compressor
@@ -58,6 +62,8 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
     case .peakLevel: "Measure the strongest sample"
     case .signalGenerator: "Create tones and colored noise"
     case .filePlayback: "Stream a local audio file"
+    case .networkSend: "Send PCM to a trusted LAN peer"
+    case .networkReceive: "Receive PCM from a trusted LAN peer"
     case .delay: "Add time and feedback"
     case .noiseGate: "Attenuate quiet passages"
     case .compressor: "Control dynamics and peaks"
@@ -66,9 +72,9 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
 
   var category: RoutingPaletteCategory {
     switch self {
-    case .applicationAudio, .inputAudio, .signalGenerator, .filePlayback:
+    case .applicationAudio, .inputAudio, .signalGenerator, .filePlayback, .networkReceive:
       .sources
-    case .outputAudio:
+    case .outputAudio, .networkSend:
       .destinations
     case .audioMixer, .gain, .channelRouter:
       .routing
@@ -186,6 +192,8 @@ struct RoutingCanvasView: View {
   let captureController: RoutingCaptureController
   let inputCaptureController: RoutingInputCaptureController
   let filePlaybackController: RoutingFilePlaybackController
+  let networkSendController: RoutingNetworkSendController
+  let networkReceiveController: RoutingNetworkReceiveController
   let outputController: RoutingAudioOutputController
   let sessionID: FlowingGraphCanvasSessionID
   let isWorkflowRunning: Bool
@@ -370,6 +378,26 @@ struct RoutingCanvasView: View {
           case .filePlayback(let configuration):
             FilePlaybackNodeView(configuration: configuration, context: context)
               .zIndex(context.isSelected ? 2 : 1)
+          case .networkSend(let configuration):
+            NetworkAudioNodeView(
+              title: "Network Send",
+              subtitle: "\(configuration.host):\(configuration.port)",
+              sampleRate: configuration.sampleRate,
+              channelCount: configuration.channelCount,
+              systemImage: "paperplane.fill",
+              context: context
+            )
+            .zIndex(context.isSelected ? 2 : 1)
+          case .networkReceive(let configuration):
+            NetworkAudioNodeView(
+              title: "Network Receive",
+              subtitle: "UDP \(configuration.port)",
+              sampleRate: configuration.sampleRate,
+              channelCount: configuration.channelCount,
+              systemImage: "network",
+              context: context
+            )
+            .zIndex(context.isSelected ? 2 : 1)
           case .delay(let configuration):
             DelayNodeView(configuration: configuration, context: context)
               .zIndex(context.isSelected ? 2 : 1)
@@ -521,6 +549,22 @@ struct RoutingCanvasView: View {
         supplements[node.id] = .empty
       case .filePlayback:
         supplements[node.id] = .empty
+      case .networkSend:
+        supplements[node.id] = RoutingMetalNodeSupplement(
+          isRunning: false,
+          isCapturing: false,
+          captureConsumerCount: 0,
+          visualizerSignal: nil,
+          networkSendState: networkSendController.state(for: node.id)
+        )
+      case .networkReceive:
+        supplements[node.id] = RoutingMetalNodeSupplement(
+          isRunning: false,
+          isCapturing: false,
+          captureConsumerCount: 0,
+          visualizerSignal: nil,
+          networkReceiveState: networkReceiveController.state(for: node.id)
+        )
       case .delay:
         supplements[node.id] = .empty
       case .noiseGate:
@@ -769,6 +813,20 @@ struct RoutingCanvasView: View {
           }
         }
       )
+    case .networkSend(let configuration):
+      SelectedNetworkSendInspector(
+        configuration: configuration,
+        state: networkSendController.state(for: node.id)
+      ) { updated in
+        workspace.configureNetworkSend(updated, for: node.id)
+      }
+    case .networkReceive(let configuration):
+      SelectedNetworkReceiveInspector(
+        configuration: configuration,
+        state: networkReceiveController.state(for: node.id)
+      ) { updated in
+        workspace.configureNetworkReceive(updated, for: node.id)
+      }
     case .delay(let configuration):
       SelectedDelayInspector(configuration: configuration) { updated in
         workspace.configureDelay(updated, for: node.id)
@@ -953,6 +1011,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   let insertPeakLevel: () -> Void
   let insertSignalGenerator: () -> Void
   let insertFilePlayback: () -> Void
+  let insertNetworkSend: () -> Void
+  let insertNetworkReceive: () -> Void
   let insertDelay: () -> Void
   let insertNoiseGate: () -> Void
   let insertCompressor: () -> Void
@@ -974,6 +1034,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     insertPeakLevel: @escaping () -> Void,
     insertSignalGenerator: @escaping () -> Void,
     insertFilePlayback: @escaping () -> Void,
+    insertNetworkSend: @escaping () -> Void,
+    insertNetworkReceive: @escaping () -> Void,
     insertDelay: @escaping () -> Void,
     insertNoiseGate: @escaping () -> Void,
     insertCompressor: @escaping () -> Void,
@@ -992,6 +1054,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     self.insertPeakLevel = insertPeakLevel
     self.insertSignalGenerator = insertSignalGenerator
     self.insertFilePlayback = insertFilePlayback
+    self.insertNetworkSend = insertNetworkSend
+    self.insertNetworkReceive = insertNetworkReceive
     self.insertDelay = insertDelay
     self.insertNoiseGate = insertNoiseGate
     self.insertCompressor = insertCompressor
@@ -1176,6 +1240,8 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     case .peakLevel: insertPeakLevel
     case .signalGenerator: insertSignalGenerator
     case .filePlayback: insertFilePlayback
+    case .networkSend: insertNetworkSend
+    case .networkReceive: insertNetworkReceive
     case .delay: insertDelay
     case .noiseGate: insertNoiseGate
     case .compressor: insertCompressor
@@ -1370,6 +1436,18 @@ private struct RoutingCanvasDropPreview: View {
         "File Playback",
         "Choose an audio file",
         "music.note.list"
+      )
+    case .networkSend:
+      return (
+        "Network Send",
+        "127.0.0.1:48620",
+        "paperplane.fill"
+      )
+    case .networkReceive:
+      return (
+        "Network Receive",
+        "UDP 48620",
+        "network"
       )
     case .delay:
       return (
@@ -2297,6 +2375,76 @@ private struct FilePlaybackNodeView: View {
   private var fileDetail: String {
     guard let selection = configuration.selection else { return "Select this node to configure" }
     return "\(selection.channelCount) ch · \(configuration.loopMode.description)"
+  }
+}
+
+private struct NetworkAudioNodeView: View {
+  let title: String
+  let subtitle: String
+  let sampleRate: Double
+  let channelCount: Int
+  let systemImage: String
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  @Environment(\.flowingAccent) private var accent
+
+  var body: some View {
+    FlowingCard(
+      spacing: 10,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      HStack(spacing: 9) {
+        Image(systemName: systemImage)
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(accent.foreground)
+        VStack(alignment: .leading, spacing: 1) {
+          Text(title)
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text(subtitle)
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(FlowingPalette.muted)
+            .lineLimit(1)
+        }
+        Spacer(minLength: 0)
+      }
+
+      Text("\(channelCount) ch · \(sampleRateDescription) kHz")
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(FlowingPalette.muted)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+        .background(
+          accent.wash,
+          in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .padding(.horizontal, RoutingVisualizerLayout.portLabelGutter)
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width,
+      height: RoutingCanvasMetrics.baseNodeSize.height
+    )
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width * context.renderScale,
+      height: RoutingCanvasMetrics.baseNodeSize.height * context.renderScale,
+      alignment: .topLeading
+    )
+  }
+
+  private var sampleRateDescription: String {
+    let kilohertz = sampleRate / 1_000
+    return kilohertz.formatted(
+      .number.precision(.fractionLength(kilohertz == kilohertz.rounded() ? 0 : 1))
+    )
   }
 }
 
@@ -4305,6 +4453,375 @@ private struct SelectedFilePlaybackInspector: View {
       isInspectingFile = false
     }
   }
+}
+
+private struct SelectedNetworkSendInspector: View {
+  let configuration: RoutingNetworkSendConfiguration
+  let state: RoutingNetworkSendState
+  let updateConfiguration: (RoutingNetworkSendConfiguration) -> Void
+
+  @State private var hostText: String
+  @State private var portText: String
+
+  init(
+    configuration: RoutingNetworkSendConfiguration,
+    state: RoutingNetworkSendState,
+    updateConfiguration: @escaping (RoutingNetworkSendConfiguration) -> Void
+  ) {
+    self.configuration = configuration
+    self.state = state
+    self.updateConfiguration = updateConfiguration
+    _hostText = State(initialValue: configuration.host)
+    _portText = State(initialValue: String(configuration.port))
+  }
+
+  var body: some View {
+    NetworkAudioInspectorCard(
+      title: "Network Send",
+      subtitle: "Send realtime PCM audio to one trusted LAN peer."
+    ) {
+      VStack(alignment: .leading, spacing: 12) {
+        labeledField("Host") {
+          FlowingTextField(
+            "Destination host",
+            text: $hostText,
+            placeholder: "127.0.0.1",
+            systemImage: "network",
+            validation: hostIsValid ? .none : .error("Enter a host name or IP address."),
+            onSubmit: commitAddress
+          )
+        }
+        labeledField("UDP Port") {
+          FlowingTextField(
+            "Destination UDP port",
+            text: $portText,
+            placeholder: "48620",
+            systemImage: "number",
+            validation: parsedPort == nil ? .error("Use a port from 1 through 65535.") : .none,
+            onSubmit: commitAddress
+          )
+        }
+      }
+
+      NetworkAudioFormatControls(
+        sampleRate: sampleRate,
+        channelCount: channelCount
+      )
+
+      FlowingCallout(
+        stateDescription,
+        title: stateTitle,
+        systemImage: stateSymbol,
+        tone: stateTone
+      )
+
+      Text(
+        "Audio is unencrypted UDP intended for a trusted local network. It is never sent while the workflow is paused or the node has no connected source."
+      )
+      .font(.caption2)
+      .foregroundStyle(FlowingPalette.faint)
+    }
+    .onChange(of: configuration) { _, updated in
+      hostText = updated.host
+      portText = String(updated.port)
+    }
+  }
+
+  private var hostIsValid: Bool {
+    !hostText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+  }
+
+  private var parsedPort: UInt16? {
+    guard let value = UInt16(portText), value > 0 else { return nil }
+    return value
+  }
+
+  private func commitAddress() {
+    let host = hostText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !host.isEmpty, let port = parsedPort else { return }
+    updateConfiguration(
+      RoutingNetworkSendConfiguration(
+        host: host,
+        port: port,
+        sampleRate: configuration.sampleRate,
+        channelCount: configuration.channelCount
+      )
+    )
+  }
+
+  private var sampleRate: Binding<Double> {
+    Binding(
+      get: { configuration.sampleRate },
+      set: { sampleRate in
+        updateConfiguration(
+          RoutingNetworkSendConfiguration(
+            host: configuration.host,
+            port: configuration.port,
+            sampleRate: sampleRate,
+            channelCount: configuration.channelCount
+          )
+        )
+      }
+    )
+  }
+
+  private var channelCount: Binding<Int> {
+    Binding(
+      get: { configuration.channelCount },
+      set: { channelCount in
+        updateConfiguration(
+          RoutingNetworkSendConfiguration(
+            host: configuration.host,
+            port: configuration.port,
+            sampleRate: configuration.sampleRate,
+            channelCount: channelCount
+          )
+        )
+      }
+    )
+  }
+
+  private var stateTitle: String {
+    switch state {
+    case .idle: "Waiting for workflow"
+    case .waitingForSource: "Waiting for audio"
+    case .starting: "Preparing sender"
+    case .running: "Sending"
+    case .failed: "Send stopped"
+    }
+  }
+
+  private var stateDescription: String {
+    switch state {
+    case .idle: "Run the workflow to make this destination available."
+    case .waitingForSource: "Connect an audio output to begin sending."
+    case .starting: "Resolving the destination and preparing a bounded realtime queue."
+    case .running(let format):
+      "Sending \(format.channelCount) ch at \(Int(format.sampleRate.rounded())) Hz."
+    case .failed(let message): message
+    }
+  }
+
+  private var stateSymbol: String {
+    switch state {
+    case .idle, .waitingForSource: "cable.connector"
+    case .starting: "hourglass"
+    case .running: "paperplane.fill"
+    case .failed: "exclamationmark.triangle"
+    }
+  }
+
+  private var stateTone: FlowingStatusTone {
+    if case .failed = state { return .critical }
+    return .neutral
+  }
+}
+
+private struct SelectedNetworkReceiveInspector: View {
+  let configuration: RoutingNetworkReceiveConfiguration
+  let state: RoutingNetworkReceiveState
+  let updateConfiguration: (RoutingNetworkReceiveConfiguration) -> Void
+
+  @State private var portText: String
+
+  init(
+    configuration: RoutingNetworkReceiveConfiguration,
+    state: RoutingNetworkReceiveState,
+    updateConfiguration: @escaping (RoutingNetworkReceiveConfiguration) -> Void
+  ) {
+    self.configuration = configuration
+    self.state = state
+    self.updateConfiguration = updateConfiguration
+    _portText = State(initialValue: String(configuration.port))
+  }
+
+  var body: some View {
+    NetworkAudioInspectorCard(
+      title: "Network Receive",
+      subtitle: "Receive realtime PCM audio from one trusted LAN peer."
+    ) {
+      labeledField("UDP Port") {
+        FlowingTextField(
+          "Listening UDP port",
+          text: $portText,
+          placeholder: "48620",
+          systemImage: "number",
+          validation: parsedPort == nil ? .error("Use a port from 1 through 65535.") : .none,
+          onSubmit: commitPort
+        )
+      }
+
+      NetworkAudioFormatControls(
+        sampleRate: sampleRate,
+        channelCount: channelCount
+      )
+
+      FlowingCallout(
+        stateDescription,
+        title: stateTitle,
+        systemImage: stateSymbol,
+        tone: stateTone
+      )
+
+      Text(
+        "Packets with an unexpected version, format, size, or active session are rejected before they reach the audio graph. Missing packets become silence."
+      )
+      .font(.caption2)
+      .foregroundStyle(FlowingPalette.faint)
+    }
+    .onChange(of: configuration) { _, updated in
+      portText = String(updated.port)
+    }
+  }
+
+  private var parsedPort: UInt16? {
+    guard let value = UInt16(portText), value > 0 else { return nil }
+    return value
+  }
+
+  private func commitPort() {
+    guard let port = parsedPort else { return }
+    updateConfiguration(
+      RoutingNetworkReceiveConfiguration(
+        port: port,
+        sampleRate: configuration.sampleRate,
+        channelCount: configuration.channelCount
+      )
+    )
+  }
+
+  private var sampleRate: Binding<Double> {
+    Binding(
+      get: { configuration.sampleRate },
+      set: { sampleRate in
+        updateConfiguration(
+          RoutingNetworkReceiveConfiguration(
+            port: configuration.port,
+            sampleRate: sampleRate,
+            channelCount: configuration.channelCount
+          )
+        )
+      }
+    )
+  }
+
+  private var channelCount: Binding<Int> {
+    Binding(
+      get: { configuration.channelCount },
+      set: { channelCount in
+        updateConfiguration(
+          RoutingNetworkReceiveConfiguration(
+            port: configuration.port,
+            sampleRate: configuration.sampleRate,
+            channelCount: channelCount
+          )
+        )
+      }
+    )
+  }
+
+  private var stateTitle: String {
+    switch state {
+    case .idle: "Waiting for workflow"
+    case .starting: "Preparing receiver"
+    case .running: "Listening"
+    case .failed: "Receive stopped"
+    }
+  }
+
+  private var stateDescription: String {
+    switch state {
+    case .idle: "Run the workflow and connect this source to start listening."
+    case .starting: "Binding the UDP port and preparing a bounded jitter queue."
+    case .running(let format):
+      "Listening for \(format.channelCount) ch at \(Int(format.sampleRate.rounded())) Hz."
+    case .failed(let message): message
+    }
+  }
+
+  private var stateSymbol: String {
+    switch state {
+    case .idle: "cable.connector"
+    case .starting: "hourglass"
+    case .running: "network"
+    case .failed: "exclamationmark.triangle"
+    }
+  }
+
+  private var stateTone: FlowingStatusTone {
+    if case .failed = state { return .critical }
+    return .neutral
+  }
+}
+
+private struct NetworkAudioFormatControls: View {
+  @Binding var sampleRate: Double
+  @Binding var channelCount: Int
+
+  var body: some View {
+    HStack(alignment: .top, spacing: 12) {
+      labeledField("Sample Rate") {
+        FlowingSelect(
+          label: "Network sample rate",
+          selection: $sampleRate,
+          options: [44_100.0, 48_000.0, 96_000.0].map { rate in
+            FlowingSelectOption(rate, label: "\(Int(rate / 1_000)) kHz")
+          },
+          minimumWidth: 116
+        )
+        .fixedSize(horizontal: false, vertical: true)
+      }
+      labeledField("Channels") {
+        FlowingSelect(
+          label: "Network channel count",
+          selection: $channelCount,
+          options: [1, 2, 4, 6, 8].map { count in
+            FlowingSelectOption(count, label: count == 1 ? "Mono" : "\(count) ch")
+          },
+          minimumWidth: 104
+        )
+        .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+  }
+}
+
+private struct NetworkAudioInspectorCard<Content: View>: View {
+  let title: String
+  let subtitle: String
+  @ViewBuilder let content: Content
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text(title)
+          .font(.headline)
+          .foregroundStyle(FlowingPalette.ink)
+        Text(subtitle)
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      content
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+}
+
+private func labeledField<Content: View>(
+  _ label: String,
+  @ViewBuilder content: () -> Content
+) -> some View {
+  VStack(alignment: .leading, spacing: 7) {
+    Text(label)
+      .font(.caption.weight(.semibold))
+      .foregroundStyle(FlowingPalette.muted)
+    content()
+  }
+  .frame(maxWidth: .infinity, alignment: .leading)
 }
 
 private struct SelectedDelayInspector: View {

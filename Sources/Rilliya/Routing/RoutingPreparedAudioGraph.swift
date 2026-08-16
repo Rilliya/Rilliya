@@ -457,9 +457,13 @@ private struct RoutingPreparedAudioGraphCompiler {
   }
 
   mutating func compile() throws -> RoutingPreparedAudioGraphPlan {
-    guard let outputNode = nodesByID[outputNodeID],
-      case .outputAudio = outputNode.value
-    else {
+    guard let outputNode = nodesByID[outputNodeID] else {
+      throw RoutingPreparedAudioGraphError.missingOutputNode
+    }
+    switch outputNode.value {
+    case .outputAudio, .networkSend:
+      break
+    default:
       throw RoutingPreparedAudioGraphError.missingOutputNode
     }
     var finalContributions: [(bufferIndex: Int, destinationChannel: Int)] = []
@@ -514,7 +518,7 @@ private struct RoutingPreparedAudioGraphCompiler {
 
     let signal: [RoutingCompiledAudioChannel]
     switch node.value {
-    case .applicationAudio, .inputAudio, .filePlayback:
+    case .applicationAudio, .inputAudio, .filePlayback, .networkReceive:
       signal = try sourceSignal(for: node, address: address)
     case .signalGenerator(let configuration):
       signal = try signalGeneratorSignal(
@@ -566,7 +570,7 @@ private struct RoutingPreparedAudioGraphCompiler {
         configuration: configuration,
         visited: visited
       )
-    case .outputAudio, .peakLevel:
+    case .outputAudio, .networkSend, .peakLevel:
       throw RoutingPreparedAudioGraphError.invalidRoute
     }
     signalsByAddress[address] = signal

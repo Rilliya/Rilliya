@@ -128,6 +128,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
   case peakLevel
   case signalGenerator(configuration: RoutingSignalGeneratorConfiguration)
   case filePlayback(configuration: RoutingFilePlaybackConfiguration)
+  case networkSend(configuration: RoutingNetworkSendConfiguration)
+  case networkReceive(configuration: RoutingNetworkReceiveConfiguration)
   case delay(configuration: RoutingDelayConfiguration)
   case noiseGate(configuration: RoutingNoiseGateConfiguration)
   case compressor(configuration: RoutingCompressorConfiguration)
@@ -137,7 +139,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     case .applicationAudio(let selection, _):
       return selection
     case .inputAudio, .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter,
-      .peakLevel, .signalGenerator, .filePlayback, .delay, .noiseGate, .compressor:
+      .peakLevel, .signalGenerator, .filePlayback, .networkSend, .networkReceive, .delay,
+      .noiseGate, .compressor:
       return nil
     }
   }
@@ -177,7 +180,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     case .applicationAudio(_, let presentation), .inputAudio(_, let presentation):
       return presentation
     case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
-      .signalGenerator, .filePlayback, .delay, .noiseGate, .compressor:
+      .signalGenerator, .filePlayback, .networkSend, .networkReceive, .delay, .noiseGate,
+      .compressor:
       return nil
     }
   }
@@ -191,7 +195,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     case .inputAudio(let selection, _):
       return .inputAudio(selection: selection, channelPresentation: presentation)
     case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
-      .signalGenerator, .filePlayback, .delay, .noiseGate, .compressor:
+      .signalGenerator, .filePlayback, .networkSend, .networkReceive, .delay, .noiseGate,
+      .compressor:
       return nil
     }
   }
@@ -230,6 +235,10 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return "Signal Generator"
     case .filePlayback:
       return "File Playback"
+    case .networkSend:
+      return "Network Send"
+    case .networkReceive:
+      return "Network Receive"
     case .delay:
       return "Delay"
     case .noiseGate:
@@ -284,6 +293,52 @@ struct RoutingFilePlaybackConfiguration: Codable, Equatable, Hashable, Sendable 
     }
     self.selection = selection
     self.loopMode = loopMode
+  }
+}
+
+struct RoutingNetworkSendConfiguration: Codable, Equatable, Hashable, Sendable {
+  static let initial = RoutingNetworkSendConfiguration(
+    host: "127.0.0.1",
+    port: 48_620,
+    sampleRate: 48_000,
+    channelCount: 2
+  )
+
+  var host: String
+  var port: UInt16
+  var sampleRate: Double
+  var channelCount: Int
+
+  init(host: String, port: UInt16, sampleRate: Double, channelCount: Int) {
+    precondition(!host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    precondition(port > 0)
+    precondition(sampleRate.isFinite && sampleRate >= 1 && sampleRate <= 768_000)
+    precondition((1...AudioProcessingFormat.maximumChannelCount).contains(channelCount))
+    self.host = host
+    self.port = port
+    self.sampleRate = sampleRate
+    self.channelCount = channelCount
+  }
+}
+
+struct RoutingNetworkReceiveConfiguration: Codable, Equatable, Hashable, Sendable {
+  static let initial = RoutingNetworkReceiveConfiguration(
+    port: 48_620,
+    sampleRate: 48_000,
+    channelCount: 2
+  )
+
+  var port: UInt16
+  var sampleRate: Double
+  var channelCount: Int
+
+  init(port: UInt16, sampleRate: Double, channelCount: Int) {
+    precondition(port > 0)
+    precondition(sampleRate.isFinite && sampleRate >= 1 && sampleRate <= 768_000)
+    precondition((1...AudioProcessingFormat.maximumChannelCount).contains(channelCount))
+    self.port = port
+    self.sampleRate = sampleRate
+    self.channelCount = channelCount
   }
 }
 
@@ -1333,7 +1388,8 @@ enum RoutingCanvasMetrics {
           )
         )
       )
-    case .gain, .peakLevel, .signalGenerator, .filePlayback, .delay, .noiseGate, .compressor:
+    case .gain, .peakLevel, .signalGenerator, .filePlayback, .networkSend, .networkReceive,
+      .delay, .noiseGate, .compressor:
       return baseNodeSize
     }
     return CGSize(
@@ -1602,6 +1658,28 @@ enum RoutingGraphPorts {
           direction: .output,
           channel: .all,
           name: "File Audio",
+          connectionPolicy: .fanOut,
+          ordinal: 0,
+          total: 1
+        )
+      ]
+    case .networkSend:
+      return [
+        RoutingGraphPortValue(
+          direction: .input,
+          channel: .all,
+          name: "Network Audio",
+          connectionPolicy: .singleInput,
+          ordinal: 0,
+          total: 1
+        )
+      ]
+    case .networkReceive:
+      return [
+        RoutingGraphPortValue(
+          direction: .output,
+          channel: .all,
+          name: "Network Audio",
           connectionPolicy: .fanOut,
           ordinal: 0,
           total: 1

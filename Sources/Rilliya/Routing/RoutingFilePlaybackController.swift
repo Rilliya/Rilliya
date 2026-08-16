@@ -230,9 +230,10 @@ enum RoutingFilePlaybackRequirementResolver {
     workflows: [RoutingWorkflowModel],
     catalogSnapshot: AudioCatalogSnapshot?
   ) -> [UUID: RoutingFilePlaybackRequirement] {
-    guard let catalogSnapshot else { return [:] }
     let sampleRates = Dictionary(
-      uniqueKeysWithValues: catalogSnapshot.devices.map { ($0.id, $0.nominalSampleRate) }
+      uniqueKeysWithValues: (catalogSnapshot?.devices ?? []).map {
+        ($0.id, $0.nominalSampleRate)
+      }
     )
     var requests: [UUID: RoutingFilePlaybackRequest] = [:]
     var blocked: [UUID: String] = [:]
@@ -242,12 +243,18 @@ enum RoutingFilePlaybackRequirementResolver {
       let activeEdges = workspace.edges.filter(workspace.isEdgeActive)
       let incomingEdges = Dictionary(grouping: activeEdges, by: { $0.target.nodeID })
       for outputNode in workspace.nodes {
-        guard case .outputAudio(let selection, _) = outputNode.value,
-          let selection,
-          let sampleRate = sampleRates[selection.id],
-          sampleRate.isFinite,
-          sampleRate > 0
-        else {
+        let sampleRate: Double
+        switch outputNode.value {
+        case .outputAudio(let selection, _):
+          guard let selection,
+            let deviceSampleRate = sampleRates[selection.id],
+            deviceSampleRate.isFinite,
+            deviceSampleRate > 0
+          else { continue }
+          sampleRate = deviceSampleRate
+        case .networkSend(let configuration):
+          sampleRate = configuration.sampleRate
+        default:
           continue
         }
         let reachable = reachableNodeIDs(from: outputNode.id, incomingEdges: incomingEdges)

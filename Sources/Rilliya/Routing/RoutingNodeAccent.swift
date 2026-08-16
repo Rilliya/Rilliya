@@ -148,6 +148,8 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
   case peakLevel
   case signalGenerator
   case filePlayback
+  case networkSend
+  case networkReceive
   case delay
   case noiseGate
   case compressor
@@ -164,6 +166,8 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .peakLevel: "Peak Level"
     case .signalGenerator: "Signal Generator"
     case .filePlayback: "File Playback"
+    case .networkSend: "Network Send"
+    case .networkReceive: "Network Receive"
     case .delay: "Delay"
     case .noiseGate: "Noise Gate"
     case .compressor: "Compressor"
@@ -182,6 +186,8 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .peakLevel: "gauge.with.dots.needle.50percent"
     case .signalGenerator: "waveform.path"
     case .filePlayback: "music.note.list"
+    case .networkSend: "network.badge.shield.half.filled"
+    case .networkReceive: "network"
     case .delay: "clock.arrow.trianglehead.counterclockwise.rotate.90"
     case .noiseGate: "waveform.badge.minus"
     case .compressor: "arrow.down.right.and.arrow.up.left"
@@ -198,6 +204,8 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .channelRouter: .mist
     case .signalGenerator: .poppy
     case .filePlayback: .petal
+    case .networkSend: .bluebell
+    case .networkReceive: .glacier
     case .delay: .wisteria
     case .noiseGate: .lagoon
     case .compressor: .bloom
@@ -218,6 +226,8 @@ extension RoutingNodeValue {
     case .peakLevel: .peakLevel
     case .signalGenerator: .signalGenerator
     case .filePlayback: .filePlayback
+    case .networkSend: .networkSend
+    case .networkReceive: .networkReceive
     case .delay: .delay
     case .noiseGate: .noiseGate
     case .compressor: .compressor

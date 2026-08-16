@@ -26,6 +26,8 @@
 	<string>$(MACOSX_DEPLOYMENT_TARGET)</string>
 	<key>NSAudioCaptureUsageDescription</key>
 	<string>Rilliya captures selected application audio so you can monitor and route its channels.</string>
+	<key>NSLocalNetworkUsageDescription</key>
+	<string>Rilliya sends and receives realtime audio only when you add and run a Network Audio node.</string>
 	<key>NSMicrophoneUsageDescription</key>
 	<string>Rilliya accesses audio input devices so you can monitor and route their channels.</string>
 </dict>
