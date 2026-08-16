@@ -7,6 +7,34 @@ import Testing
 @testable import Rilliya
 
 struct RoutingInputCaptureControllerTests {
+  /// Reconciliation reruns whenever any observed audio state changes, so a failure that restarts
+  /// on an unchanged device spins the node between starting and failed.
+  @Test @MainActor
+  func aFailedStartDoesNotRestartOnAnUnchangedDevice() async throws {
+    let deviceID = try #require(AudioDeviceID(rawValue: "failing-input"))
+    let nodeID = UUID()
+    let starter = FakeRoutingInputCaptureStarter(failingDeviceIDs: [deviceID])
+    let controller = RoutingInputCaptureController(captureStarter: starter)
+
+    controller.reconcile(deviceIDsByNode: [nodeID: deviceID])
+    #expect(
+      await eventually {
+        guard case .failed = controller.state(for: nodeID) else { return false }
+        return true
+      })
+    #expect(await starter.startCount(for: deviceID) == 1)
+
+    for _ in 0..<InputCaptureRetryConstants.attempts {
+      controller.reconcile(deviceIDsByNode: [nodeID: deviceID])
+      await Task.yield()
+    }
+    #expect(await starter.startCount(for: deviceID) == 1)
+
+    controller.retry(nodeID: nodeID)
+    controller.reconcile(deviceIDsByNode: [nodeID: deviceID])
+    #expect(await eventually { await starter.startCount(for: deviceID) == 2 })
+  }
+
   @Test @MainActor
   func nodesUsingTheSameDeviceShareOneCapture() async throws {
     let deviceID = try #require(AudioDeviceID(rawValue: "test.input"))
@@ -157,9 +185,11 @@ private actor FakeRoutingInputCaptureStarter: RoutingInputCaptureStarting {
   private var failureHandlers: [AudioDeviceID: DeviceInputCapture.FailureHandler] = [:]
   private var suspendsStops: Bool
   private var stopWaiters: [CheckedContinuation<Void, Never>] = []
+  private let failingDeviceIDs: Set<AudioDeviceID>
 
-  init(suspendsStops: Bool = false) {
+  init(suspendsStops: Bool = false, failingDeviceIDs: Set<AudioDeviceID> = []) {
     self.suspendsStops = suspendsStops
+    self.failingDeviceIDs = failingDeviceIDs
   }
 
   var hasPendingStop: Bool {
@@ -172,6 +202,9 @@ private actor FakeRoutingInputCaptureStarter: RoutingInputCaptureStarting {
     failureHandler: @escaping DeviceInputCapture.FailureHandler
   ) async throws -> any RoutingInputCaptureSession {
     startCounts[deviceID, default: 0] += 1
+    if failingDeviceIDs.contains(deviceID) {
+      throw FakeRoutingInputCaptureError.requestedFailure
+    }
     snapshotHandlers[deviceID] = snapshotHandler
     failureHandlers[deviceID] = failureHandler
     guard let channelIndex = AudioChannelIndex(rawValue: 0) else {
@@ -233,6 +266,11 @@ private actor FakeRoutingInputCaptureStarter: RoutingInputCaptureStarting {
 
 private enum FakeRoutingInputCaptureError: Error {
   case invalidChannelIndex
+  case requestedFailure
+}
+
+private enum InputCaptureRetryConstants {
+  static let attempts = 5
 }
 
 private actor FakeRoutingInputCaptureSession: RoutingInputCaptureSession {

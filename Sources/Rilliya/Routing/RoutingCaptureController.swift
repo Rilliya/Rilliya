@@ -104,6 +104,7 @@ final class RoutingCaptureController {
   @ObservationIgnored private let captureStarter: any RoutingProcessCaptureStarting
   @ObservationIgnored private var sources: [AudioProcessID: SharedSource] = [:]
   @ObservationIgnored private var processIDsByNode: [UUID: AudioProcessID] = [:]
+  @ObservationIgnored private var failedProcessIDs: [UUID: AudioProcessID] = [:]
   @ObservationIgnored private var nextGeneration: UInt64 = 0
 
   init(
@@ -157,6 +158,7 @@ final class RoutingCaptureController {
     processID: AudioProcessID,
     muteBehavior: ProcessOutputCaptureMuteBehavior = .unmuted
   ) {
+    if failedProcessIDs[nodeID] == processID { return }
     if processIDsByNode[nodeID] == processID,
       let source = sources[processID],
       source.nodeIDs.contains(nodeID)
@@ -206,6 +208,13 @@ final class RoutingCaptureController {
         muteBehavior: requirements.muteBehaviorsByProcess[processID] ?? .unmuted
       )
     }
+  }
+
+  /// Clears a latched failure so the next reconciliation starts the capture again.
+  func retry(nodeID: UUID) {
+    guard case .failed = state(for: nodeID) else { return }
+    failedProcessIDs[nodeID] = nil
+    states[nodeID] = .idle
   }
 
   func stop(nodeID: UUID) {
@@ -336,6 +345,7 @@ final class RoutingCaptureController {
     sources[processID] = nil
     for nodeID in source.nodeIDs where processIDsByNode[nodeID] == processID {
       processIDsByNode[nodeID] = nil
+      failedProcessIDs[nodeID] = processID
       snapshots[nodeID] = nil
       states[nodeID] = .failed(RoutingNodeFailure(error))
     }

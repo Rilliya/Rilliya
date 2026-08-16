@@ -119,6 +119,7 @@ final class RoutingInputCaptureController {
   @ObservationIgnored private let captureStarter: any RoutingInputCaptureStarting
   @ObservationIgnored private var sources: [RilliyaCore.AudioDeviceID: SharedSource] = [:]
   @ObservationIgnored private var deviceIDsByNode: [UUID: RilliyaCore.AudioDeviceID] = [:]
+  @ObservationIgnored private var failedDeviceIDs: [UUID: RilliyaCore.AudioDeviceID] = [:]
   @ObservationIgnored private var nextGeneration: UInt64 = 0
 
   init(
@@ -168,6 +169,7 @@ final class RoutingInputCaptureController {
   }
 
   func start(nodeID: UUID, deviceID: RilliyaCore.AudioDeviceID) {
+    if failedDeviceIDs[nodeID] == deviceID { return }
     if deviceIDsByNode[nodeID] == deviceID,
       let source = sources[deviceID],
       source.nodeIDs.contains(nodeID)
@@ -208,6 +210,13 @@ final class RoutingInputCaptureController {
     }) {
       start(nodeID: nodeID, deviceID: deviceID)
     }
+  }
+
+  /// Clears a latched failure so the next reconciliation starts the capture again.
+  func retry(nodeID: UUID) {
+    guard case .failed = state(for: nodeID) else { return }
+    failedDeviceIDs[nodeID] = nil
+    states[nodeID] = .idle
   }
 
   func stop(nodeID: UUID) {
@@ -313,6 +322,7 @@ final class RoutingInputCaptureController {
     sources[deviceID] = nil
     for nodeID in source.nodeIDs where deviceIDsByNode[nodeID] == deviceID {
       deviceIDsByNode[nodeID] = nil
+      failedDeviceIDs[nodeID] = deviceID
       snapshots[nodeID] = nil
       states[nodeID] = .failed(RoutingNodeFailure(error))
     }
@@ -333,6 +343,7 @@ final class RoutingInputCaptureController {
     sources[deviceID] = source
     for nodeID in nodeIDs where deviceIDsByNode[nodeID] == deviceID {
       deviceIDsByNode[nodeID] = nil
+      failedDeviceIDs[nodeID] = deviceID
       snapshots[nodeID] = nil
       states[nodeID] = .failed(RoutingNodeFailure(error))
     }

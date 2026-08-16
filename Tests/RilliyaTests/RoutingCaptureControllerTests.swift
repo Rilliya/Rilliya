@@ -142,6 +142,34 @@ struct RoutingCaptureControllerTests {
     #expect(stopped)
   }
 
+  /// Reconciliation reruns whenever any observed audio state changes, so a failure that restarts
+  /// on an unchanged process spins the node between starting and failed.
+  @Test @MainActor
+  func aFailedStartDoesNotRestartOnAnUnchangedProcess() async throws {
+    let processID = try #require(AudioProcessID(rawValue: 601))
+    let nodeID = UUID()
+    let starter = FakeRoutingProcessCaptureStarter(failingProcessIDs: [processID])
+    let controller = RoutingCaptureController(captureStarter: starter)
+
+    controller.start(nodeID: nodeID, processID: processID)
+    #expect(
+      await eventually {
+        guard case .failed = controller.state(for: nodeID) else { return false }
+        return true
+      })
+    #expect(await starter.startCount(for: processID) == 1)
+
+    for _ in 0..<CaptureRetryConstants.attempts {
+      controller.start(nodeID: nodeID, processID: processID)
+      await Task.yield()
+    }
+    #expect(await starter.startCount(for: processID) == 1)
+
+    controller.retry(nodeID: nodeID)
+    controller.start(nodeID: nodeID, processID: processID)
+    #expect(await eventually { await starter.startCount(for: processID) == 2 })
+  }
+
   @Test @MainActor
   func oneSharedStartFailureIsPublishedToEveryConsumer() async throws {
     let processID = try #require(AudioProcessID(rawValue: 101))
@@ -413,4 +441,8 @@ extension RoutingCaptureState {
     guard case .running = self else { return false }
     return true
   }
+}
+
+private enum CaptureRetryConstants {
+  static let attempts = 5
 }

@@ -1015,6 +1015,7 @@ struct RoutingCanvasView: View {
         configuration: configuration,
         state: filePlaybackController.state(for: node.id),
         channelControls: node.audioChannelControls,
+        onRetry: { filePlaybackController.retry(nodeID: node.id) },
         updateConfiguration: { updated in
           workspace.configureFilePlayback(updated, for: node.id)
         },
@@ -1040,21 +1041,24 @@ struct RoutingCanvasView: View {
     case .fileOutput(let configuration):
       SelectedFileOutputInspector(
         configuration: configuration,
-        state: fileOutputController.state(for: node.id)
+        state: fileOutputController.state(for: node.id),
+        onRetry: { fileOutputController.retry(nodeID: node.id) }
       ) { updated in
         workspace.configureFileOutput(updated, for: node.id)
       }
     case .networkSend(let configuration):
       SelectedNetworkSendInspector(
         configuration: configuration,
-        state: networkSendController.state(for: node.id)
+        state: networkSendController.state(for: node.id),
+        onRetry: { networkSendController.retry(nodeID: node.id) }
       ) { updated in
         workspace.configureNetworkSend(updated, for: node.id)
       }
     case .networkReceive(let configuration):
       SelectedNetworkReceiveInspector(
         configuration: configuration,
-        state: networkReceiveController.state(for: node.id)
+        state: networkReceiveController.state(for: node.id),
+        onRetry: { networkReceiveController.retry(nodeID: node.id) }
       ) { updated in
         workspace.configureNetworkReceive(updated, for: node.id)
       }
@@ -3514,9 +3518,9 @@ private struct SelectedApplicationInspector: View {
           systemImage: "exclamationmark.triangle",
           tone: .warning
         )
-        if isRouted, let processID = runningProcessID {
+        if isRouted, runningProcessID != nil {
           Button("Try Again") {
-            captureController.start(nodeID: nodeID, processID: processID)
+            captureController.retry(nodeID: nodeID)
           }
           .buttonStyle(FlowingSoftButtonStyle())
         }
@@ -3835,9 +3839,9 @@ private struct SelectedInputAudioInspector: View {
           systemImage: "exclamationmark.triangle",
           tone: .warning
         )
-        if isRouted, let deviceID = selection?.id {
+        if isRouted, selection?.id != nil {
           Button("Try Again") {
-            captureController.start(nodeID: nodeID, deviceID: deviceID)
+            captureController.retry(nodeID: nodeID)
           }
           .buttonStyle(FlowingSoftButtonStyle())
         }
@@ -5319,6 +5323,7 @@ private struct SelectedFilePlaybackInspector: View {
   let configuration: RoutingFilePlaybackConfiguration
   let state: RoutingFilePlaybackState
   let channelControls: [Int: RoutingAudioChannelControl]
+  let onRetry: () -> Void
   let updateConfiguration: (RoutingFilePlaybackConfiguration) -> Void
   let setVolume: (Double) -> Void
   let setMuted: (Bool) -> Void
@@ -5440,6 +5445,10 @@ private struct SelectedFilePlaybackInspector: View {
         systemImage: statusSymbol,
         tone: statusTone
       )
+      if case .failed = state {
+        Button("Try Again", action: onRetry)
+          .buttonStyle(FlowingSoftButtonStyle())
+      }
     }
     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
   }
@@ -5608,6 +5617,7 @@ private struct SelectedFileOutputInspector: View {
 
   let configuration: RoutingFileOutputConfiguration
   let state: RoutingFileOutputState
+  let onRetry: () -> Void
   let updateConfiguration: (RoutingFileOutputConfiguration) -> Void
 
   private let capabilities = AudioFileWritingCapabilities.current()
@@ -5739,6 +5749,10 @@ private struct SelectedFileOutputInspector: View {
         systemImage: statusSymbol,
         tone: statusTone
       )
+      if case .failed = state {
+        Button("Try Again", action: onRetry)
+          .buttonStyle(FlowingSoftButtonStyle())
+      }
     }
     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
   }
@@ -5989,6 +6003,7 @@ private func labeledFileOutputControl<Content: View>(
 private struct SelectedNetworkSendInspector: View {
   let configuration: RoutingNetworkSendConfiguration
   let state: RoutingNetworkSendState
+  let onRetry: () -> Void
   let updateConfiguration: (RoutingNetworkSendConfiguration) -> Void
 
   @State private var hostText: String
@@ -5997,10 +6012,12 @@ private struct SelectedNetworkSendInspector: View {
   init(
     configuration: RoutingNetworkSendConfiguration,
     state: RoutingNetworkSendState,
+    onRetry: @escaping () -> Void,
     updateConfiguration: @escaping (RoutingNetworkSendConfiguration) -> Void
   ) {
     self.configuration = configuration
     self.state = state
+    self.onRetry = onRetry
     self.updateConfiguration = updateConfiguration
     _hostText = State(initialValue: configuration.host)
     _portText = State(initialValue: String(configuration.port))
@@ -6045,6 +6062,10 @@ private struct SelectedNetworkSendInspector: View {
         systemImage: stateSymbol,
         tone: stateTone
       )
+      if case .failed = state {
+        Button("Try Again", action: onRetry)
+          .buttonStyle(FlowingSoftButtonStyle())
+      }
 
       Text(
         "Audio is unencrypted UDP intended for a trusted local network. It is never sent while the workflow is paused or the node has no connected source."
@@ -6151,6 +6172,7 @@ private struct SelectedNetworkSendInspector: View {
 private struct SelectedNetworkReceiveInspector: View {
   let configuration: RoutingNetworkReceiveConfiguration
   let state: RoutingNetworkReceiveState
+  let onRetry: () -> Void
   let updateConfiguration: (RoutingNetworkReceiveConfiguration) -> Void
 
   @State private var portText: String
@@ -6158,10 +6180,12 @@ private struct SelectedNetworkReceiveInspector: View {
   init(
     configuration: RoutingNetworkReceiveConfiguration,
     state: RoutingNetworkReceiveState,
+    onRetry: @escaping () -> Void,
     updateConfiguration: @escaping (RoutingNetworkReceiveConfiguration) -> Void
   ) {
     self.configuration = configuration
     self.state = state
+    self.onRetry = onRetry
     self.updateConfiguration = updateConfiguration
     _portText = State(initialValue: String(configuration.port))
   }
@@ -6193,6 +6217,10 @@ private struct SelectedNetworkReceiveInspector: View {
         systemImage: stateSymbol,
         tone: stateTone
       )
+      if case .failed = state {
+        Button("Try Again", action: onRetry)
+          .buttonStyle(FlowingSoftButtonStyle())
+      }
 
       Text(
         "Packets with an unexpected version, format, size, or active session are rejected before they reach the audio graph. Missing packets become silence."
