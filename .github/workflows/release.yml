@@ -38,6 +38,7 @@ jobs:
       - name: Check out application
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
         with:
+          fetch-depth: 0
           path: Rilliya
           persist-credentials: false
 
@@ -269,6 +270,13 @@ jobs:
           set -euo pipefail
           tag="v$RELEASE_VERSION"
           assets=(release/*.dmg release/*.dmg.sha256)
+
+          if git rev-parse "$tag" >/dev/null 2>&1; then
+            if [[ "$(git rev-list -n 1 "$tag")" != "$GITHUB_SHA" ]]; then
+              echo "$tag already points to another commit" >&2
+              exit 1
+            fi
+          fi
 
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${assets[@]}" --clobber
