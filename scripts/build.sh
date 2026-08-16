@@ -11,3 +11,5 @@ xcodebuild \
   -destination 'platform=macOS' \
   -derivedDataPath .build/DerivedData \
   build
+
+./scripts/check-driver-bundle.sh

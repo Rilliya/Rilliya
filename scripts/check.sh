@@ -16,5 +16,6 @@ xcrun swift-format lint \
 plutil -lint Sources/Rilliya/Resources/Info.plist
 plutil -lint Sources/Rilliya/Resources/Rilliya.entitlements
 
+./scripts/check-driver.sh
 ./scripts/test.sh
 ./scripts/build.sh
