@@ -228,6 +228,110 @@ struct RoutingCaptureRequirementsTests {
     #expect(switchedRequirements.processIDsByNode == [sourceIDs[1]: processID])
   }
 
+  @Test @MainActor
+  func systemDefaultOutputSelectionFollowsCatalogChangesWithoutMutatingTheNode() throws {
+    let firstDeviceID = try #require(AudioDeviceID(rawValue: "test.output.first"))
+    let secondDeviceID = try #require(AudioDeviceID(rawValue: "test.output.second"))
+    let workflow = RoutingWorkflowModel(name: "System Output")
+    workflow.run()
+    let sourceID = workflow.workspace.addSystemOutputNode(centeredAt: .zero)
+    let visualizerID = workflow.workspace.addVisualizerNode(
+      centeredAt: CGPoint(x: 400, y: 0)
+    )
+    workflow.workspace.selectSystemOutput(.systemDefault, for: sourceID)
+    try connect(sourceID: sourceID, targetID: visualizerID, in: workflow.workspace)
+
+    let firstRequirements = RoutingCaptureRequirementResolver.resolve(
+      workflows: [workflow],
+      catalogSnapshot: nil,
+      audioCatalogSnapshot: try outputCatalog(
+        firstDeviceID: firstDeviceID,
+        secondDeviceID: secondDeviceID,
+        defaultDeviceID: firstDeviceID
+      )
+    )
+    let secondRequirements = RoutingCaptureRequirementResolver.resolve(
+      workflows: [workflow],
+      catalogSnapshot: nil,
+      audioCatalogSnapshot: try outputCatalog(
+        firstDeviceID: firstDeviceID,
+        secondDeviceID: secondDeviceID,
+        defaultDeviceID: secondDeviceID
+      )
+    )
+
+    #expect(firstRequirements.outputCaptureDeviceIDsByNode == [sourceID: firstDeviceID])
+    #expect(secondRequirements.outputCaptureDeviceIDsByNode == [sourceID: secondDeviceID])
+    #expect(workflow.workspace.node(id: sourceID)?.value.outputCaptureSelection == .systemDefault)
+    #expect(firstRequirements.muteBehaviorsByProcess.isEmpty)
+  }
+
+  @Test @MainActor
+  func pinnedOutputCaptureIgnoresDefaultChangesAndUnavailableDevicesAreNotOpened() throws {
+    let pinnedDeviceID = try #require(AudioDeviceID(rawValue: "test.output.pinned"))
+    let defaultDeviceID = try #require(AudioDeviceID(rawValue: "test.output.default"))
+    let workflow = RoutingWorkflowModel(name: "Pinned Output")
+    workflow.run()
+    let sourceID = workflow.workspace.addSystemOutputNode(centeredAt: .zero)
+    let visualizerID = workflow.workspace.addVisualizerNode(
+      centeredAt: CGPoint(x: 400, y: 0)
+    )
+    workflow.workspace.selectSystemOutput(
+      .device(RoutingOutputDeviceSelection(id: pinnedDeviceID, displayName: "Pinned")),
+      for: sourceID
+    )
+    try connect(sourceID: sourceID, targetID: visualizerID, in: workflow.workspace)
+
+    let available = RoutingCaptureRequirementResolver.resolve(
+      workflows: [workflow],
+      catalogSnapshot: nil,
+      audioCatalogSnapshot: try outputCatalog(
+        firstDeviceID: pinnedDeviceID,
+        secondDeviceID: defaultDeviceID,
+        defaultDeviceID: defaultDeviceID
+      )
+    )
+    #expect(available.outputCaptureDeviceIDsByNode == [sourceID: pinnedDeviceID])
+
+    let unavailable = RoutingCaptureRequirementResolver.resolve(
+      workflows: [workflow],
+      catalogSnapshot: nil,
+      audioCatalogSnapshot: AudioCatalogSnapshot(
+        processes: [],
+        devices: [try outputDevice(id: pinnedDeviceID, isDefault: false, isAlive: false)]
+      )
+    )
+    #expect(unavailable.outputCaptureDeviceIDsByNode.isEmpty)
+  }
+
+  @Test @MainActor
+  func systemDefaultOutputUsesTheCatalogOrderWhenMultipleDevicesAreFlaggedDefault() throws {
+    let firstDeviceID = try #require(AudioDeviceID(rawValue: "test.output.ordered-first"))
+    let secondDeviceID = try #require(AudioDeviceID(rawValue: "test.output.ordered-second"))
+    let workflow = RoutingWorkflowModel(name: "Ordered Default")
+    workflow.run()
+    let sourceID = workflow.workspace.addSystemOutputNode(centeredAt: .zero)
+    let visualizerID = workflow.workspace.addVisualizerNode(
+      centeredAt: CGPoint(x: 400, y: 0)
+    )
+    workflow.workspace.selectSystemOutput(.systemDefault, for: sourceID)
+    try connect(sourceID: sourceID, targetID: visualizerID, in: workflow.workspace)
+
+    let requirements = RoutingCaptureRequirementResolver.resolve(
+      workflows: [workflow],
+      catalogSnapshot: nil,
+      audioCatalogSnapshot: AudioCatalogSnapshot(
+        processes: [],
+        devices: [
+          try outputDevice(id: firstDeviceID, isDefault: true, isAlive: true),
+          try outputDevice(id: secondDeviceID, isDefault: true, isAlive: true),
+        ]
+      )
+    )
+
+    #expect(requirements.outputCaptureDeviceIDsByNode == [sourceID: firstDeviceID])
+  }
+
   @MainActor
   private func connect(
     sourceID: UUID,
@@ -289,6 +393,54 @@ struct RoutingCaptureRequirementsTests {
         )
       ],
       unmatchedRunningApplications: []
+    )
+  }
+
+  private func outputCatalog(
+    firstDeviceID: AudioDeviceID,
+    secondDeviceID: AudioDeviceID,
+    defaultDeviceID: AudioDeviceID
+  ) throws -> AudioCatalogSnapshot {
+    AudioCatalogSnapshot(
+      processes: [],
+      devices: [
+        try outputDevice(
+          id: firstDeviceID,
+          isDefault: firstDeviceID == defaultDeviceID,
+          isAlive: true
+        ),
+        try outputDevice(
+          id: secondDeviceID,
+          isDefault: secondDeviceID == defaultDeviceID,
+          isAlive: true
+        ),
+      ]
+    )
+  }
+
+  private func outputDevice(
+    id: AudioDeviceID,
+    isDefault: Bool,
+    isAlive: Bool
+  ) throws -> AudioDevice {
+    let channelID = AudioChannelID(
+      ownerID: .destination(.deviceOutput(id)),
+      index: try #require(AudioChannelIndex(rawValue: 0))
+    )
+    return AudioDevice(
+      id: id,
+      name: id.rawValue,
+      transportType: 0,
+      nominalSampleRate: 48_000,
+      isAlive: isAlive,
+      isRunning: true,
+      input: nil,
+      output: AudioDeviceEndpoint(
+        direction: .output,
+        isDefault: isDefault,
+        channels: [AudioChannel(id: channelID)],
+        streams: []
+      )
     )
   }
 }

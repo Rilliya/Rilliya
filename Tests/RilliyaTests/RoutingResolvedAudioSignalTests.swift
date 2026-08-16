@@ -145,6 +145,34 @@ struct RoutingResolvedAudioSignalTests {
     #expect(output.first?.peak == 0.75)
   }
 
+  @Test
+  func systemOutputSnapshotResolvesThroughAggregateAndSeparatePorts() throws {
+    let nodeID = UUID()
+    let deviceID = try #require(AudioDeviceID(rawValue: "test.output"))
+    let node = RoutingWorkspaceNode(
+      id: nodeID,
+      value: .systemOutput(
+        selection: .systemDefault, channelPresentation: .separate(channelCount: 2)),
+      frame: .zero
+    )
+    let snapshot = try makeOutputSnapshot(deviceID: deviceID, waveforms: [[0.1], [0.8]])
+    let resolver = RoutingAudioSignalResolver(
+      nodes: [node],
+      activeEdges: [],
+      snapshotForNode: { $0 == nodeID ? snapshot : nil }
+    )
+
+    let selected = resolver.resolveOutput(
+      RoutingWorkspacePortAddress(
+        nodeID: nodeID,
+        portID: RoutingGraphPortID(direction: .output, channel: .channel(1))
+      )
+    )
+
+    #expect(selected.map(\.channelIndex) == [1])
+    #expect(selected.map(\.waveform) == [[0.8]])
+  }
+
   private func edge(sourceID: UUID, targetID: UUID) -> RoutingWorkspaceEdge {
     RoutingWorkspaceEdge(
       id: UUID(),
@@ -186,6 +214,38 @@ struct RoutingResolvedAudioSignalTests {
           decibels: -6,
           isClipping: values.1 >= 1,
           waveform: values.0
+        )
+      }
+    )
+  }
+
+  private func makeOutputSnapshot(
+    deviceID: AudioDeviceID,
+    waveforms: [[Float]]
+  ) throws -> DeviceOutputMeterSnapshot {
+    let channelIDs = try waveforms.indices.map { channelIndex in
+      AudioChannelID(
+        ownerID: .source(.deviceOutput(deviceID)),
+        index: try #require(AudioChannelIndex(rawValue: channelIndex))
+      )
+    }
+    return DeviceOutputMeterSnapshot(
+      format: DeviceOutputCaptureFormat(
+        deviceID: deviceID,
+        streamIndex: try #require(AudioStreamIndex(rawValue: 0)),
+        sampleRate: 48_000,
+        channelIDs: channelIDs
+      ),
+      sequence: 1,
+      frameCount: waveforms.first?.count ?? 0,
+      channels: zip(channelIDs, waveforms).map { channelID, waveform in
+        AudioChannelMeterSnapshot(
+          channelID: channelID,
+          rootMeanSquare: 0.5,
+          peak: waveform.map(abs).max() ?? 0,
+          decibels: -6,
+          isClipping: false,
+          waveform: waveform
         )
       }
     )

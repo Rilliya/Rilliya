@@ -27,6 +27,9 @@ struct WorkspaceView: View {
   private var inputCaptureController: RoutingInputCaptureController {
     runtime.inputCaptureController
   }
+  private var outputCaptureController: RoutingOutputCaptureController {
+    runtime.outputCaptureController
+  }
   private var filePlaybackController: RoutingFilePlaybackController {
     runtime.filePlaybackController
   }
@@ -64,6 +67,7 @@ struct WorkspaceView: View {
         allowsClickInsertion: settings.addsNodesOnPaletteClick,
         insertApplicationAudio: insertApplicationAudio,
         insertInputAudio: insertInputAudio,
+        insertSystemOutput: insertSystemOutput,
         insertOutputAudio: insertOutputAudio,
         insertVisualizer: insertVisualizer,
         insertAudioMixer: insertAudioMixer,
@@ -82,7 +86,8 @@ struct WorkspaceView: View {
         RoutingWorkflowSwitcher(
           library: workflowLibrary,
           captureController: captureController,
-          inputCaptureController: inputCaptureController
+          inputCaptureController: inputCaptureController,
+          outputCaptureController: outputCaptureController
         )
       }
       .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
@@ -228,6 +233,7 @@ struct WorkspaceView: View {
       iconResolver: iconResolver,
       captureController: captureController,
       inputCaptureController: inputCaptureController,
+      outputCaptureController: outputCaptureController,
       filePlaybackController: filePlaybackController,
       fileOutputController: fileOutputController,
       networkSendController: networkSendController,
@@ -261,6 +267,17 @@ struct WorkspaceView: View {
   private func insertInputAudio() {
     let workflow = workflowLibrary.selectedWorkflow
     let nodeID = workflow.workspace.addInputAudioNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
+      )
+    )
+    selectNode(nodeID, in: workflow)
+  }
+
+  private func insertSystemOutput() {
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addSystemOutputNode(
       centeredAt: RoutingNodeInsertion.point(
         in: workflow.canvasSession.viewport.visibleWorldRect,
         existingNodeCount: workflow.workspace.nodes.count
@@ -428,6 +445,7 @@ private struct RoutingWorkflowCanvas: View {
   let iconResolver: NSWorkspaceInstalledApplicationIconResolver
   let captureController: RoutingCaptureController
   let inputCaptureController: RoutingInputCaptureController
+  let outputCaptureController: RoutingOutputCaptureController
   let filePlaybackController: RoutingFilePlaybackController
   let fileOutputController: RoutingFileOutputController
   let networkSendController: RoutingNetworkSendController
@@ -443,6 +461,7 @@ private struct RoutingWorkflowCanvas: View {
       iconResolver: iconResolver,
       captureController: captureController,
       inputCaptureController: inputCaptureController,
+      outputCaptureController: outputCaptureController,
       filePlaybackController: filePlaybackController,
       fileOutputController: fileOutputController,
       networkSendController: networkSendController,
@@ -468,6 +487,7 @@ private struct RoutingWorkflowSwitcher: View {
   let library: RoutingWorkflowLibrary
   let captureController: RoutingCaptureController
   let inputCaptureController: RoutingInputCaptureController
+  let outputCaptureController: RoutingOutputCaptureController
 
   @State private var workflowDialog: WorkflowDialog?
   @State private var isWorkflowPopoverPresented = false
@@ -642,6 +662,12 @@ private struct RoutingWorkflowSwitcher: View {
         break
       }
       switch inputCaptureController.state(for: node.id) {
+      case .starting, .running:
+        return true
+      case .idle, .failed:
+        break
+      }
+      switch outputCaptureController.state(for: node.id) {
       case .starting, .running:
         return true
       case .idle, .failed:

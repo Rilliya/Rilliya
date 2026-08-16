@@ -58,6 +58,7 @@ struct AudioCatalogViewState: Equatable {
   private(set) var snapshot: AudioCatalogSnapshot?
   private(set) var rootErrorMessage: String?
   private(set) var isLoading = false
+  private(set) var revision: UInt64 = 0
 
   var isInitialLoad: Bool {
     isLoading && snapshot == nil
@@ -70,6 +71,7 @@ struct AudioCatalogViewState: Equatable {
 
   mutating func receive(_ snapshot: AudioCatalogSnapshot) {
     self.snapshot = snapshot
+    revision &+= 1
     rootErrorMessage = nil
     isLoading = false
   }

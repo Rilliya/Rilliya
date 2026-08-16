@@ -13,6 +13,7 @@ import UniformTypeIdentifiers
 private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Transferable {
   case applicationAudio = "moe.uwucocoa.rilliya.node.application-audio"
   case inputAudio = "moe.uwucocoa.rilliya.node.input-audio"
+  case systemOutput = "moe.uwucocoa.rilliya.node.system-output"
   case outputAudio = "moe.uwucocoa.rilliya.node.output-audio"
   case visualizer = "moe.uwucocoa.rilliya.node.visualizer"
   case audioMixer = "moe.uwucocoa.rilliya.node.audio-mixer"
@@ -34,6 +35,7 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
     switch self {
     case .applicationAudio: .applicationAudio
     case .inputAudio: .inputAudio
+    case .systemOutput: .systemOutput
     case .outputAudio: .outputAudio
     case .visualizer: .visualizer
     case .audioMixer: .audioMixer
@@ -57,6 +59,7 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
     switch self {
     case .applicationAudio: "Capture an app output"
     case .inputAudio: "Capture an input device"
+    case .systemOutput: "Capture an output device"
     case .outputAudio: "Play through an output device"
     case .visualizer: "Inspect routed channels"
     case .audioMixer: "Mix routed channel levels"
@@ -76,7 +79,8 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
 
   var category: RoutingPaletteCategory {
     switch self {
-    case .applicationAudio, .inputAudio, .signalGenerator, .filePlayback, .networkReceive:
+    case .applicationAudio, .inputAudio, .systemOutput, .signalGenerator, .filePlayback,
+      .networkReceive:
       .sources
     case .outputAudio, .fileOutput, .networkSend:
       .destinations
@@ -212,6 +216,7 @@ struct RoutingCanvasView: View {
   let iconResolver: NSWorkspaceInstalledApplicationIconResolver
   let captureController: RoutingCaptureController
   let inputCaptureController: RoutingInputCaptureController
+  let outputCaptureController: RoutingOutputCaptureController
   let filePlaybackController: RoutingFilePlaybackController
   let fileOutputController: RoutingFileOutputController
   let networkSendController: RoutingNetworkSendController
@@ -358,6 +363,9 @@ struct RoutingCanvasView: View {
           case .inputAudio:
             InputAudioNodeView(node: node, context: context)
               .zIndex(context.isSelected ? 2 : 1)
+          case .systemOutput:
+            SystemOutputNodeView(node: node, context: context)
+              .zIndex(context.isSelected ? 2 : 1)
           case .outputAudio:
             OutputAudioNodeView(node: node, context: context)
               .zIndex(context.isSelected ? 2 : 1)
@@ -503,6 +511,30 @@ struct RoutingCanvasView: View {
           captureFormat: captureFormat,
           audioSourceMeters: audioSourceMeters(for: node),
           audioChannelControls: node.audioChannelControls
+        )
+      case .systemOutput(let selection, _):
+        let state = outputCaptureController.state(for: node.id)
+        let captureFormat: RoutingAudioCaptureFormat?
+        switch state {
+        case .running(let format):
+          captureFormat = RoutingAudioCaptureFormat(format)
+        case .idle, .starting, .failed:
+          captureFormat = nil
+        }
+        supplements[node.id] = RoutingMetalNodeSupplement(
+          isRunning: isOutputCaptureAvailable(selection),
+          isCapturing: {
+            switch state {
+            case .starting, .running: true
+            case .idle, .failed: false
+            }
+          }(),
+          captureConsumerCount: outputCaptureController.consumerCount(for: node.id),
+          visualizerSignal: nil,
+          captureFormat: captureFormat,
+          audioSourceMeters: audioSourceMeters(for: node),
+          audioChannelControls: node.audioChannelControls,
+          outputCaptureState: state
         )
       case .outputAudio(let selection, _):
         supplements[node.id] = RoutingMetalNodeSupplement(
@@ -660,6 +692,18 @@ struct RoutingCanvasView: View {
     } == true
   }
 
+  private func isOutputCaptureAvailable(_ selection: RoutingOutputCaptureSelection?) -> Bool {
+    let devices = audioCatalog.state.snapshot?.outputDevices ?? []
+    switch selection {
+    case .systemDefault:
+      return devices.contains { $0.isAlive && $0.output?.isDefault == true }
+    case .device(let selection):
+      return devices.contains { $0.id == selection.id && $0.isAlive }
+    case nil:
+      return false
+    }
+  }
+
   @ViewBuilder
   private var selectedNodeInspector: some View {
     if let nodeID = selectedWorkspaceNodeID,
@@ -737,6 +781,37 @@ struct RoutingCanvasView: View {
         },
         setChannelPresentation: { presentation in
           workspace.setInputDeviceChannelPresentation(presentation, for: node.id)
+        },
+        setChannelGain: { channelIndex, gainDecibels in
+          workspace.setAudioChannelGain(
+            gainDecibels,
+            nodeID: node.id,
+            channelIndex: channelIndex
+          )
+        },
+        setChannelMuted: { channelIndex, isMuted in
+          workspace.setAudioChannelMuted(
+            isMuted,
+            nodeID: node.id,
+            channelIndex: channelIndex
+          )
+        }
+      )
+    case .systemOutput(let selection, let channelPresentation):
+      SelectedSystemOutputInspector(
+        nodeID: node.id,
+        selection: selection,
+        channelPresentation: channelPresentation,
+        isWorkflowRunning: isWorkflowRunning,
+        isRouted: workspace.edges.contains { $0.isEnabled && $0.source.nodeID == node.id },
+        audioCatalog: audioCatalog,
+        captureController: outputCaptureController,
+        channelControls: node.audioChannelControls,
+        selectOutput: { selection in
+          workspace.selectSystemOutput(selection, for: node.id)
+        },
+        setChannelPresentation: { presentation in
+          workspace.setSystemOutputChannelPresentation(presentation, for: node.id)
         },
         setChannelGain: { channelIndex, gainDecibels in
           workspace.setAudioChannelGain(
@@ -907,7 +982,10 @@ struct RoutingCanvasView: View {
     if let snapshot = captureController.snapshot(for: nodeID) {
       return snapshot
     }
-    return inputCaptureController.snapshot(for: nodeID)
+    if let snapshot = inputCaptureController.snapshot(for: nodeID) {
+      return snapshot
+    }
+    return outputCaptureController.snapshot(for: nodeID)
   }
 
   private var audioSignalResolver: RoutingAudioSignalResolver {
@@ -1035,6 +1113,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   let allowsClickInsertion: Bool
   let insertApplicationAudio: () -> Void
   let insertInputAudio: () -> Void
+  let insertSystemOutput: () -> Void
   let insertOutputAudio: () -> Void
   let insertVisualizer: () -> Void
   let insertAudioMixer: () -> Void
@@ -1059,6 +1138,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     allowsClickInsertion: Bool,
     insertApplicationAudio: @escaping () -> Void,
     insertInputAudio: @escaping () -> Void,
+    insertSystemOutput: @escaping () -> Void,
     insertOutputAudio: @escaping () -> Void,
     insertVisualizer: @escaping () -> Void,
     insertAudioMixer: @escaping () -> Void,
@@ -1080,6 +1160,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     self.allowsClickInsertion = allowsClickInsertion
     self.insertApplicationAudio = insertApplicationAudio
     self.insertInputAudio = insertInputAudio
+    self.insertSystemOutput = insertSystemOutput
     self.insertOutputAudio = insertOutputAudio
     self.insertVisualizer = insertVisualizer
     self.insertAudioMixer = insertAudioMixer
@@ -1279,6 +1360,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     switch item {
     case .applicationAudio: insertApplicationAudio
     case .inputAudio: insertInputAudio
+    case .systemOutput: insertSystemOutput
     case .outputAudio: insertOutputAudio
     case .visualizer: insertVisualizer
     case .audioMixer: insertAudioMixer
@@ -1437,6 +1519,12 @@ private struct RoutingCanvasDropPreview: View {
         "Input Audio",
         "Choose an input device",
         "waveform.badge.mic"
+      )
+    case .systemOutput:
+      return (
+        "System Output",
+        "Choose an output source",
+        "speaker.wave.2.circle"
       )
     case .outputAudio:
       return (
@@ -1832,6 +1920,85 @@ private struct InputAudioNodeView: View {
               .font(.caption.weight(.medium))
               .foregroundStyle(FlowingPalette.muted)
             Text(selection?.displayName ?? "Choose an input device")
+              .font(.callout.weight(.semibold))
+              .foregroundStyle(FlowingPalette.ink)
+              .lineLimit(1)
+          }
+
+          Spacer(minLength: 6)
+        }
+        .padding(.trailing, 38)
+
+        if selection == nil {
+          HStack(spacing: 7) {
+            Image(systemName: "cursorarrow.click")
+              .font(.system(size: 9, weight: .semibold))
+            Text("Select this node to configure")
+              .font(.caption)
+              .lineLimit(1)
+            Spacer(minLength: 0)
+          }
+          .foregroundStyle(accent.foreground)
+          .padding(.horizontal, 10)
+          .frame(height: 30)
+          .background(
+            accent.wash,
+            in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+          )
+          .padding(.trailing, 38)
+        }
+      }
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(width: size.width, height: size.height)
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: size.width * context.renderScale,
+      height: size.height * context.renderScale,
+      alignment: .topLeading
+    )
+  }
+}
+
+private struct SystemOutputNodeView: View {
+  let node: FlowingGraphPresentationNode<RoutingCanvasSchema>
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  @Environment(\.flowingAccent) private var accent
+
+  private var selection: RoutingOutputCaptureSelection? {
+    node.value.outputCaptureSelection
+  }
+
+  var body: some View {
+    let size = RoutingCanvasMetrics.nodeSize(for: node.value)
+    FlowingCard(
+      spacing: 0,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      VStack(alignment: .leading, spacing: 11) {
+        HStack(spacing: 11) {
+          Image(systemName: "speaker.wave.2.circle")
+            .font(.system(size: 16, weight: .semibold))
+            .foregroundStyle(accent.foreground)
+            .frame(width: 38, height: 38)
+            .background(
+              accent.veil,
+              in: RoundedRectangle(cornerRadius: 9, style: .continuous)
+            )
+
+          VStack(alignment: .leading, spacing: 2) {
+            Text("System Output")
+              .font(.caption.weight(.medium))
+              .foregroundStyle(FlowingPalette.muted)
+            Text(selection?.displayName ?? "Choose an output source")
               .font(.callout.weight(.semibold))
               .foregroundStyle(FlowingPalette.ink)
               .lineLimit(1)
@@ -3517,6 +3684,372 @@ private struct SelectedInputAudioInspector: View {
       let device = devices.first(where: { $0.id.rawValue == selectedID })
     else { return nil }
     return RoutingInputDeviceSelection(id: device.id, displayName: device.name)
+  }
+}
+
+private enum RoutingOutputCapturePickerValue: Hashable {
+  case none
+  case systemDefault
+  case device(AudioDeviceID)
+}
+
+private struct SelectedSystemOutputInspector: View {
+  let nodeID: UUID
+  let selection: RoutingOutputCaptureSelection?
+  let channelPresentation: RoutingChannelPresentation
+  let isWorkflowRunning: Bool
+  let isRouted: Bool
+  let audioCatalog: AudioCatalogController
+  let captureController: RoutingOutputCaptureController
+  let channelControls: [Int: RoutingAudioChannelControl]
+  let selectOutput: (RoutingOutputCaptureSelection?) -> Void
+  let setChannelPresentation: (RoutingChannelPresentation) -> Void
+  let setChannelGain: (Int, Double) -> Void
+  let setChannelMuted: (Int, Bool) -> Void
+
+  private var devices: [AudioDevice] {
+    audioCatalog.state.snapshot?.outputDevices ?? []
+  }
+
+  private var defaultDevice: AudioDevice? {
+    devices.first { $0.output?.isDefault == true }
+  }
+
+  private var selectedDevice: AudioDevice? {
+    switch selection {
+    case .systemDefault:
+      defaultDevice
+    case .device(let selection):
+      devices.first { $0.id == selection.id }
+    case nil:
+      nil
+    }
+  }
+
+  private var selectedDeviceName: String? {
+    selectedDevice?.name ?? selection?.displayName
+  }
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      HStack(alignment: .firstTextBaseline, spacing: 10) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text("System Output")
+            .font(.headline)
+            .foregroundStyle(FlowingPalette.ink)
+          Text("Capture the mix playing through the system default or a specific output device.")
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+
+        Spacer(minLength: 4)
+
+        if selectedDevice?.isAlive == true {
+          Circle()
+            .fill(Color(nsColor: .systemGreen))
+            .frame(width: 9, height: 9)
+            .accessibilityLabel("Output source available")
+        }
+      }
+
+      pickerContent
+
+      if let selectedDevice, let endpoint = selectedDevice.output {
+        Text(
+          "\(streamZeroChannelCount(for: selectedDevice, endpoint: endpoint)) ch · "
+            + "\(selectedDevice.nominalSampleRate.formatted()) Hz"
+            + (endpoint.isDefault ? " · Current Default" : "")
+        )
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(FlowingPalette.muted)
+      } else if selection != nil, let selectedDeviceName {
+        Text("\(selectedDeviceName) · Unavailable")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+
+      captureContent
+
+      if let mutedChannelDescription {
+        FlowingCallout(
+          "Unmute the channel or raise its gain before expecting audible output.",
+          title: "\(mutedChannelDescription) muted",
+          systemImage: "speaker.slash.fill",
+          tone: .neutral
+        )
+      }
+
+      Divider()
+        .overlay(FlowingPalette.hairline)
+
+      VStack(alignment: .leading, spacing: 9) {
+        Text("Output Ports")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+
+        FlowingSegmentedControl(
+          label: "Output port presentation",
+          selection: portDisplayMode,
+          options: [
+            FlowingSegmentOption(.aggregate, label: "All Channels"),
+            FlowingSegmentOption(.separate, label: "Separate"),
+          ]
+        )
+
+        if case .separate = channelPresentation {
+          HStack {
+            Text("Channels")
+              .font(.caption)
+              .foregroundStyle(FlowingPalette.muted)
+            Spacer(minLength: 8)
+            FlowingStepper(
+              "Output channel count",
+              value: separateChannelCount,
+              in: 1...RoutingVisualizerConfiguration.maximumAvailableChannelCount,
+              step: 1
+            )
+          }
+        }
+
+        Text("The captured stream's live format replaces this preview when capture starts.")
+          .font(.caption2)
+          .foregroundStyle(FlowingPalette.faint)
+      }
+
+      if case .separate(let channelCount) = channelPresentation {
+        Divider()
+          .overlay(FlowingPalette.hairline)
+        RoutingAudioChannelControlsView(
+          channelCount: channelCount,
+          controls: channelControls,
+          setGain: setChannelGain,
+          setMuted: setChannelMuted
+        )
+      }
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  @ViewBuilder
+  private var pickerContent: some View {
+    if audioCatalog.state.isInitialLoad, devices.isEmpty {
+      HStack(spacing: 9) {
+        ProgressView()
+          .controlSize(.small)
+        Text("Discovering output devices…")
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+    } else if let errorMessage = audioCatalog.state.rootErrorMessage, devices.isEmpty {
+      FlowingCallout(errorMessage, title: "Output devices unavailable", tone: .warning)
+    } else {
+      FlowingSearchPicker(
+        label: "Output Capture Source",
+        selection: pickerSelection,
+        options: pickerOptions,
+        maximumVisibleOptions: 8
+      )
+    }
+  }
+
+  @ViewBuilder
+  private var captureContent: some View {
+    if !isWorkflowRunning, isRouted, selection != nil {
+      FlowingCallout(
+        "Run this workflow to start capturing the selected output source.",
+        title: "Workflow Paused",
+        systemImage: "pause.circle",
+        tone: .neutral
+      )
+    } else {
+      captureStateContent
+    }
+  }
+
+  @ViewBuilder
+  private var captureStateContent: some View {
+    switch captureController.state(for: nodeID) {
+    case .idle:
+      if isRouted, selectedDevice?.isAlive == true {
+        HStack(spacing: 9) {
+          ProgressView()
+            .controlSize(.small)
+          Text("Preparing system output capture…")
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+      } else if isRouted, selection != nil {
+        FlowingCallout(
+          "Choose an available output device or wait for a system default to become available.",
+          title: "Output source unavailable",
+          systemImage: "speaker.badge.exclamationmark",
+          tone: .neutral
+        )
+      } else if selection != nil {
+        FlowingCallout(
+          "Connect an output port to another audio node to begin capture.",
+          title: "Ready to Route",
+          systemImage: "point.3.connected.trianglepath.dotted",
+          tone: .neutral
+        )
+      }
+    case .starting:
+      HStack(spacing: 9) {
+        ProgressView()
+          .controlSize(.small)
+        Text("Opening the output-device tap…")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+    case .running(let format):
+      HStack(spacing: 9) {
+        Circle()
+          .fill(Color(nsColor: .systemGreen))
+          .frame(width: 9, height: 9)
+        VStack(alignment: .leading, spacing: 2) {
+          Text("Capturing \(format.channelIDs.count) channels")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text("\(format.sampleRate.formatted()) Hz")
+            .font(.caption2)
+            .foregroundStyle(FlowingPalette.muted)
+          if captureController.consumerCount(for: nodeID) > 1 {
+            Text("Shared by \(captureController.consumerCount(for: nodeID)) nodes")
+              .font(.caption2)
+              .foregroundStyle(FlowingPalette.faint)
+          }
+        }
+      }
+      .accessibilityElement(children: .combine)
+      .accessibilityLabel("Capturing system output audio")
+    case .failed(let message):
+      VStack(alignment: .leading, spacing: 8) {
+        FlowingCallout(
+          message,
+          title: "System output capture failed",
+          systemImage: "exclamationmark.triangle",
+          tone: .warning
+        )
+        if isRouted {
+          Button("Try Again") {
+            captureController.retry(nodeID: nodeID)
+          }
+          .buttonStyle(FlowingSoftButtonStyle())
+        }
+      }
+    }
+  }
+
+  private var pickerSelection: Binding<RoutingOutputCapturePickerValue> {
+    Binding(
+      get: {
+        switch selection {
+        case .systemDefault: .systemDefault
+        case .device(let device): .device(device.id)
+        case nil: .none
+        }
+      },
+      set: { value in
+        switch value {
+        case .none:
+          selectOutput(nil)
+        case .systemDefault:
+          selectOutput(.systemDefault)
+        case .device(let deviceID):
+          guard let device = devices.first(where: { $0.id == deviceID }) else { return }
+          selectOutput(
+            .device(RoutingOutputDeviceSelection(id: device.id, displayName: device.name))
+          )
+        }
+      }
+    )
+  }
+
+  private var pickerOptions: [FlowingSelectOption<RoutingOutputCapturePickerValue>] {
+    var options: [FlowingSelectOption<RoutingOutputCapturePickerValue>] = [
+      FlowingSelectOption(.none, label: "No Output Source"),
+      FlowingSelectOption(
+        .systemDefault,
+        label: defaultDevice.map { "Follow System Default · \($0.name)" }
+          ?? "Follow System Default · Unavailable"
+      ),
+    ]
+    if case .device(let pinned) = selection,
+      !devices.contains(where: { $0.id == pinned.id })
+    {
+      options.append(
+        FlowingSelectOption(.device(pinned.id), label: "\(pinned.displayName) · Unavailable")
+      )
+    }
+    options.append(
+      contentsOf: devices.map { device in
+        FlowingSelectOption(
+          .device(device.id),
+          label: device.name + (device.output?.isDefault == true ? " · Current Default" : "")
+        )
+      }
+    )
+    return options
+  }
+
+  private var portDisplayMode: Binding<RoutingPortDisplayMode> {
+    Binding(
+      get: {
+        switch channelPresentation {
+        case .aggregate: .aggregate
+        case .separate: .separate
+        }
+      },
+      set: { mode in
+        switch mode {
+        case .aggregate:
+          setChannelPresentation(.aggregate)
+        case .separate:
+          setChannelPresentation(
+            .separate(channelCount: channelPresentation.channelCount ?? previewChannelCount)
+          )
+        }
+      }
+    )
+  }
+
+  private var separateChannelCount: Binding<Int> {
+    Binding(
+      get: { channelPresentation.channelCount ?? previewChannelCount },
+      set: { setChannelPresentation(.separate(channelCount: $0)) }
+    )
+  }
+
+  private var previewChannelCount: Int {
+    guard let device = selectedDevice, let endpoint = device.output else { return 2 }
+    return max(1, streamZeroChannelCount(for: device, endpoint: endpoint))
+  }
+
+  private func streamZeroChannelCount(
+    for device: AudioDevice,
+    endpoint: AudioDeviceEndpoint
+  ) -> Int {
+    if let count = endpoint.streams.first?.virtualFormat?.channelsPerFrame, count > 0 {
+      return Int(count)
+    }
+    let mappedCount = endpoint.channels.count {
+      $0.streamID?.index == AudioStreamIndex(rawValue: 0)
+    }
+    return mappedCount > 0 ? mappedCount : endpoint.channelCount
+  }
+
+  private var mutedChannelDescription: String? {
+    let mutedChannels = channelControls.filter(\.value.isMuted).keys.sorted().map { index in
+      if channelPresentation.channelCount == 2 {
+        return index == 0 ? "Left channel" : "Right channel"
+      }
+      return "Channel \(index + 1)"
+    }
+    guard !mutedChannels.isEmpty else { return nil }
+    return mutedChannels.formatted(.list(type: .and))
   }
 }
 

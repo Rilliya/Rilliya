@@ -183,6 +183,13 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
         return false
       }
       return isValid(presentation)
+    case .systemOutput(let selection, let presentation):
+      if case .some(.device(let device)) = selection,
+        device.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+      {
+        return false
+      }
+      return isValid(presentation)
     case .outputAudio(let selection, let presentation):
       if let selection,
         selection.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

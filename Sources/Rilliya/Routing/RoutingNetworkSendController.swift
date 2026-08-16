@@ -186,6 +186,7 @@ final class RoutingNetworkSendController {
     workflows: [RoutingWorkflowModel],
     captureController: RoutingCaptureController,
     inputCaptureController: RoutingInputCaptureController,
+    outputCaptureController: RoutingOutputCaptureController = RoutingOutputCaptureController(),
     filePlaybackController: RoutingFilePlaybackController,
     networkReceiveController: RoutingNetworkReceiveController
   ) {
@@ -193,6 +194,7 @@ final class RoutingNetworkSendController {
       workflows: workflows,
       captureController: captureController,
       inputCaptureController: inputCaptureController,
+      outputCaptureController: outputCaptureController,
       filePlaybackController: filePlaybackController,
       networkReceiveController: networkReceiveController
     )
@@ -317,11 +319,19 @@ final class RoutingNetworkSendController {
     workflows: [RoutingWorkflowModel],
     captureController: RoutingCaptureController,
     inputCaptureController: RoutingInputCaptureController,
+    outputCaptureController: RoutingOutputCaptureController,
     filePlaybackController: RoutingFilePlaybackController,
     networkReceiveController: RoutingNetworkReceiveController
   ) -> [UUID: RoutingNetworkSendPlan] {
     var plans: [UUID: RoutingNetworkSendPlan] = [:]
-    var claimedClockedSources = clockedSourceNodeIDsFeedingDeviceOutputs(workflows: workflows)
+    var claimedBuffers = clockedSourceBuffersFeedingDeviceOutputs(
+      workflows: workflows,
+      captureController: captureController,
+      inputCaptureController: inputCaptureController,
+      outputCaptureController: outputCaptureController,
+      filePlaybackController: filePlaybackController,
+      networkReceiveController: networkReceiveController
+    )
 
     for workflow in workflows where workflow.isRunning {
       let workspace = workflow.workspace
@@ -338,22 +348,6 @@ final class RoutingNetworkSendController {
         let edges = activeEdges.filter {
           reachable.contains($0.source.nodeID) && reachable.contains($0.target.nodeID)
         }
-        let localClockedSources = Set(
-          nodes.compactMap { node -> UUID? in
-            switch node.value {
-            case .applicationAudio, .inputAudio, .filePlayback, .networkReceive:
-              node.id
-            default:
-              nil
-            }
-          })
-        guard claimedClockedSources.isDisjoint(with: localClockedSources) else {
-          plans[sendNode.id] = .blocked(
-            "A captured or streamed source can feed only one independent output clock. Add an explicit clocked fan-out before sending it to multiple destinations."
-          )
-          continue
-        }
-
         var frameBuffers: [UUID: AudioRealtimeFrameBuffer] = [:]
         var waiting = false
         var failure: String?
@@ -364,6 +358,11 @@ final class RoutingNetworkSendController {
             buffer = captureController.frameBuffer(for: node.id)
           case .inputAudio:
             buffer = inputCaptureController.frameBuffer(for: node.id)
+          case .systemOutput:
+            buffer = outputCaptureController.frameBuffer(for: node.id)
+            if case .failed(let message) = outputCaptureController.state(for: node.id) {
+              failure = message
+            }
           case .filePlayback:
             buffer = filePlaybackController.frameBuffer(for: node.id)
             if case .failed(let message) = filePlaybackController.state(for: node.id) {
@@ -391,7 +390,14 @@ final class RoutingNetworkSendController {
           plans[sendNode.id] = .waiting
           continue
         }
-        claimedClockedSources.formUnion(localClockedSources)
+        let localBuffers = Set(frameBuffers.values.map(ObjectIdentifier.init))
+        guard claimedBuffers.isDisjoint(with: localBuffers) else {
+          plans[sendNode.id] = .blocked(
+            "A captured or streamed source can feed only one independent output clock. Add an explicit clocked fan-out before sending it to multiple destinations."
+          )
+          continue
+        }
+        claimedBuffers.formUnion(localBuffers)
         let sortedNodes = nodes.sorted { $0.id.uuidString < $1.id.uuidString }
         let sortedEdges = edges.sorted { $0.id.uuidString < $1.id.uuidString }
         let buffers = frameBuffers.map {
@@ -422,10 +428,15 @@ final class RoutingNetworkSendController {
     return plans
   }
 
-  private func clockedSourceNodeIDsFeedingDeviceOutputs(
-    workflows: [RoutingWorkflowModel]
-  ) -> Set<UUID> {
-    var result = Set<UUID>()
+  private func clockedSourceBuffersFeedingDeviceOutputs(
+    workflows: [RoutingWorkflowModel],
+    captureController: RoutingCaptureController,
+    inputCaptureController: RoutingInputCaptureController,
+    outputCaptureController: RoutingOutputCaptureController,
+    filePlaybackController: RoutingFilePlaybackController,
+    networkReceiveController: RoutingNetworkReceiveController
+  ) -> Set<ObjectIdentifier> {
+    var result = Set<ObjectIdentifier>()
     for workflow in workflows where workflow.isRunning {
       let workspace = workflow.workspace
       let activeEdges = workspace.edges.filter(workspace.isEdgeActive)
@@ -436,11 +447,23 @@ final class RoutingNetworkSendController {
         }
         let reachable = Self.reachableNodeIDs(from: outputNode.id, incomingEdges: incomingEdges)
         for node in workspace.nodes where reachable.contains(node.id) {
+          let buffer: AudioRealtimeFrameBuffer?
           switch node.value {
-          case .applicationAudio, .inputAudio, .filePlayback, .networkReceive:
-            result.insert(node.id)
+          case .applicationAudio:
+            buffer = captureController.frameBuffer(for: node.id)
+          case .inputAudio:
+            buffer = inputCaptureController.frameBuffer(for: node.id)
+          case .systemOutput:
+            buffer = outputCaptureController.frameBuffer(for: node.id)
+          case .filePlayback:
+            buffer = filePlaybackController.frameBuffer(for: node.id)
+          case .networkReceive:
+            buffer = networkReceiveController.frameBuffer(for: node.id)
           default:
-            break
+            buffer = nil
+          }
+          if let buffer {
+            result.insert(ObjectIdentifier(buffer))
           }
         }
       }

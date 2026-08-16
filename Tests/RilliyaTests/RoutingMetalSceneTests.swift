@@ -446,6 +446,38 @@ struct RoutingMetalSceneTests {
     #expect(scene.nodes.first?.status == "Shared capture · 3 nodes")
   }
 
+  @Test @MainActor
+  func systemOutputCarriesConfigurationAndCaptureStatusIntoTheGpuScene() throws {
+    let model = RoutingWorkspaceModel()
+    let nodeID = model.addSystemOutputNode(centeredAt: CGPoint(x: 100, y: 100))
+
+    var scene = RoutingMetalScene(content: try #require(model.canvasContent), supplements: [:])
+    var node = try #require(scene.nodes.first)
+    #expect(node.title == "System Output")
+    #expect(node.subtitle == "Choose an output source")
+    #expect(node.status == "Select to configure")
+    #expect(node.symbolName == "speaker.wave.2.circle")
+    #expect(node.miniMapStyleIndex == RoutingAccentID.ripple.paletteIndex)
+    #expect(node.ports.allSatisfy { $0.value.direction == .output })
+
+    model.selectSystemOutput(.systemDefault, for: nodeID)
+    scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [
+        nodeID: RoutingMetalNodeSupplement(
+          isRunning: true,
+          isCapturing: true,
+          captureConsumerCount: 2,
+          visualizerSignal: nil,
+          outputCaptureState: .starting
+        )
+      ]
+    )
+    node = try #require(scene.nodes.first)
+    #expect(node.subtitle == "System Default Output")
+    #expect(node.status == "Preparing system output capture")
+  }
+
   @Test
   func existingRouteFollowsTheSourceDuringAnInteractiveDrag() throws {
     let route = FlowingGraphEdgeRoute(

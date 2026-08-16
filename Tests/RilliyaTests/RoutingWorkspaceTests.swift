@@ -465,6 +465,38 @@ struct RoutingWorkspaceTests {
   }
 
   @Test @MainActor
+  func systemOutputUsesSourcePortsAndRuntimeCaptureChannels() throws {
+    let model = RoutingWorkspaceModel()
+    let center = CGPoint(x: 420, y: 260)
+    let nodeID = model.addSystemOutputNode(centeredAt: center)
+    let deviceID = try #require(AudioDeviceID(rawValue: "virtual-output"))
+    let selection = RoutingOutputCaptureSelection.device(
+      RoutingOutputDeviceSelection(id: deviceID, displayName: "Virtual Output")
+    )
+
+    model.selectSystemOutput(selection, for: nodeID)
+    model.setSystemOutputChannelPresentation(.separate(channelCount: 8), for: nodeID)
+    model.setAudioChannelGain(-9, nodeID: nodeID, channelIndex: 0)
+    model.synchronizeOutputCaptureFormats([
+      nodeID: try outputCaptureFormat(deviceID: deviceID, channelCount: 2)
+    ])
+
+    let node = try #require(model.node(id: nodeID))
+    #expect(node.value.outputCaptureSelection == selection)
+    #expect(node.value.channelPresentation == .separate(channelCount: 2))
+    #expect(node.frame.midX == center.x)
+    #expect(node.frame.midY == center.y)
+    #expect(model.audioChannelControl(nodeID: nodeID, channelIndex: 0).gainDecibels == -9)
+    let ports = RoutingGraphPorts.values(for: node)
+    #expect(ports.count == 2)
+    #expect(ports.allSatisfy { $0.direction == .output })
+
+    model.selectSystemOutput(.systemDefault, for: nodeID)
+    #expect(model.runtimeCaptureFormats[nodeID] == nil)
+    #expect(model.audioChannelControl(nodeID: nodeID, channelIndex: 0) == .unity)
+  }
+
+  @Test @MainActor
   func audioChannelControlsAreNodeLocalAndResetWhenTheSourceChanges() throws {
     let model = RoutingWorkspaceModel()
     let firstID = model.addApplicationAudioNode(centeredAt: .zero)
@@ -1252,6 +1284,24 @@ struct RoutingWorkspaceTests {
     }
     return DeviceInputCaptureFormat(
       deviceID: deviceID,
+      sampleRate: 48_000,
+      channelIDs: channelIDs
+    )
+  }
+
+  private func outputCaptureFormat(
+    deviceID: AudioDeviceID,
+    channelCount: Int
+  ) throws -> DeviceOutputCaptureFormat {
+    let channelIDs = try (0..<channelCount).map { index in
+      AudioChannelID(
+        ownerID: .source(.deviceOutput(deviceID)),
+        index: try #require(AudioChannelIndex(rawValue: index))
+      )
+    }
+    return DeviceOutputCaptureFormat(
+      deviceID: deviceID,
+      streamIndex: try #require(AudioStreamIndex(rawValue: 0)),
       sampleRate: 48_000,
       channelIDs: channelIDs
     )

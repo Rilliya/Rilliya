@@ -13,6 +13,7 @@ final class RilliyaRuntime {
   let iconResolver = NSWorkspaceInstalledApplicationIconResolver()
   let captureController = RoutingCaptureController()
   let inputCaptureController = RoutingInputCaptureController()
+  let outputCaptureController = RoutingOutputCaptureController()
   let filePlaybackController = RoutingFilePlaybackController()
   let fileOutputController = RoutingFileOutputController()
   let networkSendController = RoutingNetworkSendController()
@@ -129,10 +130,15 @@ final class RilliyaRuntime {
     let workflows = audioWorkflows
     let requirements = RoutingCaptureRequirementResolver.resolve(
       workflows: workflows,
-      catalogSnapshot: applicationCatalog.state.snapshot
+      catalogSnapshot: applicationCatalog.state.snapshot,
+      audioCatalogSnapshot: audioCatalog.state.snapshot
     )
     captureController.reconcile(requirements: requirements)
     inputCaptureController.reconcile(deviceIDsByNode: requirements.inputDeviceIDsByNode)
+    outputCaptureController.reconcile(
+      deviceIDsByNode: requirements.outputCaptureDeviceIDsByNode,
+      catalogRevision: audioCatalog.state.revision
+    )
 
     let formats = captureController.states.compactMapValues {
       state -> ProcessOutputCaptureFormat? in
@@ -144,6 +150,11 @@ final class RilliyaRuntime {
       guard case .running(let format) = state else { return nil }
       return format
     }
+    let outputCaptureFormats = outputCaptureController.states.compactMapValues {
+      state -> DeviceOutputCaptureFormat? in
+      guard case .running(let format) = state else { return nil }
+      return format
+    }
     for workflow in workflows {
       workflow.workspace.synchronizeCaptureFormats(
         formats,
@@ -151,6 +162,10 @@ final class RilliyaRuntime {
       )
       workflow.workspace.synchronizeInputCaptureFormats(
         inputFormats,
+        preferredSeparateChannelCount: settings.defaultSeparateChannelLayout.channelCount
+      )
+      workflow.workspace.synchronizeOutputCaptureFormats(
+        outputCaptureFormats,
         preferredSeparateChannelCount: settings.defaultSeparateChannelLayout.channelCount
       )
     }
@@ -170,6 +185,7 @@ final class RilliyaRuntime {
       workflows: workflows,
       captureController: captureController,
       inputCaptureController: inputCaptureController,
+      outputCaptureController: outputCaptureController,
       filePlaybackController: filePlaybackController,
       networkReceiveController: networkReceiveController
     )
@@ -177,6 +193,7 @@ final class RilliyaRuntime {
       workflows: workflowLibrary.workflows,
       captureController: captureController,
       inputCaptureController: inputCaptureController,
+      outputCaptureController: outputCaptureController,
       filePlaybackController: filePlaybackController,
       networkReceiveController: networkReceiveController
     )
@@ -184,6 +201,7 @@ final class RilliyaRuntime {
       workflows: workflowLibrary.workflows,
       captureController: captureController,
       inputCaptureController: inputCaptureController,
+      outputCaptureController: outputCaptureController,
       filePlaybackController: filePlaybackController,
       networkReceiveController: networkReceiveController
     )

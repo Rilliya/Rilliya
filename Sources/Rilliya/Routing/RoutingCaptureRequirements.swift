@@ -5,21 +5,25 @@ import RilliyaCore
 struct RoutingCaptureRequirements: Equatable {
   let processIDsByNode: [UUID: AudioProcessID]
   let inputDeviceIDsByNode: [UUID: AudioDeviceID]
+  let outputCaptureDeviceIDsByNode: [UUID: AudioDeviceID]
   let muteBehaviorsByProcess: [AudioProcessID: ProcessOutputCaptureMuteBehavior]
 
   init(
     processIDsByNode: [UUID: AudioProcessID],
     inputDeviceIDsByNode: [UUID: AudioDeviceID] = [:],
+    outputCaptureDeviceIDsByNode: [UUID: AudioDeviceID] = [:],
     muteBehaviorsByProcess: [AudioProcessID: ProcessOutputCaptureMuteBehavior] = [:]
   ) {
     self.processIDsByNode = processIDsByNode
     self.inputDeviceIDsByNode = inputDeviceIDsByNode
+    self.outputCaptureDeviceIDsByNode = outputCaptureDeviceIDsByNode
     self.muteBehaviorsByProcess = muteBehaviorsByProcess
   }
 
   static let empty = RoutingCaptureRequirements(
     processIDsByNode: [:],
-    inputDeviceIDsByNode: [:]
+    inputDeviceIDsByNode: [:],
+    outputCaptureDeviceIDsByNode: [:]
   )
 }
 
@@ -27,7 +31,8 @@ enum RoutingCaptureRequirementResolver {
   @MainActor
   static func resolve(
     workflows: [RoutingWorkflowModel],
-    catalogSnapshot: InstalledApplicationCatalogSnapshot?
+    catalogSnapshot: InstalledApplicationCatalogSnapshot?,
+    audioCatalogSnapshot: AudioCatalogSnapshot? = nil
   ) -> RoutingCaptureRequirements {
     let catalogByURL = Dictionary(
       (catalogSnapshot?.items ?? []).map { item in
@@ -37,13 +42,37 @@ enum RoutingCaptureRequirementResolver {
     )
     var requirements: [UUID: AudioProcessID] = [:]
     var inputRequirements: [UUID: AudioDeviceID] = [:]
+    var outputCaptureRequirements: [UUID: AudioDeviceID] = [:]
     var reroutedProcessIDs = Set<AudioProcessID>()
+    let liveOutputDevices = Dictionary(
+      uniqueKeysWithValues: (audioCatalogSnapshot?.outputDevices ?? []).filter(\.isAlive).map {
+        ($0.id, $0)
+      }
+    )
+    let defaultOutputDeviceID = audioCatalogSnapshot?.outputDevices.first {
+      $0.isAlive && $0.output?.isDefault == true
+    }?.id
 
     for workflow in workflows where workflow.isRunning {
       let workspace = workflow.workspace
       let routedSourceIDs = workspace.captureSourceNodeIDs
       let reroutedSourceIDs = workspace.audioSourceNodeIDsFeedingOutputAudio
       for node in workspace.nodes where routedSourceIDs.contains(node.id) {
+        if case .systemOutput(let selection, _) = node.value {
+          switch selection {
+          case .systemDefault:
+            if let defaultOutputDeviceID {
+              outputCaptureRequirements[node.id] = defaultOutputDeviceID
+            }
+          case .device(let device):
+            if liveOutputDevices[device.id] != nil {
+              outputCaptureRequirements[node.id] = device.id
+            }
+          case nil:
+            break
+          }
+          continue
+        }
         if let inputDeviceID = node.value.inputDeviceSelection?.id {
           inputRequirements[node.id] = inputDeviceID
           continue
@@ -65,6 +94,7 @@ enum RoutingCaptureRequirementResolver {
     return RoutingCaptureRequirements(
       processIDsByNode: requirements,
       inputDeviceIDsByNode: inputRequirements,
+      outputCaptureDeviceIDsByNode: outputCaptureRequirements,
       muteBehaviorsByProcess: Dictionary(
         uniqueKeysWithValues: Set(requirements.values).map { processID in
           (

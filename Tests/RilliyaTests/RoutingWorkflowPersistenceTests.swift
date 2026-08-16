@@ -158,6 +158,32 @@ struct RoutingWorkflowPersistenceTests {
   }
 
   @Test
+  func systemOutputSelectionsRoundTripWithoutResolvingTheDefaultToADevice() throws {
+    let deviceID = try #require(AudioDeviceID(rawValue: "test.output.pinned"))
+    let values: [RoutingNodeValue] = [
+      .systemOutput(selection: nil, channelPresentation: .aggregate),
+      .systemOutput(selection: .systemDefault, channelPresentation: .aggregate),
+      .systemOutput(
+        selection: .device(
+          RoutingOutputDeviceSelection(id: deviceID, displayName: "Pinned Output")
+        ),
+        channelPresentation: .separate(channelCount: 2)
+      ),
+    ]
+
+    for value in values {
+      let encoded = try JSONEncoder().encode(value)
+      let decoded = try JSONDecoder().decode(RoutingNodeValue.self, from: encoded)
+      #expect(decoded == value)
+    }
+
+    let defaultData = try JSONEncoder().encode(values[1])
+    let defaultJSON = try #require(String(data: defaultData, encoding: .utf8))
+    #expect(defaultJSON.contains("systemDefault"))
+    #expect(!defaultJSON.contains(deviceID.rawValue))
+  }
+
+  @Test
   func storeRoundTripRestoresGraphsSelectionViewportAndWorkflowOverrides() async throws {
     let fixture = try makeFixture()
     let store = RoutingWorkflowPersistenceStore(fileURL: fixture.fileURL)

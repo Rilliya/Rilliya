@@ -18,6 +18,10 @@ struct RoutingAudioCaptureFormat: Equatable, Sendable {
   init(_ format: DeviceInputCaptureFormat) {
     self.init(sampleRate: format.sampleRate, channelIDs: format.channelIDs)
   }
+
+  init(_ format: DeviceOutputCaptureFormat) {
+    self.init(sampleRate: format.sampleRate, channelIDs: format.channelIDs)
+  }
 }
 
 protocol RoutingAudioMeterSnapshot: Sendable {
@@ -26,3 +30,4 @@ protocol RoutingAudioMeterSnapshot: Sendable {
 
 extension ProcessOutputMeterSnapshot: RoutingAudioMeterSnapshot {}
 extension DeviceInputMeterSnapshot: RoutingAudioMeterSnapshot {}
+extension DeviceOutputMeterSnapshot: RoutingAudioMeterSnapshot {}

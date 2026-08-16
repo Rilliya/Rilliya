@@ -297,6 +297,58 @@ struct RoutingAudioOutputControllerTests {
   }
 
   @Test @MainActor
+  func systemOutputCannotRouteBackToTheSamePhysicalDevice() async throws {
+    let deviceID = try #require(AudioDeviceID(rawValue: "test.feedback-output"))
+    let sourceID = UUID()
+    let outputID = UUID()
+    let outputCaptureController = RoutingOutputCaptureController(
+      captureStarter: FeedbackOutputCaptureStarter()
+    )
+    let outputStarter = OutputTestPlaybackStarter()
+    let outputController = RoutingAudioOutputController(playbackStarter: outputStarter)
+    let workflow = RoutingWorkflowModel(name: "Feedback Guard")
+    _ = workflow.workspace.addSystemOutputNode(centeredAt: .zero, id: sourceID)
+    _ = workflow.workspace.addOutputAudioNode(
+      centeredAt: CGPoint(x: 400, y: 0),
+      id: outputID
+    )
+    workflow.workspace.selectSystemOutput(
+      .device(RoutingOutputDeviceSelection(id: deviceID, displayName: "Same Device")),
+      for: sourceID
+    )
+    workflow.workspace.selectOutputDevice(
+      RoutingOutputDeviceSelection(id: deviceID, displayName: "Same Device"),
+      for: outputID
+    )
+    try connect(sourceID: sourceID, targetID: outputID, in: workflow.workspace)
+    workflow.run()
+
+    outputCaptureController.reconcile(
+      deviceIDsByNode: [sourceID: deviceID],
+      catalogRevision: 1
+    )
+    #expect(await eventually { outputCaptureController.frameBuffer(for: sourceID) != nil })
+
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: RoutingCaptureController(captureStarter: OutputTestCaptureStarter()),
+      inputCaptureController: RoutingInputCaptureController(),
+      outputCaptureController: outputCaptureController
+    )
+
+    #expect(
+      await eventually {
+        guard case .failed(let message) = outputController.state(for: outputID) else {
+          return false
+        }
+        return message.contains("same physical output device")
+      }
+    )
+    #expect(await outputStarter.startCount == 0)
+    outputCaptureController.stopAll()
+  }
+
+  @Test @MainActor
   func workflowRunStateGatesDemandDrivenSignalGenerationAndOutput() async throws {
     let outputID = UUID()
     let outputStarter = OutputTestPlaybackStarter()
@@ -397,7 +449,7 @@ struct RoutingAudioOutputControllerTests {
   @MainActor
   private func eventually(_ predicate: @MainActor () async -> Bool) async -> Bool {
     for _ in 0..<200 where !(await predicate()) {
-      await Task.yield()
+      try? await Task.sleep(for: .milliseconds(1))
     }
     return await predicate()
   }
@@ -424,6 +476,44 @@ private actor OutputTestCaptureStarter: RoutingProcessCaptureStarting {
       )
     )
   }
+}
+
+private actor FeedbackOutputCaptureStarter: RoutingOutputCaptureStarting {
+  func start(
+    deviceID: AudioDeviceID,
+    snapshotHandler: @escaping DeviceOutputCapture.SnapshotHandler
+  ) async throws -> any RoutingOutputCaptureSession {
+    let channelIndex = try #require(AudioChannelIndex(rawValue: 0))
+    let streamIndex = try #require(AudioStreamIndex(rawValue: 0))
+    let format = DeviceOutputCaptureFormat(
+      deviceID: deviceID,
+      streamIndex: streamIndex,
+      sampleRate: 48_000,
+      channelIDs: [
+        AudioChannelID(ownerID: .source(.deviceOutput(deviceID)), index: channelIndex)
+      ]
+    )
+    return try FeedbackOutputCaptureSession(
+      format: format,
+      frameBuffer: AudioRealtimeFrameBuffer(
+        format: AudioProcessingFormat(sampleRate: 48_000, channelCount: 1)
+      )
+    )
+  }
+}
+
+private final class FeedbackOutputCaptureSession: RoutingOutputCaptureSession,
+  @unchecked Sendable
+{
+  let format: DeviceOutputCaptureFormat
+  let frameBuffer: AudioRealtimeFrameBuffer
+
+  init(format: DeviceOutputCaptureFormat, frameBuffer: AudioRealtimeFrameBuffer) {
+    self.format = format
+    self.frameBuffer = frameBuffer
+  }
+
+  func stop() async {}
 }
 
 private final class OutputTestCaptureSession: RoutingProcessCaptureSession,

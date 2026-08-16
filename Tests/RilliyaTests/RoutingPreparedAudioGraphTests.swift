@@ -140,6 +140,26 @@ struct RoutingPreparedAudioGraphTests {
   }
 
   @Test
+  func systemOutputCaptureFeedsThePreparedGraphAsAFirstClassSource() throws {
+    let sourceID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(channelCount: 2)
+    try write([[0.1, 0.2], [-0.3, -0.4]], to: buffer)
+    let renderer = try makeRenderer(
+      nodes: [systemOutputSourceNode(id: sourceID), outputNode(id: outputID)],
+      edges: [edge(from: sourceID, .all, to: outputID, .all)],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer]
+    )
+
+    let rendered = render(renderer, channelCount: 2, frameCount: 2)
+
+    #expect(rendered.result == .rendered)
+    #expect(rendered.channels[0] == [0.1, 0.2])
+    #expect(rendered.channels[1] == [-0.3, -0.4])
+  }
+
+  @Test
   func captureBacklogIsTrimmedToTwoPreparedRenderQuanta() throws {
     let sourceID = UUID()
     let outputID = UUID()
@@ -775,6 +795,14 @@ struct RoutingPreparedAudioGraphTests {
         selection: nil,
         channelPresentation: .separate(channelCount: 1)
       ),
+      frame: .zero
+    )
+  }
+
+  private func systemOutputSourceNode(id: UUID) -> RoutingWorkspaceNode {
+    RoutingWorkspaceNode(
+      id: id,
+      value: .systemOutput(selection: .systemDefault, channelPresentation: .aggregate),
       frame: .zero
     )
   }

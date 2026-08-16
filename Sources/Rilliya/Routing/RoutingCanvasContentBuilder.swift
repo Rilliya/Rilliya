@@ -310,6 +310,7 @@ enum RoutingCanvasContentBuilder {
     switch node.value {
     case .applicationAudio(_, .separate(let channelCount)),
       .inputAudio(_, .separate(let channelCount)),
+      .systemOutput(_, .separate(let channelCount)),
       .outputAudio(_, .separate(let channelCount)):
       let rowFrames = RoutingAudioSourceLayout.rowFrames(
         in: localFrame,
@@ -351,9 +352,9 @@ enum RoutingCanvasContentBuilder {
       )
       guard rowFrames.indices.contains(value.ordinal) else { return nil }
       return rowFrames[value.ordinal].midY
-    case .applicationAudio, .inputAudio, .outputAudio, .gain, .peakLevel, .signalGenerator,
-      .filePlayback, .fileOutput, .networkSend, .networkReceive, .delay, .noiseGate,
-      .compressor:
+    case .applicationAudio, .inputAudio, .systemOutput, .outputAudio, .gain, .peakLevel,
+      .signalGenerator, .filePlayback, .fileOutput, .networkSend, .networkReceive, .delay,
+      .noiseGate, .compressor:
       return nil
     }
   }
@@ -370,6 +371,16 @@ enum RoutingCanvasContentBuilder {
     case .inputAudio(let selection, _):
       value = selection?.displayName ?? "No input device selected"
       hint = "Select an audio input device whose channels will be routed."
+    case .systemOutput(let selection, _):
+      switch selection {
+      case .systemDefault:
+        value = "Following the system default output"
+      case .device(let device):
+        value = device.displayName
+      case nil:
+        value = "No output source selected"
+      }
+      hint = "Choose the system default or a specific output device whose audio will be routed."
     case .outputAudio(let selection, _):
       value = selection?.displayName ?? "No output device selected"
       hint = "Select an audio output device that will receive routed channels."

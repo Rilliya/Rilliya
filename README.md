@@ -5,10 +5,11 @@ SwiftUI application; its reusable audio foundation lives in the sibling
 RilliyaKit package.
 
 The application opens directly into the FlowingDayUI routing canvas. Application
-Audio nodes capture installed macOS applications, while Input Audio nodes capture
-physical or virtual Core Audio input devices. Visualizer and Peak Level nodes can
-inspect either source. Rilliya shares one native capture for consumers of the same
-source, including consumers in different workflows.
+Audio nodes capture installed macOS applications, Input Audio nodes capture
+physical or virtual Core Audio input devices, and System Output nodes capture a
+specific output device or follow the system default. Visualizer and Peak Level
+nodes can inspect any source. Rilliya shares one native capture among nodes using
+the same source, including consumers in different workflows.
 
 Rilliya scans the standard user, local, and system Applications directories and
 overlays live running state from `NSWorkspace`. Input-device capture requests
@@ -69,3 +70,7 @@ Apply the repository's Swift formatting rules with:
 ```sh
 ./scripts/format.sh
 ```
+
+## License
+
+Rilliya is available under the Apache License 2.0. See [LICENSE](LICENSE).

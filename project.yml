@@ -37,7 +37,7 @@ targets:
         CFBundleVersion: "$(CURRENT_PROJECT_VERSION)"
         LSApplicationCategoryType: public.app-category.music
         LSMinimumSystemVersion: "$(MACOSX_DEPLOYMENT_TARGET)"
-        NSAudioCaptureUsageDescription: Rilliya captures selected application audio so you can monitor and route its channels.
+        NSAudioCaptureUsageDescription: Rilliya captures selected application audio and output-device mixes so you can monitor and route their channels.
         NSLocalNetworkUsageDescription: Rilliya sends and receives realtime audio only when you add and run a Network Audio node.
         NSMicrophoneUsageDescription: Rilliya accesses audio input devices so you can monitor and route their channels.
     entitlements:

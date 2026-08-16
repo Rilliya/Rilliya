@@ -140,6 +140,7 @@ enum RoutingAccentID: String, CaseIterable, Codable, Hashable, Sendable {
 enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
   case applicationAudio
   case inputAudio
+  case systemOutput
   case outputAudio
   case visualizer
   case audioMixer
@@ -159,6 +160,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     switch self {
     case .applicationAudio: "Application Audio"
     case .inputAudio: "Input Audio"
+    case .systemOutput: "System Output"
     case .outputAudio: "Output Audio"
     case .visualizer: "Visualizer"
     case .audioMixer: "Audio Mixer"
@@ -180,6 +182,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     switch self {
     case .applicationAudio: "macwindow.on.rectangle"
     case .inputAudio: "waveform.badge.mic"
+    case .systemOutput: "speaker.wave.2.circle"
     case .outputAudio: "speaker.wave.2"
     case .visualizer: "waveform"
     case .audioMixer: "slider.horizontal.3"
@@ -201,6 +204,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     switch self {
     case .applicationAudio: .fern
     case .inputAudio, .outputAudio: .brook
+    case .systemOutput: .ripple
     case .visualizer: .seafoam
     case .audioMixer, .peakLevel: .pollen
     case .gain: .honey
@@ -222,6 +226,7 @@ extension RoutingNodeValue {
     switch self {
     case .applicationAudio: .applicationAudio
     case .inputAudio: .inputAudio
+    case .systemOutput: .systemOutput
     case .outputAudio: .outputAudio
     case .visualizer: .visualizer
     case .audioMixer: .audioMixer

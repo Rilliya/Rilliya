@@ -178,6 +178,7 @@ final class RoutingAudioOutputController {
     workflows: [RoutingWorkflowModel],
     captureController: RoutingCaptureController,
     inputCaptureController: RoutingInputCaptureController,
+    outputCaptureController: RoutingOutputCaptureController = RoutingOutputCaptureController(),
     filePlaybackController: RoutingFilePlaybackController = RoutingFilePlaybackController(),
     networkReceiveController: RoutingNetworkReceiveController = RoutingNetworkReceiveController()
   ) {
@@ -185,6 +186,7 @@ final class RoutingAudioOutputController {
       workflows: workflows,
       captureController: captureController,
       inputCaptureController: inputCaptureController,
+      outputCaptureController: outputCaptureController,
       filePlaybackController: filePlaybackController,
       networkReceiveController: networkReceiveController
     )
@@ -339,6 +341,7 @@ final class RoutingAudioOutputController {
     workflows: [RoutingWorkflowModel],
     captureController: RoutingCaptureController,
     inputCaptureController: RoutingInputCaptureController,
+    outputCaptureController: RoutingOutputCaptureController,
     filePlaybackController: RoutingFilePlaybackController,
     networkReceiveController: RoutingNetworkReceiveController
   ) -> [UUID: RoutingAudioOutputPlan] {
@@ -370,6 +373,7 @@ final class RoutingAudioOutputController {
         var frameBuffers: [UUID: AudioRealtimeFrameBuffer] = [:]
         var isWaitingForCapture = false
         var sourceFailureMessage: String?
+        var feedsCapturedOutputDevice = false
         for node in nodes {
           let buffer: AudioRealtimeFrameBuffer?
           switch node.value {
@@ -377,6 +381,14 @@ final class RoutingAudioOutputController {
             buffer = captureController.frameBuffer(for: node.id)
           case .inputAudio:
             buffer = inputCaptureController.frameBuffer(for: node.id)
+          case .systemOutput:
+            buffer = outputCaptureController.frameBuffer(for: node.id)
+            if outputCaptureController.deviceID(for: node.id) == selection.id {
+              feedsCapturedOutputDevice = true
+            }
+            if case .failed(let message) = outputCaptureController.state(for: node.id) {
+              sourceFailureMessage = message
+            }
           case .filePlayback:
             buffer = filePlaybackController.frameBuffer(for: node.id)
             if case .failed(let message) = filePlaybackController.state(for: node.id) {
@@ -396,6 +408,12 @@ final class RoutingAudioOutputController {
             continue
           }
           frameBuffers[node.id] = buffer
+        }
+        if feedsCapturedOutputDevice {
+          plans[outputNode.id] = .blocked(
+            "System Output cannot route back to the same physical output device. Choose a different destination to prevent feedback."
+          )
+          continue
         }
         if let sourceFailureMessage {
           plans[outputNode.id] = .blocked(sourceFailureMessage)
