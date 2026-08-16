@@ -10,7 +10,7 @@ enum RoutingAudioOutputState: Equatable {
   case waitingForCapture
   case starting
   case running(DeviceOutputPlaybackFormat)
-  case failed(String)
+  case failed(RoutingNodeFailure)
 }
 
 protocol RoutingOutputPlaybackSession: AnyObject, Sendable {
@@ -125,14 +125,14 @@ private struct RoutingAudioOutputRequest: Sendable {
 private enum RoutingAudioOutputPlan {
   case idle
   case waitingForCapture
-  case blocked(String)
+  case blocked(RoutingNodeFailure)
   case ready(RoutingAudioOutputRequest)
 }
 
 private enum RoutingAudioOutputDesiredState: Equatable {
   case idle
   case waitingForCapture
-  case blocked(String)
+  case blocked(RoutingNodeFailure)
   case ready(RoutingAudioOutputRequestSignature)
 }
 
@@ -233,7 +233,7 @@ final class RoutingAudioOutputController {
           desiredStates[nodeID] = desiredState
           states[nodeID] = .running(runningSession.session.format)
         } catch {
-          apply(.blocked(error.localizedDescription), to: nodeID)
+          apply(.blocked(RoutingNodeFailure(error)), to: nodeID)
         }
         return
       }
@@ -249,8 +249,8 @@ final class RoutingAudioOutputController {
         return
       case .waitingForCapture where states[nodeID] == .waitingForCapture:
         return
-      case .blocked(let message):
-        if states[nodeID] == .failed(message) { return }
+      case .blocked(let failure):
+        if states[nodeID] == .failed(failure) { return }
       case .ready, .idle, .waitingForCapture:
         break
       }
@@ -284,8 +284,8 @@ final class RoutingAudioOutputController {
       states[nodeID] = .idle
     case .waitingForCapture:
       states[nodeID] = .waitingForCapture
-    case .blocked(let message):
-      states[nodeID] = .failed(message)
+    case .blocked(let failure):
+      states[nodeID] = .failed(failure)
     case .ready(let request):
       states[nodeID] = .starting
       let playbackStarter = playbackStarter
@@ -335,7 +335,7 @@ final class RoutingAudioOutputController {
       } catch {
         guard generations[nodeID] == generation else { return }
         // Clearing the desired state here restarts the failed plan on every reconciliation.
-        states[nodeID] = .failed(error.localizedDescription)
+        states[nodeID] = .failed(RoutingNodeFailure(error))
       }
     }
   }
@@ -346,7 +346,7 @@ final class RoutingAudioOutputController {
     generation: UInt64
   ) {
     guard generations[nodeID] == generation else { return }
-    apply(.blocked(error.localizedDescription), to: nodeID)
+    apply(.blocked(RoutingNodeFailure(error)), to: nodeID)
   }
 
   private func makePlans(
@@ -405,7 +405,7 @@ final class RoutingAudioOutputController {
         var captureSources: [UUID: RoutingRealtimeCaptureSource] = [:]
         var candidateCaptureCursorKeys = Set<RoutingCaptureCursorKey>()
         var isWaitingForCapture = false
-        var sourceFailureMessage: String?
+        var sourceFailure: RoutingNodeFailure?
         var feedsCapturedOutputDevice = false
         for node in nodes {
           let source: RoutingRealtimeCaptureSource?
@@ -416,7 +416,7 @@ final class RoutingAudioOutputController {
               consumerID: outputNode.id,
               provider: captureController,
               activeKeys: &candidateCaptureCursorKeys,
-              failureMessage: &sourceFailureMessage
+              failure: &sourceFailure
             )
           case .inputAudio:
             source = captureCursorCache.resolvedSource(
@@ -424,7 +424,7 @@ final class RoutingAudioOutputController {
               consumerID: outputNode.id,
               provider: inputCaptureController,
               activeKeys: &candidateCaptureCursorKeys,
-              failureMessage: &sourceFailureMessage
+              failure: &sourceFailure
             )
           case .virtualOutput:
             source = captureCursorCache.resolvedSource(
@@ -432,7 +432,7 @@ final class RoutingAudioOutputController {
               consumerID: outputNode.id,
               provider: inputCaptureController,
               activeKeys: &candidateCaptureCursorKeys,
-              failureMessage: &sourceFailureMessage
+              failure: &sourceFailure
             )
           case .systemOutput:
             source = captureCursorCache.resolvedSource(
@@ -440,27 +440,27 @@ final class RoutingAudioOutputController {
               consumerID: outputNode.id,
               provider: outputCaptureController,
               activeKeys: &candidateCaptureCursorKeys,
-              failureMessage: &sourceFailureMessage
+              failure: &sourceFailure
             )
             if outputCaptureController.deviceID(for: node.id) == selection.id {
               feedsCapturedOutputDevice = true
             }
-            if case .failed(let message) = outputCaptureController.state(for: node.id) {
-              sourceFailureMessage = message
+            if case .failed(let upstreamFailure) = outputCaptureController.state(for: node.id) {
+              sourceFailure = upstreamFailure
             }
           case .filePlayback:
             source = filePlaybackController.frameBuffer(for: node.id).map {
               .frameBuffer($0)
             }
-            if case .failed(let message) = filePlaybackController.state(for: node.id) {
-              sourceFailureMessage = message
+            if case .failed(let upstreamFailure) = filePlaybackController.state(for: node.id) {
+              sourceFailure = upstreamFailure
             }
           case .networkReceive:
             source = networkReceiveController.frameBuffer(for: node.id).map {
               .frameBuffer($0)
             }
-            if case .failed(let message) = networkReceiveController.state(for: node.id) {
-              sourceFailureMessage = message
+            if case .failed(let upstreamFailure) = networkReceiveController.state(for: node.id) {
+              sourceFailure = upstreamFailure
             }
           case .outputAudio, .virtualInput, .visualizer, .audioMixer, .gain, .channelRouter,
             .peakLevel, .signalGenerator, .fileOutput, .networkSend, .delay, .noiseGate,
@@ -475,12 +475,16 @@ final class RoutingAudioOutputController {
         }
         if feedsCapturedOutputDevice {
           plans[outputNode.id] = .blocked(
-            "System Output cannot route back to the same physical output device. Choose a different destination to prevent feedback."
+            RoutingNodeFailure(
+              summary: "Feedback loop",
+              message:
+                "System Output cannot route back to the same physical output device. Choose a different destination to prevent feedback."
+            )
           )
           continue
         }
-        if let sourceFailureMessage {
-          plans[outputNode.id] = .blocked(sourceFailureMessage)
+        if let sourceFailure {
+          plans[outputNode.id] = .blocked(sourceFailure)
           continue
         }
         guard !isWaitingForCapture else {
@@ -491,7 +495,11 @@ final class RoutingAudioOutputController {
         let bufferIdentities = Set(captureSources.values.map(\.identity))
         guard claimedBuffers.isDisjoint(with: bufferIdentities) else {
           plans[outputNode.id] = .blocked(
-            "This source is already feeding another output clock. Add an explicit clocked fan-out before using multiple destinations."
+            RoutingNodeFailure(
+              summary: "Source already in use",
+              message:
+                "This source is already feeding another output clock. Add an explicit clocked fan-out before using multiple destinations."
+            )
           )
           continue
         }

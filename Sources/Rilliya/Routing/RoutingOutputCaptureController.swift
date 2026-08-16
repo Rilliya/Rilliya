@@ -8,7 +8,7 @@ enum RoutingOutputCaptureState: Equatable {
   case idle
   case starting
   case running(DeviceOutputCaptureFormat)
-  case failed(String)
+  case failed(RoutingNodeFailure)
 }
 
 protocol RoutingOutputCaptureSession: AnyObject, Sendable {
@@ -84,7 +84,7 @@ final class RoutingOutputCaptureController {
     case starting
     case running(any RoutingOutputCaptureSession)
     case stopping
-    case failed(String)
+    case failed(RoutingNodeFailure)
   }
 
   private struct SharedSource {
@@ -339,12 +339,12 @@ final class RoutingOutputCaptureController {
       return
     }
 
-    source.phase = .failed(error.localizedDescription)
+    source.phase = .failed(RoutingNodeFailure(error))
     source.lastSnapshot = nil
     sources[deviceID] = source
     for nodeID in source.nodeIDs where deviceIDsByNode[nodeID] == deviceID {
       snapshots[nodeID] = nil
-      states[nodeID] = .failed(error.localizedDescription)
+      states[nodeID] = .failed(RoutingNodeFailure(error))
     }
   }
 
@@ -411,8 +411,8 @@ final class RoutingOutputCaptureController {
     case .running(let capture):
       states[nodeID] = .running(capture.format)
       snapshots[nodeID] = source.lastSnapshot
-    case .failed(let message):
-      states[nodeID] = .failed(message)
+    case .failed(let failure):
+      states[nodeID] = .failed(failure)
       snapshots[nodeID] = nil
     }
   }

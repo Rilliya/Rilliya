@@ -8,7 +8,7 @@ enum RoutingNetworkSendState: Equatable {
   case waitingForSource
   case starting
   case running(NetworkAudioStreamFormat)
-  case failed(String)
+  case failed(RoutingNodeFailure)
 }
 
 protocol RoutingNetworkSendSession: AnyObject, Sendable {
@@ -134,14 +134,14 @@ private struct RoutingNetworkSendRequest: Sendable {
 private enum RoutingNetworkSendPlan {
   case idle
   case waiting
-  case blocked(String)
+  case blocked(RoutingNodeFailure)
   case ready(RoutingNetworkSendRequest)
 }
 
 private enum RoutingNetworkSendDesiredState: Equatable {
   case idle
   case waiting
-  case blocked(String)
+  case blocked(RoutingNodeFailure)
   case ready(RoutingNetworkSendRequestSignature)
 }
 
@@ -235,7 +235,7 @@ final class RoutingNetworkSendController {
           desiredStates[nodeID] = desired
           states[nodeID] = .running(running.session.format)
         } catch {
-          apply(.blocked(error.localizedDescription), to: nodeID)
+          apply(.blocked(RoutingNodeFailure(error)), to: nodeID)
         }
         return
       }
@@ -269,8 +269,8 @@ final class RoutingNetworkSendController {
       states[nodeID] = .idle
     case .waiting:
       states[nodeID] = .waitingForSource
-    case .blocked(let message):
-      states[nodeID] = .failed(message)
+    case .blocked(let failure):
+      states[nodeID] = .failed(failure)
     case .ready(let request):
       states[nodeID] = .starting
       let rendererHolder = RoutingNetworkSendRendererHolder()
@@ -290,7 +290,7 @@ final class RoutingNetworkSendController {
       let failureHandler: @Sendable (String) -> Void = { [weak self] message in
         Task { @MainActor [weak self] in
           guard let self, generations[nodeID] == generation else { return }
-          apply(.blocked(message), to: nodeID)
+          apply(.blocked(RoutingNodeFailure(message: message)), to: nodeID)
         }
       }
       do {
@@ -319,7 +319,7 @@ final class RoutingNetworkSendController {
       } catch {
         guard generations[nodeID] == generation else { return }
         // Clearing the desired state here restarts the failed plan on every reconciliation.
-        states[nodeID] = .failed(error.localizedDescription)
+        states[nodeID] = .failed(RoutingNodeFailure(error))
       }
     }
   }
@@ -361,7 +361,7 @@ final class RoutingNetworkSendController {
         var captureSources: [UUID: RoutingRealtimeCaptureSource] = [:]
         var candidateCaptureCursorKeys = Set<RoutingCaptureCursorKey>()
         var waiting = false
-        var failure: String?
+        var failure: RoutingNodeFailure?
         for node in nodes {
           let source: RoutingRealtimeCaptureSource?
           switch node.value {
@@ -371,7 +371,7 @@ final class RoutingNetworkSendController {
               consumerID: sendNode.id,
               provider: captureController,
               activeKeys: &candidateCaptureCursorKeys,
-              failureMessage: &failure
+              failure: &failure
             )
           case .inputAudio:
             source = captureCursorCache.resolvedSource(
@@ -379,7 +379,7 @@ final class RoutingNetworkSendController {
               consumerID: sendNode.id,
               provider: inputCaptureController,
               activeKeys: &candidateCaptureCursorKeys,
-              failureMessage: &failure
+              failure: &failure
             )
           case .virtualOutput:
             source = captureCursorCache.resolvedSource(
@@ -387,7 +387,7 @@ final class RoutingNetworkSendController {
               consumerID: sendNode.id,
               provider: inputCaptureController,
               activeKeys: &candidateCaptureCursorKeys,
-              failureMessage: &failure
+              failure: &failure
             )
           case .systemOutput:
             source = captureCursorCache.resolvedSource(
@@ -395,24 +395,24 @@ final class RoutingNetworkSendController {
               consumerID: sendNode.id,
               provider: outputCaptureController,
               activeKeys: &candidateCaptureCursorKeys,
-              failureMessage: &failure
+              failure: &failure
             )
-            if case .failed(let message) = outputCaptureController.state(for: node.id) {
-              failure = message
+            if case .failed(let sourceFailure) = outputCaptureController.state(for: node.id) {
+              failure = sourceFailure
             }
           case .filePlayback:
             source = filePlaybackController.frameBuffer(for: node.id).map {
               .frameBuffer($0)
             }
-            if case .failed(let message) = filePlaybackController.state(for: node.id) {
-              failure = message
+            if case .failed(let sourceFailure) = filePlaybackController.state(for: node.id) {
+              failure = sourceFailure
             }
           case .networkReceive:
             source = networkReceiveController.frameBuffer(for: node.id).map {
               .frameBuffer($0)
             }
-            if case .failed(let message) = networkReceiveController.state(for: node.id) {
-              failure = message
+            if case .failed(let sourceFailure) = networkReceiveController.state(for: node.id) {
+              failure = sourceFailure
             }
           default:
             continue
@@ -434,7 +434,11 @@ final class RoutingNetworkSendController {
         let localBuffers = Set(captureSources.values.map(\.identity))
         guard claimedBuffers.isDisjoint(with: localBuffers) else {
           plans[sendNode.id] = .blocked(
-            "A captured or streamed source can feed only one independent output clock. Add an explicit clocked fan-out before sending it to multiple destinations."
+            RoutingNodeFailure(
+              summary: "Source already in use",
+              message:
+                "A captured or streamed source can feed only one independent output clock. Add an explicit clocked fan-out before sending it to multiple destinations."
+            )
           )
           continue
         }

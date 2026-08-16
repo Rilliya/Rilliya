@@ -3497,10 +3497,10 @@ private struct SelectedApplicationInspector: View {
       }
       .accessibilityElement(children: .combine)
       .accessibilityLabel("Capturing application audio")
-    case .failed(let message):
+    case .failed(let failure):
       VStack(alignment: .leading, spacing: 8) {
         FlowingCallout(
-          message,
+          failure.message,
           title: "Capture failed",
           systemImage: "exclamationmark.triangle",
           tone: .warning
@@ -3818,10 +3818,10 @@ private struct SelectedInputAudioInspector: View {
       }
       .accessibilityElement(children: .combine)
       .accessibilityLabel("Capturing input audio")
-    case .failed(let message):
+    case .failed(let failure):
       VStack(alignment: .leading, spacing: 8) {
         FlowingCallout(
-          message,
+          failure.message,
           title: "Input capture failed",
           systemImage: "exclamationmark.triangle",
           tone: .warning
@@ -4150,10 +4150,10 @@ private struct SelectedSystemOutputInspector: View {
       }
       .accessibilityElement(children: .combine)
       .accessibilityLabel("Capturing system output audio")
-    case .failed(let message):
+    case .failed(let failure):
       VStack(alignment: .leading, spacing: 8) {
         FlowingCallout(
-          message,
+          failure.message,
           title: "System output capture failed",
           systemImage: "exclamationmark.triangle",
           tone: .warning
@@ -4497,8 +4497,8 @@ private struct SelectedVirtualAudioEndpointInspector: View {
         )
         .font(.caption.monospacedDigit())
         .foregroundStyle(FlowingAccent.lagoon.foreground)
-      case .failed(let message):
-        FlowingCallout(message, title: "Virtual output stopped", tone: .warning)
+      case .failed(let failure):
+        FlowingCallout(failure.message, title: "Virtual output stopped", tone: .warning)
       }
     }
   }
@@ -4624,8 +4624,8 @@ private struct SelectedOutputAudioInspector: View {
       )
       .font(.caption.monospacedDigit())
       .foregroundStyle(FlowingAccent.fern.foreground)
-    case .failed(let message):
-      FlowingCallout(message, title: "Output stopped", tone: .warning)
+    case .failed(let failure):
+      FlowingCallout(failure.message, title: "Output stopped", tone: .warning)
     }
   }
 
@@ -5525,8 +5525,8 @@ private struct SelectedFilePlaybackInspector: View {
       "Decoding \(description.channelCount) channels away from the realtime audio thread."
     case .completed:
       "Every requested file pass has reached the end. Run the workflow again to replay it."
-    case .failed(let message):
-      message
+    case .failed(let failure):
+      failure.message
     }
   }
 
@@ -5919,8 +5919,8 @@ private struct SelectedFileOutputInspector: View {
       "Creating the file and preparing a bounded encoder queue."
     case .running(let url):
       "Writing \(url.lastPathComponent) away from the realtime audio thread."
-    case .failed(let message):
-      message
+    case .failed(let failure):
+      failure.message
     }
   }
 
@@ -6120,7 +6120,7 @@ private struct SelectedNetworkSendInspector: View {
     case .starting: "Resolving the destination and preparing a bounded realtime queue."
     case .running(let format):
       "Sending \(format.channelCount) ch at \(Int(format.sampleRate.rounded())) Hz."
-    case .failed(let message): message
+    case .failed(let failure): failure.message
     }
   }
 
@@ -6257,7 +6257,7 @@ private struct SelectedNetworkReceiveInspector: View {
     case .starting: "Binding the UDP port and preparing a bounded jitter queue."
     case .running(let format):
       "Listening for \(format.channelCount) ch at \(Int(format.sampleRate.rounded())) Hz."
-    case .failed(let message): message
+    case .failed(let failure): failure.message
     }
   }
 

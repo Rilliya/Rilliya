@@ -334,10 +334,11 @@ struct RoutingAudioOutputControllerTests {
 
     #expect(
       await eventually {
-        guard case .failed(let message) = outputController.state(for: outputID) else {
+        guard case .failed(let failure) = outputController.state(for: outputID) else {
           return false
         }
-        return message.contains("same physical output device")
+        return failure.summary == "Feedback loop"
+          && failure.message.contains("same physical output device")
       }
     )
     #expect(await outputStarter.startCount == 0)

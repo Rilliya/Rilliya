@@ -110,7 +110,8 @@ struct RoutingOutputCaptureControllerTests {
     #expect(
       await eventually {
         await starter.startCount(for: deviceID) == 2
-          && controller.state(for: nodeID) == .failed("The fake output capture failed.")
+          && controller.state(for: nodeID)
+            == .failed(RoutingNodeFailure(message: "The fake output capture failed."))
       }
     )
 

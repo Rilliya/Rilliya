@@ -8,7 +8,7 @@ enum RoutingCaptureState: Equatable {
   case idle
   case starting
   case running(ProcessOutputCaptureFormat)
-  case failed(String)
+  case failed(RoutingNodeFailure)
 }
 
 protocol RoutingProcessCaptureSession: AnyObject, Sendable {
@@ -337,7 +337,7 @@ final class RoutingCaptureController {
     for nodeID in source.nodeIDs where processIDsByNode[nodeID] == processID {
       processIDsByNode[nodeID] = nil
       snapshots[nodeID] = nil
-      states[nodeID] = .failed(error.localizedDescription)
+      states[nodeID] = .failed(RoutingNodeFailure(error))
     }
   }
 

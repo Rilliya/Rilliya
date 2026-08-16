@@ -7,7 +7,7 @@ enum RoutingNetworkReceiveState: Equatable {
   case idle
   case starting
   case running(NetworkAudioStreamFormat)
-  case failed(String)
+  case failed(RoutingNodeFailure)
 }
 
 protocol RoutingNetworkReceiveSession: AnyObject, Sendable {
@@ -248,7 +248,7 @@ final class RoutingNetworkReceiveController {
     for nodeID in source.nodeIDs where configurationsByNode[nodeID] == configuration {
       configurationsByNode[nodeID] = nil
       failedConfigurations[nodeID] = configuration
-      states[nodeID] = .failed(error.localizedDescription)
+      states[nodeID] = .failed(RoutingNodeFailure(error))
     }
   }
 
@@ -266,7 +266,7 @@ final class RoutingNetworkReceiveController {
     sources[configuration] = source
     for nodeID in nodeIDs where configurationsByNode[nodeID] == configuration {
       configurationsByNode[nodeID] = nil
-      states[nodeID] = .failed(error.localizedDescription)
+      states[nodeID] = .failed(RoutingNodeFailure(error))
     }
     beginStop(session, configuration: configuration, generation: generation)
   }

@@ -154,7 +154,7 @@ extension RoutingCaptureCursorCache {
     consumerID: UUID,
     provider: any RoutingCaptureSourceProviding,
     activeKeys: inout Set<RoutingCaptureCursorKey>,
-    failureMessage: inout String?
+    failure: inout RoutingNodeFailure?
   ) -> RoutingRealtimeCaptureSource? {
     do {
       guard
@@ -167,7 +167,7 @@ extension RoutingCaptureCursorCache {
       activeKeys.insert(cached.key)
       return cached.source
     } catch {
-      failureMessage = error.localizedDescription
+      failure = RoutingNodeFailure(error)
       return nil
     }
   }

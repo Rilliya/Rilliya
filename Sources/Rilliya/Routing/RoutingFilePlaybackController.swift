@@ -9,7 +9,7 @@ enum RoutingFilePlaybackState: Equatable {
   case preparing
   case streaming(AudioFileDescription)
   case completed(AudioFileDescription)
-  case failed(String)
+  case failed(RoutingNodeFailure)
 }
 
 struct RoutingFilePlaybackRequest: Equatable, Sendable {
@@ -20,7 +20,7 @@ struct RoutingFilePlaybackRequest: Equatable, Sendable {
 
 enum RoutingFilePlaybackRequirement: Equatable, Sendable {
   case ready(RoutingFilePlaybackRequest)
-  case blocked(String)
+  case blocked(RoutingNodeFailure)
 }
 
 protocol RoutingFilePlaybackSession: AnyObject, Sendable {
@@ -184,8 +184,8 @@ final class RoutingFilePlaybackController {
     switch requirement {
     case .none:
       states[nodeID] = .idle
-    case .blocked(let message):
-      states[nodeID] = .failed(message)
+    case .blocked(let failure):
+      states[nodeID] = .failed(failure)
     case .ready(let request):
       states[nodeID] = .preparing
       let eventHandler: AudioFileFrameStream.EventHandler = { [weak self] event in
@@ -208,7 +208,7 @@ final class RoutingFilePlaybackController {
         }
       } catch {
         guard generations[nodeID] == generation else { return }
-        states[nodeID] = .failed(error.localizedDescription)
+        states[nodeID] = .failed(RoutingNodeFailure(error))
       }
     }
   }
@@ -229,7 +229,7 @@ final class RoutingFilePlaybackController {
     case .completed:
       states[nodeID] = .completed(running.session.sourceDescription)
     case .failed(let error):
-      states[nodeID] = .failed(error.localizedDescription)
+      states[nodeID] = .failed(RoutingNodeFailure(error))
     }
   }
 }
@@ -246,7 +246,7 @@ enum RoutingFilePlaybackRequirementResolver {
       }
     )
     var requests: [UUID: RoutingFilePlaybackRequest] = [:]
-    var blocked: [UUID: String] = [:]
+    var blocked: [UUID: RoutingNodeFailure] = [:]
 
     for workflow in workflows where workflow.isRunning {
       let workspace = workflow.workspace
@@ -280,8 +280,11 @@ enum RoutingFilePlaybackRequirementResolver {
             loopMode: configuration.loopMode
           )
           if let existing = requests[node.id], existing != request {
-            blocked[node.id] =
-              "One file source cannot feed output devices with different clocks. Add a clocked fan-out or sample-rate converter."
+            blocked[node.id] = RoutingNodeFailure(
+              summary: "Clock conflict",
+              message:
+                "One file source cannot feed output devices with different clocks. Add a clocked fan-out or sample-rate converter."
+            )
           } else {
             requests[node.id] = request
           }

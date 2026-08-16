@@ -9,7 +9,7 @@ enum RoutingInputCaptureState: Equatable {
   case idle
   case starting
   case running(DeviceInputCaptureFormat)
-  case failed(String)
+  case failed(RoutingNodeFailure)
 }
 
 protocol RoutingInputCaptureSession: AnyObject, Sendable {
@@ -314,7 +314,7 @@ final class RoutingInputCaptureController {
     for nodeID in source.nodeIDs where deviceIDsByNode[nodeID] == deviceID {
       deviceIDsByNode[nodeID] = nil
       snapshots[nodeID] = nil
-      states[nodeID] = .failed(error.localizedDescription)
+      states[nodeID] = .failed(RoutingNodeFailure(error))
     }
   }
 
@@ -334,7 +334,7 @@ final class RoutingInputCaptureController {
     for nodeID in nodeIDs where deviceIDsByNode[nodeID] == deviceID {
       deviceIDsByNode[nodeID] = nil
       snapshots[nodeID] = nil
-      states[nodeID] = .failed(error.localizedDescription)
+      states[nodeID] = .failed(RoutingNodeFailure(error))
     }
     beginStop(capture, deviceID: deviceID, generation: generation)
   }
