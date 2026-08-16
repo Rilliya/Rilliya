@@ -88,7 +88,8 @@ private struct RilliyaGeneralPreferencesPane: View {
     PreferencesPaneStack {
       PreferencesSection(
         "Application",
-        footer: "macOS controls login-item approval in System Settings."
+        footer:
+          "Keep at least one of Dock or menu bar visibility enabled. macOS controls login-item approval in System Settings."
       ) {
         PreferencesPopupRow(
           symbol: "circle.lefthalf.filled",
@@ -107,6 +108,31 @@ private struct RilliyaGeneralPreferencesPane: View {
             FlowingSelectOption(.light, label: "Light"),
             FlowingSelectOption(.dark, label: "Dark"),
           ]
+        )
+
+        PreferencesRowSeparator(leadingEdge: .iconText)
+        PreferencesSwitchRow(
+          symbol: "dock.rectangle",
+          title: "Show in Dock",
+          caption: "Keep Rilliya in the Dock and application switcher.",
+          isOn: Binding(
+            get: { settings.showsInDock },
+            set: { isVisible in
+              settings.setShowsInDock(isVisible)
+              RilliyaApplicationPresentation.apply(settings)
+            }
+          )
+        )
+
+        PreferencesRowSeparator(leadingEdge: .iconText)
+        PreferencesSwitchRow(
+          symbol: "menubar.rectangle",
+          title: "Show in menu bar",
+          caption: "Keep quick workflow and application controls in the menu bar.",
+          isOn: Binding(
+            get: { settings.showsInStatusBar },
+            set: settings.setShowsInStatusBar
+          )
         )
 
         PreferencesRowSeparator(leadingEdge: .iconText)

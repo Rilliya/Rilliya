@@ -7,24 +7,50 @@ import RilliyaCore
 import SwiftUI
 
 struct WorkspaceView: View {
+  @Bindable var runtime: RilliyaRuntime
   let settings: RilliyaSettings
 
   @Environment(\.scenePhase) private var scenePhase
-  @State private var workflowLibrary = RoutingWorkflowLibrary.launchConfigured()
-  @State private var applicationCatalog = InstalledApplicationCatalogController()
-  @State private var audioCatalog = AudioCatalogController()
-  @State private var iconResolver = NSWorkspaceInstalledApplicationIconResolver()
-  @State private var captureController = RoutingCaptureController()
-  @State private var inputCaptureController = RoutingInputCaptureController()
-  @State private var filePlaybackController = RoutingFilePlaybackController()
-  @State private var fileOutputController = RoutingFileOutputController()
-  @State private var networkSendController = RoutingNetworkSendController()
-  @State private var networkReceiveController = RoutingNetworkReceiveController()
-  @State private var outputController = RoutingAudioOutputController()
-  @State private var workflowPersistenceStore = RoutingWorkflowPersistenceStore()
-  @State private var didRestoreWorkflows = false
-  @State private var workflowSaveTask: Task<Void, Never>?
-  @State private var workflowPersistenceIssue: String?
+
+  private var workflowLibrary: RoutingWorkflowLibrary {
+    get { runtime.workflowLibrary }
+    nonmutating set { runtime.workflowLibrary = newValue }
+  }
+
+  private var applicationCatalog: InstalledApplicationCatalogController {
+    runtime.applicationCatalog
+  }
+
+  private var audioCatalog: AudioCatalogController { runtime.audioCatalog }
+  private var iconResolver: NSWorkspaceInstalledApplicationIconResolver { runtime.iconResolver }
+  private var captureController: RoutingCaptureController { runtime.captureController }
+  private var inputCaptureController: RoutingInputCaptureController {
+    runtime.inputCaptureController
+  }
+  private var filePlaybackController: RoutingFilePlaybackController {
+    runtime.filePlaybackController
+  }
+  private var fileOutputController: RoutingFileOutputController { runtime.fileOutputController }
+  private var networkSendController: RoutingNetworkSendController { runtime.networkSendController }
+  private var networkReceiveController: RoutingNetworkReceiveController {
+    runtime.networkReceiveController
+  }
+  private var outputController: RoutingAudioOutputController { runtime.outputController }
+  private var workflowPersistenceStore: RoutingWorkflowPersistenceStore {
+    runtime.workflowPersistenceStore
+  }
+  private var didRestoreWorkflows: Bool {
+    get { runtime.didRestoreWorkflows }
+    nonmutating set { runtime.didRestoreWorkflows = newValue }
+  }
+  private var workflowSaveTask: Task<Void, Never>? {
+    get { runtime.workflowSaveTask }
+    nonmutating set { runtime.workflowSaveTask = newValue }
+  }
+  private var workflowPersistenceIssue: String? {
+    get { runtime.workflowPersistenceIssue }
+    nonmutating set { runtime.workflowPersistenceIssue = newValue }
+  }
 
   var body: some View {
     ZStack {
@@ -81,114 +107,7 @@ struct WorkspaceView: View {
     .ignoresSafeArea(.container, edges: .top)
     .frame(minWidth: 840, minHeight: 560)
     .task {
-      await applicationCatalog.refresh()
-    }
-    .task {
-      audioCatalog.start()
-    }
-    .task {
       await restoreWorkflows()
-    }
-    .task {
-      for await _ in NSWorkspace.shared.notificationCenter.notifications(
-        named: NSWorkspace.didLaunchApplicationNotification
-      ) {
-        await applicationCatalog.refresh()
-      }
-    }
-    .task {
-      for await notification in NSWorkspace.shared.notificationCenter.notifications(
-        named: NSWorkspace.didTerminateApplicationNotification
-      ) {
-        if let application = notification.userInfo?[NSWorkspace.applicationUserInfoKey]
-          as? NSRunningApplication,
-          let processID = AudioProcessID(rawValue: application.processIdentifier)
-        {
-          captureController.stop(processID: processID)
-        }
-        await applicationCatalog.refresh()
-      }
-    }
-    .onChange(of: captureRequirements, initial: true) { _, requirements in
-      captureController.reconcile(requirements: requirements)
-      inputCaptureController.reconcile(
-        deviceIDsByNode: requirements.inputDeviceIDsByNode
-      )
-    }
-    .onChange(of: captureController.states, initial: true) { _, states in
-      let formats = states.compactMapValues { state -> ProcessOutputCaptureFormat? in
-        guard case .running(let format) = state else { return nil }
-        return format
-      }
-      for workflow in workflowLibrary.workflows {
-        workflow.workspace.synchronizeCaptureFormats(
-          formats,
-          preferredSeparateChannelCount: settings.defaultSeparateChannelLayout.channelCount
-        )
-      }
-    }
-    .onChange(of: inputCaptureController.states, initial: true) { _, states in
-      let formats = states.compactMapValues { state -> DeviceInputCaptureFormat? in
-        guard case .running(let format) = state else { return nil }
-        return format
-      }
-      for workflow in workflowLibrary.workflows {
-        workflow.workspace.synchronizeInputCaptureFormats(
-          formats,
-          preferredSeparateChannelCount: settings.defaultSeparateChannelLayout.channelCount
-        )
-      }
-    }
-    .onChange(of: filePlaybackRequirements, initial: true) { _, requirements in
-      filePlaybackController.reconcile(requirements: requirements)
-    }
-    .onChange(of: networkReceiveRequirements, initial: true) { _, requirements in
-      networkReceiveController.reconcile(requirements: requirements)
-    }
-    .onChange(of: outputReconciliationToken, initial: true) {
-      outputController.reconcile(
-        workflows: workflowLibrary.workflows,
-        captureController: captureController,
-        inputCaptureController: inputCaptureController,
-        filePlaybackController: filePlaybackController,
-        networkReceiveController: networkReceiveController
-      )
-      networkSendController.reconcile(
-        workflows: workflowLibrary.workflows,
-        captureController: captureController,
-        inputCaptureController: inputCaptureController,
-        filePlaybackController: filePlaybackController,
-        networkReceiveController: networkReceiveController
-      )
-      fileOutputController.reconcile(
-        workflows: workflowLibrary.workflows,
-        captureController: captureController,
-        inputCaptureController: inputCaptureController,
-        filePlaybackController: filePlaybackController,
-        networkReceiveController: networkReceiveController
-      )
-    }
-    .onChange(of: settings.defaultSeparateChannelLayout, initial: true) { _, layout in
-      let formats = captureController.states.compactMapValues {
-        state -> ProcessOutputCaptureFormat? in
-        guard case .running(let format) = state else { return nil }
-        return format
-      }
-      let inputFormats = inputCaptureController.states.compactMapValues {
-        state -> DeviceInputCaptureFormat? in
-        guard case .running(let format) = state else { return nil }
-        return format
-      }
-      for workflow in workflowLibrary.workflows {
-        workflow.workspace.synchronizeCaptureFormats(
-          formats,
-          preferredSeparateChannelCount: layout.channelCount
-        )
-        workflow.workspace.synchronizeInputCaptureFormats(
-          inputFormats,
-          preferredSeparateChannelCount: layout.channelCount
-        )
-      }
     }
     .onChange(of: pinnedApplications, initial: true) { _, applications in
       Task {
@@ -203,30 +122,11 @@ struct WorkspaceView: View {
     }
     .onDisappear {
       saveWorkflowsImmediately()
-      applicationCatalog.cancelRefresh()
-      audioCatalog.stop()
-      captureController.stopAll()
-      inputCaptureController.stopAll()
-      filePlaybackController.stopAll()
-      fileOutputController.stopAll()
-      networkSendController.stopAll()
-      networkReceiveController.stopAll()
-      outputController.stopAll()
     }
   }
 
   private var workflowPersistenceToken: RoutingWorkflowPersistenceToken {
     RoutingWorkflowPersistenceToken(library: workflowLibrary)
-  }
-
-  private var outputReconciliationToken: RoutingAudioOutputReconciliationToken {
-    RoutingAudioOutputReconciliationToken(
-      workflows: workflowLibrary.workflows,
-      processStates: captureController.states,
-      inputStates: inputCaptureController.states,
-      fileStates: filePlaybackController.states,
-      networkReceiveStates: networkReceiveController.states
-    )
   }
 
   private var usesWorkflowPersistence: Bool {
@@ -296,16 +196,9 @@ struct WorkspaceView: View {
       .allowsHitTesting(false)
   }
 
-  private var captureRequirements: RoutingCaptureRequirements {
-    RoutingCaptureRequirementResolver.resolve(
-      workflows: workflowLibrary.workflows,
-      catalogSnapshot: applicationCatalog.state.snapshot
-    )
-  }
-
   private var pinnedApplications: [InstalledApplication] {
     guard let items = applicationCatalog.state.snapshot?.items else { return [] }
-    let configuredURLs = Set(
+    var configuredURLs = Set(
       workflowLibrary.workflows.flatMap { workflow in
         workflow.workspace.nodes.compactMap { node in
           node.value.applicationSelection.map {
@@ -314,22 +207,16 @@ struct WorkspaceView: View {
         }
       }
     )
+    configuredURLs.formUnion(
+      runtime.managedApplicationStore.applications.map {
+        canonicalApplicationURL($0.applicationURL)
+      }
+    )
     return items.compactMap { item in
       configuredURLs.contains(canonicalApplicationURL(item.application.bundleURL))
         ? item.application
         : nil
     }
-  }
-
-  private var filePlaybackRequirements: [UUID: RoutingFilePlaybackRequirement] {
-    RoutingFilePlaybackRequirementResolver.resolve(
-      workflows: workflowLibrary.workflows,
-      catalogSnapshot: audioCatalog.state.snapshot
-    )
-  }
-
-  private var networkReceiveRequirements: [UUID: RoutingNetworkReceiveConfiguration] {
-    RoutingNetworkReceiveRequirementResolver.resolve(workflows: workflowLibrary.workflows)
   }
 
   private var workflowCanvas: some View {
@@ -529,69 +416,6 @@ struct WorkspaceView: View {
     guard let elementID = workflow.workspace.elementID(for: nodeID) else { return }
     workflow.canvasSession.selection = [elementID]
     workflow.canvasSession.focusedElementID = elementID
-  }
-}
-
-private struct RoutingAudioOutputReconciliationToken: Equatable {
-  struct Workflow: Equatable {
-    let id: UUID
-    let revision: UInt64
-    let isRunning: Bool
-  }
-
-  struct ProcessState: Equatable {
-    let nodeID: UUID
-    let state: RoutingCaptureState
-  }
-
-  struct InputState: Equatable {
-    let nodeID: UUID
-    let state: RoutingInputCaptureState
-  }
-
-  struct FileState: Equatable {
-    let nodeID: UUID
-    let state: RoutingFilePlaybackState
-  }
-
-  struct NetworkReceiveState: Equatable {
-    let nodeID: UUID
-    let state: RoutingNetworkReceiveState
-  }
-
-  let workflows: [Workflow]
-  let processStates: [ProcessState]
-  let inputStates: [InputState]
-  let fileStates: [FileState]
-  let networkReceiveStates: [NetworkReceiveState]
-
-  @MainActor
-  init(
-    workflows: [RoutingWorkflowModel],
-    processStates: [UUID: RoutingCaptureState],
-    inputStates: [UUID: RoutingInputCaptureState],
-    fileStates: [UUID: RoutingFilePlaybackState],
-    networkReceiveStates: [UUID: RoutingNetworkReceiveState]
-  ) {
-    self.workflows = workflows.map {
-      Workflow(
-        id: $0.id,
-        revision: $0.workspace.persistenceRevision,
-        isRunning: $0.isRunning
-      )
-    }
-    self.processStates = processStates.map {
-      ProcessState(nodeID: $0.key, state: $0.value)
-    }.sorted { $0.nodeID.uuidString < $1.nodeID.uuidString }
-    self.inputStates = inputStates.map {
-      InputState(nodeID: $0.key, state: $0.value)
-    }.sorted { $0.nodeID.uuidString < $1.nodeID.uuidString }
-    self.fileStates = fileStates.map {
-      FileState(nodeID: $0.key, state: $0.value)
-    }.sorted { $0.nodeID.uuidString < $1.nodeID.uuidString }
-    self.networkReceiveStates = networkReceiveStates.map {
-      NetworkReceiveState(nodeID: $0.key, state: $0.value)
-    }.sorted { $0.nodeID.uuidString < $1.nodeID.uuidString }
   }
 }
 
@@ -938,7 +762,7 @@ private struct RoutingWorkflowLaunchToggle: View {
 }
 
 #Preview {
-  WorkspaceView(settings: RilliyaSettings.shared)
+  WorkspaceView(runtime: RilliyaRuntime(), settings: RilliyaSettings.shared)
     .flowingAccent(.fern)
     .frame(width: 1_080, height: 680)
 }

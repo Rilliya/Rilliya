@@ -47,6 +47,18 @@ final class RilliyaSettings {
     }
   }
 
+  private(set) var showsInDock: Bool {
+    didSet {
+      defaults.set(showsInDock, forKey: Keys.showsInDock)
+    }
+  }
+
+  private(set) var showsInStatusBar: Bool {
+    didSet {
+      defaults.set(showsInStatusBar, forKey: Keys.showsInStatusBar)
+    }
+  }
+
   var connectionInformationLevel: RoutingConnectionInformationLevel {
     didSet {
       defaults.set(
@@ -93,6 +105,16 @@ final class RilliyaSettings {
       defaults.string(forKey: Keys.appearance)
       .flatMap(RilliyaAppearance.init(rawValue:))
       ?? .system
+    let storedShowsInDock = defaults.object(forKey: Keys.showsInDock) as? Bool ?? true
+    let storedShowsInStatusBar =
+      defaults.object(forKey: Keys.showsInStatusBar) as? Bool ?? false
+    if storedShowsInDock || storedShowsInStatusBar {
+      showsInDock = storedShowsInDock
+      showsInStatusBar = storedShowsInStatusBar
+    } else {
+      showsInDock = true
+      showsInStatusBar = false
+    }
     connectionInformationLevel =
       defaults.string(forKey: Keys.connectionInformationLevel)
       .flatMap(RoutingConnectionInformationLevel.init(rawValue:))
@@ -113,6 +135,22 @@ final class RilliyaSettings {
     nodeAccentOverrides = Self.decodeNodeAccentOverrides(
       defaults.dictionary(forKey: Keys.nodeAccentOverrides) ?? [:]
     )
+  }
+
+  func setShowsInDock(_ isVisible: Bool) {
+    guard showsInDock != isVisible else { return }
+    if !isVisible, !showsInStatusBar {
+      showsInStatusBar = true
+    }
+    showsInDock = isVisible
+  }
+
+  func setShowsInStatusBar(_ isVisible: Bool) {
+    guard showsInStatusBar != isVisible else { return }
+    if !isVisible, !showsInDock {
+      showsInDock = true
+    }
+    showsInStatusBar = isVisible
   }
 
   func nodeAccentOverride(for kind: RoutingNodeKind) -> RoutingAccentID? {
@@ -152,6 +190,8 @@ final class RilliyaSettings {
 
   private enum Keys {
     static let appearance = "moe.uwucocoa.rilliya.appearance"
+    static let showsInDock = "moe.uwucocoa.rilliya.shows-in-dock"
+    static let showsInStatusBar = "moe.uwucocoa.rilliya.shows-in-status-bar"
     static let connectionInformationLevel =
       "moe.uwucocoa.rilliya.connection-information-level"
     static let defaultSeparateChannelLayout =
