@@ -461,7 +461,7 @@ private struct RoutingPreparedAudioGraphCompiler {
       throw RoutingPreparedAudioGraphError.missingOutputNode
     }
     switch outputNode.value {
-    case .outputAudio, .networkSend:
+    case .outputAudio, .fileOutput, .networkSend:
       break
     default:
       throw RoutingPreparedAudioGraphError.missingOutputNode
@@ -570,7 +570,7 @@ private struct RoutingPreparedAudioGraphCompiler {
         configuration: configuration,
         visited: visited
       )
-    case .outputAudio, .networkSend, .peakLevel:
+    case .outputAudio, .fileOutput, .networkSend, .peakLevel:
       throw RoutingPreparedAudioGraphError.invalidRoute
     }
     signalsByAddress[address] = signal

@@ -17,6 +17,7 @@ struct WorkspaceView: View {
   @State private var captureController = RoutingCaptureController()
   @State private var inputCaptureController = RoutingInputCaptureController()
   @State private var filePlaybackController = RoutingFilePlaybackController()
+  @State private var fileOutputController = RoutingFileOutputController()
   @State private var networkSendController = RoutingNetworkSendController()
   @State private var networkReceiveController = RoutingNetworkReceiveController()
   @State private var outputController = RoutingAudioOutputController()
@@ -45,6 +46,7 @@ struct WorkspaceView: View {
         insertPeakLevel: insertPeakLevel,
         insertSignalGenerator: insertSignalGenerator,
         insertFilePlayback: insertFilePlayback,
+        insertFileOutput: insertFileOutput,
         insertNetworkSend: insertNetworkSend,
         insertNetworkReceive: insertNetworkReceive,
         insertDelay: insertDelay,
@@ -158,6 +160,13 @@ struct WorkspaceView: View {
         filePlaybackController: filePlaybackController,
         networkReceiveController: networkReceiveController
       )
+      fileOutputController.reconcile(
+        workflows: workflowLibrary.workflows,
+        captureController: captureController,
+        inputCaptureController: inputCaptureController,
+        filePlaybackController: filePlaybackController,
+        networkReceiveController: networkReceiveController
+      )
     }
     .onChange(of: settings.defaultSeparateChannelLayout, initial: true) { _, layout in
       let formats = captureController.states.compactMapValues {
@@ -199,6 +208,7 @@ struct WorkspaceView: View {
       captureController.stopAll()
       inputCaptureController.stopAll()
       filePlaybackController.stopAll()
+      fileOutputController.stopAll()
       networkSendController.stopAll()
       networkReceiveController.stopAll()
       outputController.stopAll()
@@ -332,6 +342,7 @@ struct WorkspaceView: View {
       captureController: captureController,
       inputCaptureController: inputCaptureController,
       filePlaybackController: filePlaybackController,
+      fileOutputController: fileOutputController,
       networkSendController: networkSendController,
       networkReceiveController: networkReceiveController,
       outputController: outputController
@@ -440,6 +451,17 @@ struct WorkspaceView: View {
   private func insertFilePlayback() {
     let workflow = workflowLibrary.selectedWorkflow
     let nodeID = workflow.workspace.addFilePlaybackNode(
+      centeredAt: RoutingNodeInsertion.point(
+        in: workflow.canvasSession.viewport.visibleWorldRect,
+        existingNodeCount: workflow.workspace.nodes.count
+      )
+    )
+    selectNode(nodeID, in: workflow)
+  }
+
+  private func insertFileOutput() {
+    let workflow = workflowLibrary.selectedWorkflow
+    let nodeID = workflow.workspace.addFileOutputNode(
       centeredAt: RoutingNodeInsertion.point(
         in: workflow.canvasSession.viewport.visibleWorldRect,
         existingNodeCount: workflow.workspace.nodes.count
@@ -583,6 +605,7 @@ private struct RoutingWorkflowCanvas: View {
   let captureController: RoutingCaptureController
   let inputCaptureController: RoutingInputCaptureController
   let filePlaybackController: RoutingFilePlaybackController
+  let fileOutputController: RoutingFileOutputController
   let networkSendController: RoutingNetworkSendController
   let networkReceiveController: RoutingNetworkReceiveController
   let outputController: RoutingAudioOutputController
@@ -597,6 +620,7 @@ private struct RoutingWorkflowCanvas: View {
       captureController: captureController,
       inputCaptureController: inputCaptureController,
       filePlaybackController: filePlaybackController,
+      fileOutputController: fileOutputController,
       networkSendController: networkSendController,
       networkReceiveController: networkReceiveController,
       outputController: outputController,

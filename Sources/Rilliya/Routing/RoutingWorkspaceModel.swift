@@ -110,6 +110,8 @@ final class RoutingWorkspaceModel {
         .signalGenerator(configuration: .initial)
       case .filePlayback:
         .filePlayback(configuration: .initial)
+      case .fileOutput:
+        .fileOutput(configuration: .initial)
       case .networkSend:
         .networkSend(configuration: .initial)
       case .networkReceive:
@@ -345,6 +347,22 @@ final class RoutingWorkspaceModel {
     appendNode(
       id: id,
       value: .filePlayback(configuration: .initial),
+      centeredAt: worldPoint
+    )
+    rebuildCanvas()
+    return id
+  }
+
+  @discardableResult
+  func addFileOutputNode(
+    centeredAt worldPoint: CGPoint,
+    id: UUID = UUID()
+  ) -> UUID {
+    precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
+    precondition(!nodes.contains { $0.id == id })
+    appendNode(
+      id: id,
+      value: .fileOutput(configuration: .initial),
       centeredAt: worldPoint
     )
     rebuildCanvas()
@@ -684,6 +702,20 @@ final class RoutingWorkspaceModel {
     nodes[index].audioChannelControls = nodes[index].audioChannelControls.filter {
       $0.key < channelCount
     }
+    rebuildCanvas()
+  }
+
+  func configureFileOutput(
+    _ configuration: RoutingFileOutputConfiguration,
+    for nodeID: UUID
+  ) {
+    guard let index = nodes.firstIndex(where: { $0.id == nodeID }),
+      case .fileOutput(let previous) = nodes[index].value,
+      previous != configuration
+    else {
+      return
+    }
+    nodes[index].value = .fileOutput(configuration: configuration)
     rebuildCanvas()
   }
 

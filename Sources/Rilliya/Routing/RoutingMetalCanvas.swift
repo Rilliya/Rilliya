@@ -404,7 +404,20 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     }
 
     if let edge = edge(at: worldPoint) {
-      updateSelection([edge.id])
+      let extendsSelection =
+        event.modifierFlags.contains(.command)
+        || event.modifierFlags.contains(.shift)
+      if extendsSelection {
+        var next = selection
+        if next.contains(edge.id) {
+          next.remove(edge.id)
+        } else {
+          next.insert(edge.id)
+        }
+        updateSelection(next)
+      } else {
+        updateSelection([edge.id])
+      }
       return
     }
 
@@ -464,7 +477,16 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         height: abs(worldPoint.y - startWorldPoint.y)
       )
       marqueeWorldRect = rect
-      updateSelection(marqueeBaseSelection.union(scene.nodeIDs(intersecting: rect)))
+      let edgeIDs = Set(
+        scene.edges.lazy.filter {
+          RoutingMetalRouteGeometry.intersects($0.route, rectangle: rect)
+        }.map(\.id)
+      )
+      updateSelection(
+        marqueeBaseSelection
+          .union(scene.nodeIDs(intersecting: rect))
+          .union(edgeIDs)
+      )
       requestDisplay()
     }
   }
@@ -515,16 +537,12 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       let nodeIDs = Set(
         scene.nodes.filter { selection.contains($0.id) }.map(\.workspaceID)
       )
-      if !nodeIDs.isEmpty {
-        onDeleteNodes?(nodeIDs)
-        updateSelection([])
-        return
-      }
       let edgeIDs = Set(
         scene.edges.filter { selection.contains($0.id) }.map(\.workspaceID)
       )
-      if !edgeIDs.isEmpty {
+      if !nodeIDs.isEmpty || !edgeIDs.isEmpty {
         onDeleteEdges?(edgeIDs)
+        onDeleteNodes?(nodeIDs)
         updateSelection([])
         return
       }
@@ -1025,6 +1043,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       )
     case .filePlayback:
       appendFilePlayback(
+        node: node,
+        frame: frame,
+        accent: accent,
+        palette: palette,
+        to: &geometry
+      )
+    case .fileOutput:
+      appendFileOutput(
         node: node,
         frame: frame,
         accent: accent,
@@ -1656,6 +1682,40 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     )
   }
 
+  private func appendFileOutput(
+    node: RoutingMetalScene.Node,
+    frame: CGRect,
+    accent: SIMD4<Float>,
+    palette: RoutingMetalPalette,
+    to geometry: inout RoutingMetalFrameGeometry
+  ) {
+    guard case .fileOutput(let configuration) = node.value else { return }
+    let valueFrame = CGRect(
+      x: frame.minX + RoutingVisualizerLayout.horizontalInset
+        + RoutingVisualizerLayout.portLabelGutter,
+      y: frame.maxY - 48,
+      width: frame.width - 2 * RoutingVisualizerLayout.horizontalInset
+        - RoutingVisualizerLayout.portLabelGutter,
+      height: 34
+    )
+    geometry.shapes.append(
+      RoutingMetalShapeInstance(
+        rect: valueFrame,
+        fill: accent.withAlpha(0.09),
+        border: .zero,
+        cornerRadius: 8,
+        borderWidth: 0,
+        opacity: 1
+      )
+    )
+    append(
+      atlas: textAtlas.text(configuration.formatDescription, size: 10, weight: .medium),
+      origin: CGPoint(x: valueFrame.minX + 11, y: valueFrame.midY - 7),
+      color: palette.muted,
+      to: &geometry
+    )
+  }
+
   private func appendNetworkAudio(
     node: RoutingMetalScene.Node,
     frame: CGRect,
@@ -1838,7 +1898,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       translation: dragTranslation
     )
     appendStroke(
-      points: points(for: route),
+      points: RoutingMetalRouteGeometry.points(for: route),
       width: edgeStrokeWidth(edge) / camera.zoom,
       color: edgeStrokeColor(edge, palette: palette),
       to: &geometry
@@ -1849,7 +1909,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     else {
       return
     }
-    let center = midpoint(of: points(for: route))
+    let center = midpoint(of: RoutingMetalRouteGeometry.points(for: route))
     let labelFrame = CGRect(
       x: center.x - (entry.size.width + 14) / 2,
       y: center.y - (entry.size.height + 6) / 2,
@@ -1930,7 +1990,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       ]
     )
     appendStroke(
-      points: points(for: route),
+      points: RoutingMetalRouteGeometry.points(for: route),
       width: Constants.connectionPreviewWidth / camera.zoom,
       color: (isValid ? palette.fern : palette.muted).withAlpha(0.82),
       to: &geometry
@@ -2012,47 +2072,6 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         )
       }
     }
-  }
-
-  private func points(for route: FlowingGraphEdgeRoute) -> [CGPoint] {
-    var result = [route.start]
-    var start = route.start
-    for segment in route.segments {
-      switch segment {
-      case .line(let end):
-        result.append(end)
-        start = end
-      case .quadratic(let control, let end):
-        for step in 1...12 {
-          let t = CGFloat(step) / 12
-          let inverse = 1 - t
-          result.append(
-            CGPoint(
-              x: inverse * inverse * start.x + 2 * inverse * t * control.x + t * t * end.x,
-              y: inverse * inverse * start.y + 2 * inverse * t * control.y + t * t * end.y
-            )
-          )
-        }
-        start = end
-      case .cubic(let control1, let control2, let end):
-        for step in 1...18 {
-          let t = CGFloat(step) / 18
-          let inverse = 1 - t
-          result.append(
-            CGPoint(
-              x: inverse * inverse * inverse * start.x
-                + 3 * inverse * inverse * t * control1.x
-                + 3 * inverse * t * t * control2.x + t * t * t * end.x,
-              y: inverse * inverse * inverse * start.y
-                + 3 * inverse * inverse * t * control1.y
-                + 3 * inverse * t * t * control2.y + t * t * t * end.y
-            )
-          )
-        }
-        start = end
-      }
-    }
-    return result
   }
 
   private func append(
@@ -2211,7 +2230,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         targetMoves: draggedNodeIDs.contains(edge.targetNodeID),
         translation: dragTranslation
       )
-      let routePoints = points(for: route)
+      let routePoints = RoutingMetalRouteGeometry.points(for: route)
       let minimumDistance =
         zip(routePoints, routePoints.dropFirst()).map { pair in
           distance(from: point, toSegmentFrom: pair.0, to: pair.1)

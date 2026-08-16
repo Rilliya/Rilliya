@@ -27,6 +27,33 @@ struct RoutingPreparedAudioGraphTests {
   }
 
   @Test
+  func fileOutputActsAsAFirstClassTerminalSink() throws {
+    let sourceID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(channelCount: 1)
+    try write([[0.25, -0.5, 0.75]], to: buffer)
+    let renderer = try makeRenderer(
+      nodes: [
+        sourceNode(id: sourceID, channelCount: 1),
+        RoutingWorkspaceNode(
+          id: outputID,
+          value: .fileOutput(configuration: .initial),
+          frame: .zero
+        ),
+      ],
+      edges: [edge(from: sourceID, .all, to: outputID, .all)],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer],
+      outputChannelCount: 1
+    )
+
+    let rendered = render(renderer, channelCount: 1, frameCount: 3)
+
+    #expect(rendered.result == .rendered)
+    #expect(rendered.channels[0] == [0.25, -0.5, 0.75])
+  }
+
+  @Test
   func sourceGainAndMuteAffectRenderedPCM() throws {
     let sourceID = UUID()
     let outputID = UUID()

@@ -148,6 +148,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
   case peakLevel
   case signalGenerator
   case filePlayback
+  case fileOutput
   case networkSend
   case networkReceive
   case delay
@@ -166,6 +167,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .peakLevel: "Peak Level"
     case .signalGenerator: "Signal Generator"
     case .filePlayback: "File Playback"
+    case .fileOutput: "File Output"
     case .networkSend: "Network Send"
     case .networkReceive: "Network Receive"
     case .delay: "Delay"
@@ -186,6 +188,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .peakLevel: "gauge.with.dots.needle.50percent"
     case .signalGenerator: "waveform.path"
     case .filePlayback: "music.note.list"
+    case .fileOutput: "square.and.arrow.down"
     case .networkSend: "network.badge.shield.half.filled"
     case .networkReceive: "network"
     case .delay: "clock.arrow.trianglehead.counterclockwise.rotate.90"
@@ -204,6 +207,7 @@ enum RoutingNodeKind: String, CaseIterable, Codable, Hashable, Sendable {
     case .channelRouter: .mist
     case .signalGenerator: .poppy
     case .filePlayback: .petal
+    case .fileOutput: .cherry
     case .networkSend: .bluebell
     case .networkReceive: .glacier
     case .delay: .wisteria
@@ -226,6 +230,7 @@ extension RoutingNodeValue {
     case .peakLevel: .peakLevel
     case .signalGenerator: .signalGenerator
     case .filePlayback: .filePlayback
+    case .fileOutput: .fileOutput
     case .networkSend: .networkSend
     case .networkReceive: .networkReceive
     case .delay: .delay

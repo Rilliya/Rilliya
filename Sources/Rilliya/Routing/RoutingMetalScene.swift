@@ -15,6 +15,7 @@ struct RoutingMetalNodeSupplement: Equatable {
   let audioChannelControls: [Int: RoutingAudioChannelControl]
   let applicationIcon: NSImage?
   let audioOutputState: RoutingAudioOutputState?
+  let fileOutputState: RoutingFileOutputState?
   let networkSendState: RoutingNetworkSendState?
   let networkReceiveState: RoutingNetworkReceiveState?
 
@@ -29,6 +30,7 @@ struct RoutingMetalNodeSupplement: Equatable {
     audioChannelControls: [Int: RoutingAudioChannelControl] = [:],
     applicationIcon: NSImage? = nil,
     audioOutputState: RoutingAudioOutputState? = nil,
+    fileOutputState: RoutingFileOutputState? = nil,
     networkSendState: RoutingNetworkSendState? = nil,
     networkReceiveState: RoutingNetworkReceiveState? = nil
   ) {
@@ -42,6 +44,7 @@ struct RoutingMetalNodeSupplement: Equatable {
     self.audioChannelControls = audioChannelControls
     self.applicationIcon = applicationIcon
     self.audioOutputState = audioOutputState
+    self.fileOutputState = fileOutputState
     self.networkSendState = networkSendState
     self.networkReceiveState = networkReceiveState
   }
@@ -105,6 +108,8 @@ struct RoutingMetalScene {
         return "Signal Generator"
       case .filePlayback:
         return "File Playback"
+      case .fileOutput:
+        return "File Output"
       case .networkSend:
         return "Network Send"
       case .networkReceive:
@@ -149,6 +154,8 @@ struct RoutingMetalScene {
         return configuration.waveform.displayName
       case .filePlayback(let configuration):
         return configuration.selection?.displayName ?? "Choose an audio file"
+      case .fileOutput(let configuration):
+        return configuration.destination?.displayName ?? "Choose a destination"
       case .networkSend(let configuration):
         return "\(configuration.host):\(configuration.port)"
       case .networkReceive(let configuration):
@@ -218,6 +225,15 @@ struct RoutingMetalScene {
         return "Ready to route"
       case .filePlayback(let configuration):
         return configuration.selection == nil ? "Select to configure" : "Ready to route"
+      case .fileOutput(let configuration):
+        guard configuration.destination != nil else { return "Select to configure" }
+        switch supplement.fileOutputState {
+        case .starting: return "Preparing recording"
+        case .running: return "Recording routed audio"
+        case .waitingForSource: return "Waiting for routed audio"
+        case .failed: return "File output stopped"
+        case .idle, .none: return "Ready to record"
+        }
       case .networkSend:
         switch supplement.networkSendState {
         case .starting: return "Preparing network stream"
@@ -284,7 +300,8 @@ struct RoutingMetalScene {
       case .outputAudio(let selection, _):
         return selection != nil
       case .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel, .signalGenerator,
-        .filePlayback, .networkSend, .networkReceive, .delay, .noiseGate, .compressor:
+        .filePlayback, .fileOutput, .networkSend, .networkReceive, .delay, .noiseGate,
+        .compressor:
         return false
       }
     }
@@ -299,8 +316,8 @@ struct RoutingMetalScene {
       case .applicationAudio:
         supplement.applicationIcon == nil
       case .inputAudio, .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter,
-        .peakLevel, .signalGenerator, .filePlayback, .networkSend, .networkReceive, .delay,
-        .noiseGate, .compressor:
+        .peakLevel, .signalGenerator, .filePlayback, .fileOutput, .networkSend,
+        .networkReceive, .delay, .noiseGate, .compressor:
         true
       }
     }
@@ -327,6 +344,8 @@ struct RoutingMetalScene {
         return "waveform.path"
       case .filePlayback:
         return "music.note.list"
+      case .fileOutput:
+        return "square.and.arrow.down"
       case .networkSend:
         return "paperplane.fill"
       case .networkReceive:
@@ -360,8 +379,8 @@ struct RoutingMetalScene {
       case .audioMixer, .channelRouter:
         return true
       case .applicationAudio, .inputAudio, .outputAudio, .visualizer, .peakLevel,
-        .gain, .signalGenerator, .filePlayback, .networkSend, .networkReceive, .delay,
-        .noiseGate, .compressor:
+        .gain, .signalGenerator, .filePlayback, .fileOutput, .networkSend, .networkReceive,
+        .delay, .noiseGate, .compressor:
         return false
       }
     }

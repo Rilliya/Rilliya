@@ -46,7 +46,7 @@ struct RoutingAudioSignalResolver {
     switch node.value {
     case .applicationAudio, .inputAudio:
       return sourceSignals(for: address, node: node)
-    case .outputAudio, .networkSend:
+    case .outputAudio, .fileOutput, .networkSend:
       return []
     case .visualizer(let configuration):
       return visualizerSignals(

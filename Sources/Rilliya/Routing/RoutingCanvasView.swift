@@ -6,6 +6,7 @@ import FlowingDayGraphComposition
 import RilliyaCore
 import RilliyaDSP
 import RilliyaFilePlayback
+import RilliyaFileWriting
 import SwiftUI
 import UniformTypeIdentifiers
 
@@ -20,6 +21,7 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
   case peakLevel = "moe.uwucocoa.rilliya.node.peak-level"
   case signalGenerator = "moe.uwucocoa.rilliya.node.signal-generator"
   case filePlayback = "moe.uwucocoa.rilliya.node.file-playback"
+  case fileOutput = "moe.uwucocoa.rilliya.node.file-output"
   case networkSend = "moe.uwucocoa.rilliya.node.network-send"
   case networkReceive = "moe.uwucocoa.rilliya.node.network-receive"
   case delay = "moe.uwucocoa.rilliya.node.delay"
@@ -40,6 +42,7 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
     case .peakLevel: .peakLevel
     case .signalGenerator: .signalGenerator
     case .filePlayback: .filePlayback
+    case .fileOutput: .fileOutput
     case .networkSend: .networkSend
     case .networkReceive: .networkReceive
     case .delay: .delay
@@ -62,6 +65,7 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
     case .peakLevel: "Measure the strongest sample"
     case .signalGenerator: "Create tones and colored noise"
     case .filePlayback: "Stream a local audio file"
+    case .fileOutput: "Record routed audio to a file"
     case .networkSend: "Send PCM to a trusted LAN peer"
     case .networkReceive: "Receive PCM from a trusted LAN peer"
     case .delay: "Add time and feedback"
@@ -74,7 +78,7 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
     switch self {
     case .applicationAudio, .inputAudio, .signalGenerator, .filePlayback, .networkReceive:
       .sources
-    case .outputAudio, .networkSend:
+    case .outputAudio, .fileOutput, .networkSend:
       .destinations
     case .audioMixer, .gain, .channelRouter:
       .routing
@@ -183,6 +187,22 @@ private struct RoutingCanvasPaletteDropDelegate: DropDelegate {
   }
 }
 
+private enum RoutingNodePaletteMetrics {
+  static let outerWidth: CGFloat = 286
+  static let outerLeadingInset: CGFloat = 12
+  static let outerTrailingInset: CGFloat = 10
+  static let outerTopInset: CGFloat = 26
+  static let outerBottomInset: CGFloat = 12
+  static let panelCornerRadius: CGFloat = 18
+  static let panelHorizontalPadding: CGFloat = 14
+  static let panelTopPadding: CGFloat = 34
+  static let panelBottomPadding: CGFloat = 14
+  static let scrollIndicatorTrailingOffset: CGFloat = 8
+  static let scrollIndicatorVerticalInset = panelCornerRadius / 2
+  static let panelBackgroundWidth = outerWidth - outerLeadingInset - outerTrailingInset
+  static let panelContentWidth = panelBackgroundWidth - panelHorizontalPadding * 2
+}
+
 struct RoutingCanvasView: View {
   let workspace: RoutingWorkspaceModel
   let settings: RilliyaSettings
@@ -192,6 +212,7 @@ struct RoutingCanvasView: View {
   let captureController: RoutingCaptureController
   let inputCaptureController: RoutingInputCaptureController
   let filePlaybackController: RoutingFilePlaybackController
+  let fileOutputController: RoutingFileOutputController
   let networkSendController: RoutingNetworkSendController
   let networkReceiveController: RoutingNetworkReceiveController
   let outputController: RoutingAudioOutputController
@@ -245,15 +266,6 @@ struct RoutingCanvasView: View {
         .allowsHitTesting(false)
         .accessibilityHidden(true)
       }
-    }
-    .overlay {
-      RoundedRectangle(cornerRadius: 12, style: .continuous)
-        .strokeBorder(
-          isDropTargeted ? FlowingAccent.fern.fill : Color.clear,
-          lineWidth: 2
-        )
-        .padding(6)
-        .allowsHitTesting(false)
     }
     .onDrop(
       of: [.plainText],
@@ -377,6 +389,9 @@ struct RoutingCanvasView: View {
               .zIndex(context.isSelected ? 2 : 1)
           case .filePlayback(let configuration):
             FilePlaybackNodeView(configuration: configuration, context: context)
+              .zIndex(context.isSelected ? 2 : 1)
+          case .fileOutput(let configuration):
+            FileOutputNodeView(configuration: configuration, context: context)
               .zIndex(context.isSelected ? 2 : 1)
           case .networkSend(let configuration):
             NetworkAudioNodeView(
@@ -549,6 +564,14 @@ struct RoutingCanvasView: View {
         supplements[node.id] = .empty
       case .filePlayback:
         supplements[node.id] = .empty
+      case .fileOutput:
+        supplements[node.id] = RoutingMetalNodeSupplement(
+          isRunning: false,
+          isCapturing: false,
+          captureConsumerCount: 0,
+          visualizerSignal: nil,
+          fileOutputState: fileOutputController.state(for: node.id)
+        )
       case .networkSend:
         supplements[node.id] = RoutingMetalNodeSupplement(
           isRunning: false,
@@ -813,6 +836,13 @@ struct RoutingCanvasView: View {
           }
         }
       )
+    case .fileOutput(let configuration):
+      SelectedFileOutputInspector(
+        configuration: configuration,
+        state: fileOutputController.state(for: node.id)
+      ) { updated in
+        workspace.configureFileOutput(updated, for: node.id)
+      }
     case .networkSend(let configuration):
       SelectedNetworkSendInspector(
         configuration: configuration,
@@ -1011,6 +1041,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
   let insertPeakLevel: () -> Void
   let insertSignalGenerator: () -> Void
   let insertFilePlayback: () -> Void
+  let insertFileOutput: () -> Void
   let insertNetworkSend: () -> Void
   let insertNetworkReceive: () -> Void
   let insertDelay: () -> Void
@@ -1034,6 +1065,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     insertPeakLevel: @escaping () -> Void,
     insertSignalGenerator: @escaping () -> Void,
     insertFilePlayback: @escaping () -> Void,
+    insertFileOutput: @escaping () -> Void,
     insertNetworkSend: @escaping () -> Void,
     insertNetworkReceive: @escaping () -> Void,
     insertDelay: @escaping () -> Void,
@@ -1054,6 +1086,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     self.insertPeakLevel = insertPeakLevel
     self.insertSignalGenerator = insertSignalGenerator
     self.insertFilePlayback = insertFilePlayback
+    self.insertFileOutput = insertFileOutput
     self.insertNetworkSend = insertNetworkSend
     self.insertNetworkReceive = insertNetworkReceive
     self.insertDelay = insertDelay
@@ -1097,36 +1130,59 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
           catalogIssue
             .padding(.top, 14)
         }
-        .padding(.horizontal, 4)
+        .frame(width: RoutingNodePaletteMetrics.panelContentWidth, alignment: .leading)
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
+      .contentMargins(
+        .vertical,
+        RoutingNodePaletteMetrics.scrollIndicatorVerticalInset,
+        for: .scrollIndicators
+      )
       .scrollContentBackground(.hidden)
       .background(Color.clear)
-      .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+      .frame(
+        width: RoutingNodePaletteMetrics.panelContentWidth
+          + RoutingNodePaletteMetrics.scrollIndicatorTrailingOffset,
+        alignment: .leading
+      )
+      .frame(maxHeight: .infinity, alignment: .top)
+      .frame(width: RoutingNodePaletteMetrics.panelContentWidth, alignment: .leading)
       .layoutPriority(1)
     }
     .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .topLeading)
-    .padding(.horizontal, 14)
-    .padding(.bottom, 14)
-    .padding(.top, 34)
+    .padding(.horizontal, RoutingNodePaletteMetrics.panelHorizontalPadding)
+    .padding(.bottom, RoutingNodePaletteMetrics.panelBottomPadding)
+    .padding(.top, RoutingNodePaletteMetrics.panelTopPadding)
     .background {
       ZStack {
-        RoundedRectangle(cornerRadius: 18, style: .continuous)
-          .fill(FlowingPalette.control.opacity(0.94))
+        RoundedRectangle(
+          cornerRadius: RoutingNodePaletteMetrics.panelCornerRadius,
+          style: .continuous
+        )
+        .fill(FlowingPalette.control.opacity(0.94))
         NativeWindowDragRegion()
-          .clipShape(RoundedRectangle(cornerRadius: 18, style: .continuous))
+          .clipShape(
+            RoundedRectangle(
+              cornerRadius: RoutingNodePaletteMetrics.panelCornerRadius,
+              style: .continuous
+            )
+          )
           .accessibilityHidden(true)
       }
     }
     .overlay {
-      RoundedRectangle(cornerRadius: 18, style: .continuous)
-        .strokeBorder(FlowingPalette.hairline)
+      RoundedRectangle(
+        cornerRadius: RoutingNodePaletteMetrics.panelCornerRadius,
+        style: .continuous
+      )
+      .strokeBorder(FlowingPalette.hairline)
     }
     .shadow(color: .black.opacity(0.06), radius: 18, y: 8)
-    .padding(.leading, 12)
-    .padding(.trailing, 10)
-    .padding(.top, 26)
-    .padding(.bottom, 12)
-    .frame(width: 286)
+    .padding(.leading, RoutingNodePaletteMetrics.outerLeadingInset)
+    .padding(.trailing, RoutingNodePaletteMetrics.outerTrailingInset)
+    .padding(.top, RoutingNodePaletteMetrics.outerTopInset)
+    .padding(.bottom, RoutingNodePaletteMetrics.outerBottomInset)
+    .frame(width: RoutingNodePaletteMetrics.outerWidth)
     .background(Color.clear)
   }
 
@@ -1240,6 +1296,7 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
     case .peakLevel: insertPeakLevel
     case .signalGenerator: insertSignalGenerator
     case .filePlayback: insertFilePlayback
+    case .fileOutput: insertFileOutput
     case .networkSend: insertNetworkSend
     case .networkReceive: insertNetworkReceive
     case .delay: insertDelay
@@ -1436,6 +1493,12 @@ private struct RoutingCanvasDropPreview: View {
         "File Playback",
         "Choose an audio file",
         "music.note.list"
+      )
+    case .fileOutput:
+      return (
+        "File Output",
+        "Choose a destination",
+        "square.and.arrow.down"
       )
     case .networkSend:
       return (
@@ -2378,6 +2441,65 @@ private struct FilePlaybackNodeView: View {
   }
 }
 
+private struct FileOutputNodeView: View {
+  let configuration: RoutingFileOutputConfiguration
+  let context: FlowingGraphCanvasNodeContext<RoutingCanvasSchema>
+
+  @Environment(\.flowingAccent) private var accent
+
+  var body: some View {
+    FlowingCard(
+      spacing: 10,
+      contentInsets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+    ) {
+      HStack(spacing: 9) {
+        Image(systemName: "square.and.arrow.down")
+          .font(.system(size: 16, weight: .semibold))
+          .foregroundStyle(accent.foreground)
+        VStack(alignment: .leading, spacing: 1) {
+          Text("File Output")
+            .font(.callout.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Text(configuration.destination?.displayName ?? "Choose a destination")
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+            .lineLimit(1)
+        }
+        Spacer(minLength: 0)
+      }
+
+      Text(configuration.formatDescription)
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(FlowingPalette.muted)
+        .padding(.horizontal, 12)
+        .frame(maxWidth: .infinity, minHeight: 34, alignment: .leading)
+        .background(
+          accent.wash,
+          in: RoundedRectangle(cornerRadius: 8, style: .continuous)
+        )
+        .padding(.leading, RoutingVisualizerLayout.portLabelGutter)
+    }
+    .overlay {
+      RoundedRectangle(cornerRadius: 14, style: .continuous)
+        .strokeBorder(
+          context.isSelected ? accent.fill : FlowingPalette.hairline,
+          lineWidth: context.isSelected ? 2 : 1
+        )
+    }
+    .shadow(color: .black.opacity(context.isBeingDragged ? 0.13 : 0.07), radius: 10, y: 4)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width,
+      height: RoutingCanvasMetrics.baseNodeSize.height
+    )
+    .scaleEffect(context.renderScale, anchor: .topLeading)
+    .frame(
+      width: RoutingCanvasMetrics.baseNodeSize.width * context.renderScale,
+      height: RoutingCanvasMetrics.baseNodeSize.height * context.renderScale,
+      alignment: .topLeading
+    )
+  }
+}
+
 private struct NetworkAudioNodeView: View {
   let title: String
   let subtitle: String
@@ -2768,34 +2890,48 @@ private struct RoutingNodeColorOverrideCard: View {
   let inheritedAccentID: RoutingAccentID
   let setSelection: (RoutingAccentID?) -> Void
 
+  @State private var isExpanded = false
+
   var body: some View {
     FlowingCard(
       spacing: 0,
-      contentInsets: EdgeInsets(top: 12, leading: 14, bottom: 12, trailing: 14)
+      contentInsets: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)
     ) {
-      HStack(spacing: 10) {
-        RoutingAccentSwatch(accentID: selection ?? inheritedAccentID)
-
-        VStack(alignment: .leading, spacing: 2) {
-          Text("Node Color")
-            .font(.callout.weight(.semibold))
-            .foregroundStyle(FlowingPalette.ink)
-          Text("Override \(kind.title) for this workflow node.")
-            .font(.caption)
-            .foregroundStyle(FlowingPalette.muted)
+      FlowingDisclosure(
+        isExpanded: $isExpanded,
+        minimumHeaderHeight: 52,
+        contentInsets: EdgeInsets(top: 8, leading: 10, bottom: 8, trailing: 10)
+      ) {
+        HStack(spacing: 10) {
+          RoutingAccentSwatch(accentID: selection ?? inheritedAccentID)
+          VStack(alignment: .leading, spacing: 2) {
+            Text("Node Color")
+              .font(.callout.weight(.semibold))
+              .foregroundStyle(FlowingPalette.ink)
+            Text(currentColorDescription)
+              .font(.caption)
+              .foregroundStyle(FlowingPalette.muted)
+          }
         }
-
-        Spacer(minLength: 8)
-
-        RoutingAccentPicker(
+      } content: {
+        RoutingAccentGrid(
           selection: selection,
           inheritedAccentID: inheritedAccentID,
-          inheritedLabel: "Type Default",
+          inheritedLabel: "Use Node Default",
           setSelection: setSelection
         )
+        .padding(.horizontal, 10)
+        .padding(.bottom, 10)
       }
     }
     .shadow(color: .black.opacity(0.05), radius: 8, y: 3)
+  }
+
+  private var currentColorDescription: String {
+    if let selection {
+      return "This node · \(selection.displayName)"
+    }
+    return "Node default · \(inheritedAccentID.displayName)"
   }
 }
 
@@ -4286,7 +4422,7 @@ private struct SelectedFilePlaybackInspector: View {
           FlowingStepper(
             "File play count",
             value: playCount,
-            in: 2...10_000,
+            in: RoutingFilePlaybackLoopMode.repeatedPlayCountRange,
             step: 1,
             formatValue: { "\($0)×" }
           )
@@ -4353,7 +4489,12 @@ private struct SelectedFilePlaybackInspector: View {
       },
       set: { count in
         var updated = configuration
-        updated.loopMode = .playCount(min(max(count, 2), 10_000))
+        updated.loopMode = .playCount(
+          min(
+            max(count, RoutingFilePlaybackLoopMode.repeatedPlayCountRange.lowerBound),
+            RoutingFilePlaybackLoopMode.repeatedPlayCountRange.upperBound
+          )
+        )
         updateConfiguration(updated)
       }
     )
@@ -4364,7 +4505,10 @@ private struct SelectedFilePlaybackInspector: View {
   }
 
   private var volume: Binding<Double> {
-    Binding(get: { currentGain }, set: setVolume)
+    Binding(
+      get: { currentGain },
+      set: { value in setVolume(value) }
+    )
   }
 
   private var volumeRange: ClosedRange<Double> {
@@ -4377,7 +4521,10 @@ private struct SelectedFilePlaybackInspector: View {
   }
 
   private var muted: Binding<Bool> {
-    Binding(get: { channelControls[0]?.isMuted ?? false }, set: setMuted)
+    Binding(
+      get: { channelControls[0]?.isMuted ?? false },
+      set: { value in setMuted(value) }
+    )
   }
 
   private var statusTitle: String {
@@ -4452,6 +4599,405 @@ private struct SelectedFilePlaybackInspector: View {
       }
       isInspectingFile = false
     }
+  }
+}
+
+private struct SelectedFileOutputInspector: View {
+  private enum EncodingChoice: String, CaseIterable, Hashable {
+    case pcm16
+    case pcm24
+    case float32
+    case aac
+    case appleLossless
+
+    var title: String {
+      switch self {
+      case .pcm16: "PCM 16-bit"
+      case .pcm24: "PCM 24-bit"
+      case .float32: "Float32 PCM"
+      case .aac: "AAC"
+      case .appleLossless: "Apple Lossless"
+      }
+    }
+  }
+
+  let configuration: RoutingFileOutputConfiguration
+  let state: RoutingFileOutputState
+  let updateConfiguration: (RoutingFileOutputConfiguration) -> Void
+
+  private let capabilities = AudioFileWritingCapabilities.current()
+
+  var body: some View {
+    FlowingCard(
+      spacing: 14,
+      contentInsets: EdgeInsets(top: 16, leading: 16, bottom: 16, trailing: 16)
+    ) {
+      VStack(alignment: .leading, spacing: 2) {
+        Text("File Output")
+          .font(.headline)
+          .foregroundStyle(FlowingPalette.ink)
+        Text("Encode routed audio on a bounded background writer.")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
+      }
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      HStack(spacing: 10) {
+        VStack(alignment: .leading, spacing: 2) {
+          Text(configuration.destination?.displayName ?? "No destination selected")
+            .font(.callout.weight(.medium))
+            .foregroundStyle(FlowingPalette.ink)
+            .lineLimit(1)
+          Text("Existing recordings receive an unused numeric suffix.")
+            .font(.caption2)
+            .foregroundStyle(FlowingPalette.muted)
+        }
+        Spacer(minLength: 8)
+        Button {
+          chooseDestination()
+        } label: {
+          Label("Choose File", systemImage: "folder")
+        }
+        .buttonStyle(FlowingSoftButtonStyle())
+      }
+      .padding(12)
+      .background(
+        FlowingPalette.field,
+        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
+      )
+
+      VStack(alignment: .leading, spacing: 10) {
+        labeledFileOutputControl("Container") {
+          FlowingSelect(
+            label: "File container",
+            selection: container,
+            options: availableContainers.map {
+              FlowingSelectOption($0, label: $0.displayName)
+            },
+            minimumWidth: 150
+          )
+          .fixedSize(horizontal: false, vertical: true)
+        }
+
+        labeledFileOutputControl("Encoding") {
+          FlowingSelect(
+            label: "File encoding",
+            selection: encodingChoice,
+            options: availableEncodingChoices.map {
+              FlowingSelectOption($0, label: $0.title)
+            },
+            minimumWidth: 150
+          )
+          .fixedSize(horizontal: false, vertical: true)
+        }
+
+        if case .aac = configuration.encoding {
+          labeledFileOutputControl("Target Bitrate") {
+            FlowingSelect(
+              label: "AAC target bitrate",
+              selection: aacBitRate,
+              options: availableAACBitRates.map {
+                FlowingSelectOption($0, label: "\($0 / 1_000) kbps")
+              },
+              minimumWidth: 150
+            )
+            .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+
+        if case .appleLossless = configuration.encoding {
+          labeledFileOutputControl("Bit Depth") {
+            FlowingSelect(
+              label: "Apple Lossless bit depth",
+              selection: losslessBitDepth,
+              options: RoutingFileOutputConfiguration.losslessBitDepths.map {
+                FlowingSelectOption($0, label: "\($0)-bit")
+              },
+              minimumWidth: 150
+            )
+            .fixedSize(horizontal: false, vertical: true)
+          }
+        }
+
+        labeledFileOutputControl("Sample Rate") {
+          FlowingSelect(
+            label: "File sample rate",
+            selection: sampleRate,
+            options: RoutingFileOutputConfiguration.commonSampleRates.map {
+              FlowingSelectOption(
+                $0,
+                label: sampleRateLabel($0)
+              )
+            },
+            minimumWidth: 150
+          )
+          .fixedSize(horizontal: false, vertical: true)
+        }
+
+        HStack {
+          Text("Channels")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(FlowingPalette.muted)
+          Spacer(minLength: 8)
+          FlowingStepper(
+            "File channel count",
+            value: channelCount,
+            in: 1...RoutingFileOutputConfiguration.maximumEditableChannelCount,
+            step: 1
+          )
+        }
+      }
+
+      FlowingCallout(
+        statusDescription,
+        title: statusTitle,
+        systemImage: statusSymbol,
+        tone: statusTone
+      )
+    }
+    .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  private var availableEncodingChoices: [EncodingChoice] {
+    switch configuration.container {
+    case .wave:
+      [.pcm16, .pcm24, .float32]
+    case .aiff:
+      [.pcm16, .pcm24]
+    case .coreAudioFormat:
+      [.pcm16, .pcm24, .float32]
+    case .m4a:
+      [
+        capabilities.supportsAAC ? .aac : nil,
+        capabilities.supportsAppleLossless ? .appleLossless : nil,
+      ].compactMap { $0 }
+    }
+  }
+
+  private var availableContainers: [AudioFileContainer] {
+    AudioFileContainer.allCases.filter { container in
+      container != .m4a || capabilities.supportsAAC || capabilities.supportsAppleLossless
+    }
+  }
+
+  private var availableAACBitRates: [Int] {
+    let common = capabilities.supportedAACBitRates(
+      from: RoutingFileOutputConfiguration.commonAACBitRates
+    )
+    if !common.isEmpty { return common }
+    return capabilities.aacBitRateRanges.first.map { [$0.lowerBound] } ?? []
+  }
+
+  private var preferredAACBitRate: Int {
+    if availableAACBitRates.contains(RoutingFileOutputConfiguration.defaultAACBitRate) {
+      return RoutingFileOutputConfiguration.defaultAACBitRate
+    }
+    return availableAACBitRates.first ?? RoutingFileOutputConfiguration.defaultAACBitRate
+  }
+
+  private var container: Binding<AudioFileContainer> {
+    Binding(
+      get: { configuration.container },
+      set: { newContainer in
+        var updated = configuration
+        updated.container = newContainer
+        updated.encoding = defaultEncoding(for: newContainer)
+        if let destination = updated.destination {
+          let url = destination.url.deletingPathExtension()
+            .appendingPathExtension(newContainer.filenameExtension)
+          updated.destination = RoutingAudioFileDestination(
+            url: url,
+            displayName: url.lastPathComponent
+          )
+        }
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var encodingChoice: Binding<EncodingChoice> {
+    Binding(
+      get: {
+        switch configuration.encoding {
+        case .integerPCM(bitDepth: 16): .pcm16
+        case .integerPCM: .pcm24
+        case .float32PCM: .float32
+        case .aac: .aac
+        case .appleLossless: .appleLossless
+        }
+      },
+      set: { choice in
+        var updated = configuration
+        updated.encoding = encoding(for: choice)
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var aacBitRate: Binding<Int> {
+    Binding(
+      get: {
+        guard case .aac(let bitRate) = configuration.encoding else {
+          return preferredAACBitRate
+        }
+        return bitRate
+      },
+      set: { bitRate in
+        var updated = configuration
+        updated.encoding = .aac(bitRate: bitRate)
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var losslessBitDepth: Binding<Int> {
+    Binding(
+      get: {
+        guard case .appleLossless(let bitDepth) = configuration.encoding else {
+          return RoutingFileOutputConfiguration.defaultBitDepth
+        }
+        return bitDepth
+      },
+      set: { bitDepth in
+        var updated = configuration
+        updated.encoding = .appleLossless(bitDepth: bitDepth)
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var sampleRate: Binding<Double> {
+    Binding(
+      get: { configuration.sampleRate },
+      set: { sampleRate in
+        var updated = configuration
+        updated.sampleRate = sampleRate
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private var channelCount: Binding<Int> {
+    Binding(
+      get: { configuration.channelCount },
+      set: { count in
+        var updated = configuration
+        updated.channelCount = min(
+          max(count, 1),
+          RoutingFileOutputConfiguration.maximumEditableChannelCount
+        )
+        updateConfiguration(updated)
+      }
+    )
+  }
+
+  private func defaultEncoding(for container: AudioFileContainer) -> AudioFileEncoding {
+    switch container {
+    case .wave, .aiff, .coreAudioFormat:
+      .integerPCM(bitDepth: RoutingFileOutputConfiguration.defaultBitDepth)
+    case .m4a:
+      capabilities.supportsAAC
+        ? .aac(bitRate: preferredAACBitRate)
+        : .appleLossless(bitDepth: RoutingFileOutputConfiguration.defaultBitDepth)
+    }
+  }
+
+  private func encoding(for choice: EncodingChoice) -> AudioFileEncoding {
+    switch choice {
+    case .pcm16: .integerPCM(bitDepth: 16)
+    case .pcm24: .integerPCM(bitDepth: RoutingFileOutputConfiguration.defaultBitDepth)
+    case .float32: .float32PCM
+    case .aac: .aac(bitRate: preferredAACBitRate)
+    case .appleLossless:
+      .appleLossless(bitDepth: RoutingFileOutputConfiguration.defaultBitDepth)
+    }
+  }
+
+  private func sampleRateLabel(_ sampleRate: Double) -> String {
+    let kilohertz = sampleRate / 1_000
+    let fractionLength = kilohertz == kilohertz.rounded() ? 0 : 1
+    return kilohertz.formatted(
+      .number.precision(.fractionLength(fractionLength))
+    ) + " kHz"
+  }
+
+  private var statusTitle: String {
+    switch state {
+    case .idle: "Ready to record"
+    case .waitingForSource: "Waiting for audio"
+    case .starting: "Preparing file"
+    case .running: "Recording"
+    case .failed: "Recording stopped"
+    }
+  }
+
+  private var statusDescription: String {
+    switch state {
+    case .idle:
+      configuration.destination == nil
+        ? "Choose a destination, connect audio, then run the workflow."
+        : "Connect routed audio and run the workflow to create a recording."
+    case .waitingForSource:
+      "The destination is ready when its upstream capture or stream becomes available."
+    case .starting:
+      "Creating the file and preparing a bounded encoder queue."
+    case .running(let url):
+      "Writing \(url.lastPathComponent) away from the realtime audio thread."
+    case .failed(let message):
+      message
+    }
+  }
+
+  private var statusSymbol: String {
+    switch state {
+    case .idle: "cable.connector"
+    case .waitingForSource: "hourglass"
+    case .starting: "externaldrive.badge.timemachine"
+    case .running: "record.circle.fill"
+    case .failed: "exclamationmark.triangle"
+    }
+  }
+
+  private var statusTone: FlowingStatusTone {
+    if case .failed = state { return .critical }
+    return .neutral
+  }
+
+  private func chooseDestination() {
+    let panel = NSSavePanel()
+    panel.title = "Choose an Audio File Destination"
+    panel.prompt = "Choose"
+    panel.nameFieldStringValue =
+      configuration.destination?.url.deletingPathExtension().lastPathComponent
+      ?? "Rilliya Recording"
+    panel.allowedContentTypes = [
+      UTType(filenameExtension: configuration.container.filenameExtension) ?? .audio
+    ]
+    guard panel.runModal() == .OK, var url = panel.url else { return }
+    if url.pathExtension.lowercased() != configuration.container.filenameExtension {
+      url = url.deletingPathExtension()
+        .appendingPathExtension(configuration.container.filenameExtension)
+    }
+    var updated = configuration
+    updated.destination = RoutingAudioFileDestination(
+      url: url,
+      displayName: url.lastPathComponent
+    )
+    updateConfiguration(updated)
+  }
+}
+
+@ViewBuilder
+private func labeledFileOutputControl<Content: View>(
+  _ label: String,
+  @ViewBuilder content: () -> Content
+) -> some View {
+  HStack(spacing: 10) {
+    Text(label)
+      .font(.caption.weight(.semibold))
+      .foregroundStyle(FlowingPalette.muted)
+    Spacer(minLength: 8)
+    content()
   }
 }
 

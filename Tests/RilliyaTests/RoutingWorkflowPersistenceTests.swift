@@ -5,6 +5,7 @@ import Foundation
 import RilliyaCapture
 import RilliyaCore
 import RilliyaDSP
+import RilliyaFileWriting
 import Testing
 
 @testable import Rilliya
@@ -98,6 +99,28 @@ struct RoutingWorkflowPersistenceTests {
           nativeSampleRate: 44_100
         ),
         loopMode: .playCount(3)
+      )
+    )
+
+    let encoded = try JSONEncoder().encode(value)
+    let decoded = try JSONDecoder().decode(RoutingNodeValue.self, from: encoded)
+
+    #expect(decoded == value)
+  }
+
+  @Test
+  func fileOutputConfigurationRoundTripsThroughTheWorkflowValueCodec() throws {
+    let destination = URL(fileURLWithPath: "/tmp/example.m4a")
+    let value = RoutingNodeValue.fileOutput(
+      configuration: RoutingFileOutputConfiguration(
+        destination: RoutingAudioFileDestination(
+          url: destination,
+          displayName: destination.lastPathComponent
+        ),
+        container: .m4a,
+        encoding: .aac(bitRate: 256_000),
+        sampleRate: 48_000,
+        channelCount: 2
       )
     )
 

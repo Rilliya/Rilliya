@@ -388,7 +388,7 @@ final class RoutingAudioOutputController {
               sourceFailureMessage = message
             }
           case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
-            .signalGenerator, .networkSend, .delay, .noiseGate, .compressor:
+            .signalGenerator, .fileOutput, .networkSend, .delay, .noiseGate, .compressor:
             continue
           }
           guard let buffer else {

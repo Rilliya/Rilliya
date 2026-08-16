@@ -4,6 +4,7 @@ import Foundation
 import RilliyaCapture
 import RilliyaCore
 import RilliyaDSP
+import RilliyaFileWriting
 import Testing
 
 @testable import Rilliya
@@ -163,6 +164,37 @@ struct RoutingWorkspaceTests {
     #expect(port.direction == .output)
     #expect(port.audioChannel == .all)
     #expect(port.signalType == .audio)
+  }
+
+  @Test @MainActor
+  func fileOutputInsertionBuildsOneAggregateSingleInput() throws {
+    let model = RoutingWorkspaceModel()
+    let center = CGPoint(x: 420, y: 260)
+    let nodeID = model.addFileOutputNode(centeredAt: center)
+    let destination = URL(fileURLWithPath: "/tmp/example.wav")
+    let configuration = RoutingFileOutputConfiguration(
+      destination: RoutingAudioFileDestination(
+        url: destination,
+        displayName: destination.lastPathComponent
+      ),
+      container: .wave,
+      encoding: .integerPCM(bitDepth: 24),
+      sampleRate: 48_000,
+      channelCount: 2
+    )
+
+    model.configureFileOutput(configuration, for: nodeID)
+
+    let node = try #require(model.node(id: nodeID))
+    #expect(node.value == .fileOutput(configuration: configuration))
+    #expect(CGPoint(x: node.frame.midX, y: node.frame.midY) == center)
+    let ports = RoutingGraphPorts.values(for: node)
+    #expect(ports.count == 1)
+    let port = try #require(ports.first)
+    #expect(port.direction == .input)
+    #expect(port.audioChannel == .all)
+    #expect(port.signalType == .audio)
+    #expect(port.connectionPolicy == .singleInput)
   }
 
   @Test @MainActor

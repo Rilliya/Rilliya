@@ -1,6 +1,8 @@
 import FlowingDayCanvas
 import FlowingDayGraphCanvas
 import Foundation
+import RilliyaFileWriting
+import RilliyaRealtime
 
 struct RoutingWorkflowPersistenceToken: Equatable, Sendable {
   struct Workflow: Equatable, Sendable {
@@ -236,7 +238,7 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
       guard let selection = configuration.selection else { return true }
       guard selection.url.isFileURL,
         !selection.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty,
-        (1...256).contains(selection.channelCount),
+        (1...AudioProcessingFormat.maximumChannelCount).contains(selection.channelCount),
         selection.nativeSampleRate.isFinite,
         selection.nativeSampleRate > 0
       else {
@@ -246,7 +248,28 @@ struct RoutingWorkflowSnapshot: Codable, Equatable, Sendable {
       case .once, .infinite:
         return true
       case .playCount(let count):
-        return (1...10_000).contains(count)
+        return RoutingFilePlaybackLoopMode.validPlayCountRange.contains(count)
+      }
+    case .fileOutput(let configuration):
+      if let destination = configuration.destination {
+        guard destination.url.isFileURL,
+          !destination.displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+        else {
+          return false
+        }
+      }
+      do {
+        _ = try AudioFileWriterConfiguration(
+          destinationURL: configuration.destination?.url
+            ?? URL(fileURLWithPath: "/tmp/Rilliya-File-Output"),
+          container: configuration.container,
+          encoding: configuration.encoding,
+          sampleRate: configuration.sampleRate,
+          channelCount: configuration.channelCount
+        )
+        return true
+      } catch {
+        return false
       }
     case .networkSend(let configuration):
       return !configuration.host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty

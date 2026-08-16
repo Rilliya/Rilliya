@@ -5,6 +5,7 @@ import FlowingDayGraphCore
 import Foundation
 import RilliyaCore
 import RilliyaDSP
+import RilliyaFileWriting
 import RilliyaRealtime
 
 struct RoutingApplicationSelection: Codable, Equatable, Hashable, Identifiable, Sendable {
@@ -128,6 +129,7 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
   case peakLevel
   case signalGenerator(configuration: RoutingSignalGeneratorConfiguration)
   case filePlayback(configuration: RoutingFilePlaybackConfiguration)
+  case fileOutput(configuration: RoutingFileOutputConfiguration)
   case networkSend(configuration: RoutingNetworkSendConfiguration)
   case networkReceive(configuration: RoutingNetworkReceiveConfiguration)
   case delay(configuration: RoutingDelayConfiguration)
@@ -139,8 +141,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     case .applicationAudio(let selection, _):
       return selection
     case .inputAudio, .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter,
-      .peakLevel, .signalGenerator, .filePlayback, .networkSend, .networkReceive, .delay,
-      .noiseGate, .compressor:
+      .peakLevel, .signalGenerator, .filePlayback, .fileOutput, .networkSend, .networkReceive,
+      .delay, .noiseGate, .compressor:
       return nil
     }
   }
@@ -180,8 +182,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     case .applicationAudio(_, let presentation), .inputAudio(_, let presentation):
       return presentation
     case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
-      .signalGenerator, .filePlayback, .networkSend, .networkReceive, .delay, .noiseGate,
-      .compressor:
+      .signalGenerator, .filePlayback, .fileOutput, .networkSend, .networkReceive, .delay,
+      .noiseGate, .compressor:
       return nil
     }
   }
@@ -195,8 +197,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     case .inputAudio(let selection, _):
       return .inputAudio(selection: selection, channelPresentation: presentation)
     case .outputAudio, .visualizer, .audioMixer, .gain, .channelRouter, .peakLevel,
-      .signalGenerator, .filePlayback, .networkSend, .networkReceive, .delay, .noiseGate,
-      .compressor:
+      .signalGenerator, .filePlayback, .fileOutput, .networkSend, .networkReceive, .delay,
+      .noiseGate, .compressor:
       return nil
     }
   }
@@ -235,6 +237,8 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
       return "Signal Generator"
     case .filePlayback:
       return "File Playback"
+    case .fileOutput:
+      return "File Output"
     case .networkSend:
       return "Network Send"
     case .networkReceive:
@@ -268,6 +272,9 @@ struct RoutingAudioFileSelection: Codable, Equatable, Hashable, Sendable {
 }
 
 enum RoutingFilePlaybackLoopMode: Codable, Equatable, Hashable, Sendable {
+  static let validPlayCountRange = 1...10_000
+  static let repeatedPlayCountRange = 2...10_000
+
   case once
   case playCount(Int)
   case infinite
@@ -289,10 +296,64 @@ struct RoutingFilePlaybackConfiguration: Codable, Equatable, Hashable, Sendable 
 
   init(selection: RoutingAudioFileSelection?, loopMode: RoutingFilePlaybackLoopMode) {
     if case .playCount(let count) = loopMode {
-      precondition((1...10_000).contains(count))
+      precondition(RoutingFilePlaybackLoopMode.validPlayCountRange.contains(count))
     }
     self.selection = selection
     self.loopMode = loopMode
+  }
+}
+
+struct RoutingAudioFileDestination: Codable, Equatable, Hashable, Sendable {
+  let url: URL
+  let displayName: String
+
+  init(url: URL, displayName: String) {
+    precondition(url.isFileURL)
+    precondition(!displayName.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
+    self.url = url
+    self.displayName = displayName
+  }
+}
+
+struct RoutingFileOutputConfiguration: Codable, Equatable, Hashable, Sendable {
+  static let commonAACBitRates = [64_000, 128_000, 192_000, 256_000, 320_000]
+  static let commonSampleRates = [44_100.0, 48_000.0, 88_200.0, 96_000.0]
+  static let losslessBitDepths = [16, 20, 24, 32]
+  static let defaultBitDepth = 24
+  static let defaultAACBitRate = 192_000
+  static let maximumEditableChannelCount = 64
+  static let initial = RoutingFileOutputConfiguration(
+    destination: nil,
+    container: .wave,
+    encoding: .integerPCM(bitDepth: defaultBitDepth),
+    sampleRate: 48_000,
+    channelCount: 2
+  )
+
+  var destination: RoutingAudioFileDestination?
+  var container: AudioFileContainer
+  var encoding: AudioFileEncoding
+  var sampleRate: Double
+  var channelCount: Int
+
+  init(
+    destination: RoutingAudioFileDestination?,
+    container: AudioFileContainer,
+    encoding: AudioFileEncoding,
+    sampleRate: Double,
+    channelCount: Int
+  ) {
+    precondition(sampleRate.isFinite && sampleRate > 0)
+    precondition((1...AudioProcessingFormat.maximumChannelCount).contains(channelCount))
+    self.destination = destination
+    self.container = container
+    self.encoding = encoding
+    self.sampleRate = sampleRate
+    self.channelCount = channelCount
+  }
+
+  var formatDescription: String {
+    "\(container.displayName) · \(encoding.displayName)"
   }
 }
 
@@ -1388,8 +1449,8 @@ enum RoutingCanvasMetrics {
           )
         )
       )
-    case .gain, .peakLevel, .signalGenerator, .filePlayback, .networkSend, .networkReceive,
-      .delay, .noiseGate, .compressor:
+    case .gain, .peakLevel, .signalGenerator, .filePlayback, .fileOutput, .networkSend,
+      .networkReceive, .delay, .noiseGate, .compressor:
       return baseNodeSize
     }
     return CGSize(
@@ -1669,6 +1730,17 @@ enum RoutingGraphPorts {
           direction: .input,
           channel: .all,
           name: "Network Audio",
+          connectionPolicy: .singleInput,
+          ordinal: 0,
+          total: 1
+        )
+      ]
+    case .fileOutput:
+      return [
+        RoutingGraphPortValue(
+          direction: .input,
+          channel: .all,
+          name: "File Audio",
           connectionPolicy: .singleInput,
           ordinal: 0,
           total: 1

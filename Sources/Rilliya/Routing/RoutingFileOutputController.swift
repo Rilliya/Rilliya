@@ -1,152 +1,159 @@
 import Foundation
 import Observation
-import RilliyaNetworkAudio
+import RilliyaFileWriting
 import RilliyaRealtime
 
-enum RoutingNetworkSendState: Equatable {
+enum RoutingFileOutputState: Equatable {
   case idle
   case waitingForSource
   case starting
-  case running(NetworkAudioStreamFormat)
+  case running(URL)
   case failed(String)
 }
 
-protocol RoutingNetworkSendSession: AnyObject, Sendable {
-  var format: NetworkAudioStreamFormat { get }
+protocol RoutingFileOutputSession: AnyObject, Sendable {
+  var outputURL: URL { get }
 
   func stop() async
 }
 
-protocol RoutingNetworkSendStarting: Sendable {
+protocol RoutingFileOutputStarting: Sendable {
   func start(
-    configuration: RoutingNetworkSendConfiguration,
+    configuration: RoutingFileOutputConfiguration,
     rendererFactory:
       @escaping @Sendable (AudioRenderPreparation) throws ->
       RoutingPreparedAudioGraphSource,
     failureHandler: @escaping @Sendable (String) -> Void
-  ) async throws -> any RoutingNetworkSendSession
+  ) async throws -> any RoutingFileOutputSession
 }
 
-struct SystemRoutingNetworkSendStarter: RoutingNetworkSendStarting {
+struct SystemRoutingFileOutputStarter: RoutingFileOutputStarting {
   func start(
-    configuration: RoutingNetworkSendConfiguration,
+    configuration: RoutingFileOutputConfiguration,
     rendererFactory:
       @escaping @Sendable (AudioRenderPreparation) throws ->
       RoutingPreparedAudioGraphSource,
     failureHandler: @escaping @Sendable (String) -> Void
-  ) async throws -> any RoutingNetworkSendSession {
-    try await Task.detached(priority: .userInitiated) {
-      let format = try NetworkAudioStreamFormat(
+  ) async throws -> any RoutingFileOutputSession {
+    guard let destination = configuration.destination else {
+      throw RoutingFileOutputControllerError.missingDestination
+    }
+    return try await Task.detached(priority: .userInitiated) {
+      let writerConfiguration = try AudioFileWriterConfiguration(
+        destinationURL: destination.url,
+        container: configuration.container,
+        encoding: configuration.encoding,
         sampleRate: configuration.sampleRate,
-        channelCount: configuration.channelCount
+        channelCount: configuration.channelCount,
+        collisionPolicy: .appendSequenceNumber
       )
-      let sender = try NetworkAudioSender(
-        configuration: NetworkAudioSenderConfiguration(
-          host: configuration.host,
-          port: configuration.port,
-          format: format
-        )
-      ) { error in
+      let writer = try AudioFileWriter(
+        configuration: writerConfiguration
+      ) { event in
+        guard case .failed(let error) = event else { return }
         failureHandler(error.localizedDescription)
       }
       let preparation = try AudioRenderPreparation(
         format: AudioProcessingFormat(
-          sampleRate: format.sampleRate,
-          channelCount: format.channelCount
+          sampleRate: configuration.sampleRate,
+          channelCount: configuration.channelCount
         ),
         maximumFrameCount: RoutingRealtimeDestinationDefaults.renderQuantumFrameCount
       )
       let renderer = try rendererFactory(preparation)
+      let outputURL = try await writer.start()
       let driver = RoutingPreparedGraphRealtimeDriver(
         renderer: renderer,
         frameCount: RoutingRealtimeDestinationDefaults.renderQuantumFrameCount,
-        failureContext: "network",
+        failureContext: "file",
         consumer: { pointers, frameCount in
-          _ = sender.frameBuffer.writePlanar(pointers, frameCount: frameCount)
+          _ = writer.frameBuffer.writePlanar(pointers, frameCount: frameCount)
         },
         failureHandler: failureHandler
       )
-      do {
-        try sender.start()
-        driver.start()
-        return SystemRoutingNetworkSendSession(
-          format: format,
-          sender: sender,
-          driver: driver
-        )
-      } catch {
-        await sender.stop()
-        throw error
-      }
+      driver.start()
+      return SystemRoutingFileOutputSession(
+        outputURL: outputURL,
+        writer: writer,
+        driver: driver
+      )
     }.value
   }
 }
 
-private final class SystemRoutingNetworkSendSession: RoutingNetworkSendSession,
+private enum RoutingFileOutputControllerError: Error, LocalizedError {
+  case missingDestination
+
+  var errorDescription: String? {
+    "Choose a destination before running File Output."
+  }
+}
+
+private final class SystemRoutingFileOutputSession: RoutingFileOutputSession,
   @unchecked Sendable
 {
-  let format: NetworkAudioStreamFormat
+  let outputURL: URL
 
-  private let sender: NetworkAudioSender
+  private let writer: AudioFileWriter
   private let driver: RoutingPreparedGraphRealtimeDriver
 
   init(
-    format: NetworkAudioStreamFormat,
-    sender: NetworkAudioSender,
+    outputURL: URL,
+    writer: AudioFileWriter,
     driver: RoutingPreparedGraphRealtimeDriver
   ) {
-    self.format = format
-    self.sender = sender
+    self.outputURL = outputURL
+    self.writer = writer
     self.driver = driver
   }
 
   func stop() async {
     await driver.stop()
-    await sender.stop()
+    _ = await writer.stop()
   }
 }
 
-private struct RoutingNetworkSendNodeSignature: Equatable, Sendable {
+private struct RoutingFileOutputNodeSignature: Equatable, Sendable {
   let id: UUID
   let value: RoutingNodeValue
 }
 
-private struct RoutingNetworkSendBufferSignature: Equatable, Sendable {
+private struct RoutingFileOutputBufferSignature: Equatable, Sendable {
   let nodeID: UUID
   let identity: ObjectIdentifier
 }
 
-private struct RoutingNetworkSendRequestSignature: Equatable, Sendable {
+private struct RoutingFileOutputRequestSignature: Equatable, Sendable {
   let nodeID: UUID
-  let configuration: RoutingNetworkSendConfiguration
-  let nodes: [RoutingNetworkSendNodeSignature]
+  let configuration: RoutingFileOutputConfiguration
+  let nodes: [RoutingFileOutputNodeSignature]
   let edges: [RoutingWorkspaceEdge]
-  let buffers: [RoutingNetworkSendBufferSignature]
+  let buffers: [RoutingFileOutputBufferSignature]
 }
 
-private struct RoutingNetworkSendRequest: Sendable {
-  let signature: RoutingNetworkSendRequestSignature
+private struct RoutingFileOutputRequest: Sendable {
+  let signature: RoutingFileOutputRequestSignature
   let nodes: [RoutingWorkspaceNode]
   let edges: [RoutingWorkspaceEdge]
   let frameBuffers: [UUID: AudioRealtimeFrameBuffer]
 }
 
-private enum RoutingNetworkSendPlan {
+private enum RoutingFileOutputPlan {
   case idle
   case waiting
   case blocked(String)
-  case ready(RoutingNetworkSendRequest)
+  case ready(RoutingFileOutputRequest)
 }
 
-private enum RoutingNetworkSendDesiredState: Equatable {
+private enum RoutingFileOutputDesiredState: Equatable {
   case idle
   case waiting
   case blocked(String)
-  case ready(RoutingNetworkSendRequestSignature)
+  case ready(RoutingFileOutputRequestSignature)
 }
 
-extension RoutingNetworkSendPlan {
-  fileprivate var desiredState: RoutingNetworkSendDesiredState {
+extension RoutingFileOutputPlan {
+  fileprivate var desiredState: RoutingFileOutputDesiredState {
     switch self {
     case .idle: .idle
     case .waiting: .waiting
@@ -158,27 +165,27 @@ extension RoutingNetworkSendPlan {
 
 @MainActor
 @Observable
-final class RoutingNetworkSendController {
+final class RoutingFileOutputController {
   private struct RunningSession {
-    let signature: RoutingNetworkSendRequestSignature
-    let session: any RoutingNetworkSendSession
+    let signature: RoutingFileOutputRequestSignature
+    let session: any RoutingFileOutputSession
     let renderer: RoutingPreparedAudioGraphSource
   }
 
-  private(set) var states: [UUID: RoutingNetworkSendState] = [:]
+  private(set) var states: [UUID: RoutingFileOutputState] = [:]
 
-  @ObservationIgnored private let starter: any RoutingNetworkSendStarting
+  @ObservationIgnored private let starter: any RoutingFileOutputStarting
   @ObservationIgnored private var sessions: [UUID: RunningSession] = [:]
   @ObservationIgnored private var lifecycleTasks: [UUID: Task<Void, Never>] = [:]
   @ObservationIgnored private var generations: [UUID: UInt64] = [:]
-  @ObservationIgnored private var desiredStates: [UUID: RoutingNetworkSendDesiredState] = [:]
-  @ObservationIgnored private var latestRequests: [UUID: RoutingNetworkSendRequest] = [:]
+  @ObservationIgnored private var desiredStates: [UUID: RoutingFileOutputDesiredState] = [:]
+  @ObservationIgnored private var latestRequests: [UUID: RoutingFileOutputRequest] = [:]
 
-  init(starter: any RoutingNetworkSendStarting = SystemRoutingNetworkSendStarter()) {
+  init(starter: any RoutingFileOutputStarting = SystemRoutingFileOutputStarter()) {
     self.starter = starter
   }
 
-  func state(for nodeID: UUID) -> RoutingNetworkSendState {
+  func state(for nodeID: UUID) -> RoutingFileOutputState {
     states[nodeID] ?? .idle
   }
 
@@ -211,7 +218,7 @@ final class RoutingNetworkSendController {
     }
   }
 
-  private func apply(_ plan: RoutingNetworkSendPlan, to nodeID: UUID) {
+  private func apply(_ plan: RoutingFileOutputPlan, to nodeID: UUID) {
     let desired = plan.desiredState
     if case .ready(let request) = plan {
       latestRequests[nodeID] = request
@@ -222,7 +229,7 @@ final class RoutingNetworkSendController {
         do {
           try running.renderer.updateControls(nodes: request.nodes)
           desiredStates[nodeID] = desired
-          states[nodeID] = .running(running.session.format)
+          states[nodeID] = .running(running.session.outputURL)
         } catch {
           apply(.blocked(error.localizedDescription), to: nodeID)
         }
@@ -245,7 +252,7 @@ final class RoutingNetworkSendController {
   }
 
   private func transition(
-    to plan: RoutingNetworkSendPlan,
+    to plan: RoutingFileOutputPlan,
     nodeID: UUID,
     generation: UInt64
   ) async {
@@ -262,7 +269,7 @@ final class RoutingNetworkSendController {
       states[nodeID] = .failed(message)
     case .ready(let request):
       states[nodeID] = .starting
-      let rendererHolder = RoutingNetworkSendRendererHolder()
+      let rendererHolder = RoutingFileOutputRendererHolder()
       let rendererFactory:
         @Sendable (AudioRenderPreparation) throws ->
           RoutingPreparedAudioGraphSource = { preparation in
@@ -304,7 +311,7 @@ final class RoutingNetworkSendController {
           session: session,
           renderer: renderer
         )
-        states[nodeID] = .running(session.format)
+        states[nodeID] = .running(session.outputURL)
       } catch {
         guard generations[nodeID] == generation else { return }
         desiredStates[nodeID] = nil
@@ -319,37 +326,34 @@ final class RoutingNetworkSendController {
     inputCaptureController: RoutingInputCaptureController,
     filePlaybackController: RoutingFilePlaybackController,
     networkReceiveController: RoutingNetworkReceiveController
-  ) -> [UUID: RoutingNetworkSendPlan] {
-    var plans: [UUID: RoutingNetworkSendPlan] = [:]
-    var claimedClockedSources = clockedSourceNodeIDsFeedingDeviceOutputs(workflows: workflows)
+  ) -> [UUID: RoutingFileOutputPlan] {
+    var plans: [UUID: RoutingFileOutputPlan] = [:]
+    var claimedClockedSources = clockedSourcesClaimedByOtherDestinations(workflows: workflows)
 
     for workflow in workflows where workflow.isRunning {
       let workspace = workflow.workspace
       let activeEdges = workspace.edges.filter(workspace.isEdgeActive)
       let incomingEdges = Dictionary(grouping: activeEdges, by: { $0.target.nodeID })
-      for sendNode in workspace.nodes {
-        guard case .networkSend(let configuration) = sendNode.value else { continue }
-        guard incomingEdges[sendNode.id]?.isEmpty == false else {
-          plans[sendNode.id] = .idle
+      for outputNode in workspace.nodes {
+        guard case .fileOutput(let configuration) = outputNode.value else { continue }
+        guard configuration.destination != nil,
+          incomingEdges[outputNode.id]?.isEmpty == false
+        else {
+          plans[outputNode.id] = .idle
           continue
         }
-        let reachable = Self.reachableNodeIDs(from: sendNode.id, incomingEdges: incomingEdges)
+        let reachable = Self.reachableNodeIDs(
+          from: outputNode.id,
+          incomingEdges: incomingEdges
+        )
         let nodes = workspace.nodes.filter { reachable.contains($0.id) }
         let edges = activeEdges.filter {
           reachable.contains($0.source.nodeID) && reachable.contains($0.target.nodeID)
         }
-        let localClockedSources = Set(
-          nodes.compactMap { node -> UUID? in
-            switch node.value {
-            case .applicationAudio, .inputAudio, .filePlayback, .networkReceive:
-              node.id
-            default:
-              nil
-            }
-          })
+        let localClockedSources = Set(nodes.compactMap(Self.clockedSourceNodeID))
         guard claimedClockedSources.isDisjoint(with: localClockedSources) else {
-          plans[sendNode.id] = .blocked(
-            "A captured or streamed source can feed only one independent output clock. Add an explicit clocked fan-out before sending it to multiple destinations."
+          plans[outputNode.id] = .blocked(
+            "A captured or streamed source can feed only one independent output clock. Add an explicit clocked fan-out before recording it to multiple destinations."
           )
           continue
         }
@@ -384,24 +388,24 @@ final class RoutingNetworkSendController {
           frameBuffers[node.id] = buffer
         }
         if let failure {
-          plans[sendNode.id] = .blocked(failure)
+          plans[outputNode.id] = .blocked(failure)
           continue
         }
         guard !waiting else {
-          plans[sendNode.id] = .waiting
+          plans[outputNode.id] = .waiting
           continue
         }
         claimedClockedSources.formUnion(localClockedSources)
         let sortedNodes = nodes.sorted { $0.id.uuidString < $1.id.uuidString }
         let sortedEdges = edges.sorted { $0.id.uuidString < $1.id.uuidString }
         let buffers = frameBuffers.map {
-          RoutingNetworkSendBufferSignature(nodeID: $0.key, identity: ObjectIdentifier($0.value))
+          RoutingFileOutputBufferSignature(nodeID: $0.key, identity: ObjectIdentifier($0.value))
         }.sorted { $0.nodeID.uuidString < $1.nodeID.uuidString }
-        let signature = RoutingNetworkSendRequestSignature(
-          nodeID: sendNode.id,
+        let signature = RoutingFileOutputRequestSignature(
+          nodeID: outputNode.id,
           configuration: configuration,
           nodes: sortedNodes.map {
-            RoutingNetworkSendNodeSignature(
+            RoutingFileOutputNodeSignature(
               id: $0.id,
               value: $0.value.audioOutputTopologySignatureValue
             )
@@ -409,8 +413,8 @@ final class RoutingNetworkSendController {
           edges: sortedEdges,
           buffers: buffers
         )
-        plans[sendNode.id] = .ready(
-          RoutingNetworkSendRequest(
+        plans[outputNode.id] = .ready(
+          RoutingFileOutputRequest(
             signature: signature,
             nodes: sortedNodes,
             edges: sortedEdges,
@@ -422,7 +426,7 @@ final class RoutingNetworkSendController {
     return plans
   }
 
-  private func clockedSourceNodeIDsFeedingDeviceOutputs(
+  private func clockedSourcesClaimedByOtherDestinations(
     workflows: [RoutingWorkflowModel]
   ) -> Set<UUID> {
     var result = Set<UUID>()
@@ -430,22 +434,34 @@ final class RoutingNetworkSendController {
       let workspace = workflow.workspace
       let activeEdges = workspace.edges.filter(workspace.isEdgeActive)
       let incomingEdges = Dictionary(grouping: activeEdges, by: { $0.target.nodeID })
-      for outputNode in workspace.nodes {
-        guard case .outputAudio(let selection, _) = outputNode.value, selection != nil else {
+      for destination in workspace.nodes {
+        switch destination.value {
+        case .outputAudio(let selection, _) where selection != nil:
+          break
+        case .networkSend:
+          break
+        default:
           continue
         }
-        let reachable = Self.reachableNodeIDs(from: outputNode.id, incomingEdges: incomingEdges)
+        let reachable = Self.reachableNodeIDs(
+          from: destination.id,
+          incomingEdges: incomingEdges
+        )
         for node in workspace.nodes where reachable.contains(node.id) {
-          switch node.value {
-          case .applicationAudio, .inputAudio, .filePlayback, .networkReceive:
-            result.insert(node.id)
-          default:
-            break
-          }
+          if let sourceID = Self.clockedSourceNodeID(node) { result.insert(sourceID) }
         }
       }
     }
     return result
+  }
+
+  private static func clockedSourceNodeID(_ node: RoutingWorkspaceNode) -> UUID? {
+    switch node.value {
+    case .applicationAudio, .inputAudio, .filePlayback, .networkReceive:
+      node.id
+    default:
+      nil
+    }
   }
 
   private static func reachableNodeIDs(
@@ -464,7 +480,7 @@ final class RoutingNetworkSendController {
   }
 }
 
-private final class RoutingNetworkSendRendererHolder: @unchecked Sendable {
+private final class RoutingFileOutputRendererHolder: @unchecked Sendable {
   private let lock = NSLock()
   private var value: RoutingPreparedAudioGraphSource?
 
