@@ -9,6 +9,36 @@ import Testing
 @Suite("Routing Metal scene")
 struct RoutingMetalSceneTests {
   @Test @MainActor
+  func topologyCacheReusesLayoutAcrossRealtimeSupplementUpdates() throws {
+    let model = RoutingWorkspaceModel()
+    let nodeID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    let content = try #require(model.canvasContent)
+    let cache = RoutingMetalSceneTopologyCache()
+
+    let firstTopology = cache.topology(for: content)
+    _ = RoutingMetalScene(topology: firstTopology, supplements: [:])
+    let secondTopology = cache.topology(for: content)
+    let updatedScene = RoutingMetalScene(
+      topology: secondTopology,
+      supplements: [
+        nodeID: RoutingMetalNodeSupplement(
+          isRunning: true,
+          isCapturing: true,
+          captureConsumerCount: 1,
+          visualizerSignal: nil
+        )
+      ]
+    )
+
+    #expect(cache.topologyBuildCount == 1)
+    #expect(updatedScene.nodes.first?.status == "Capturing live audio")
+
+    _ = model.addVisualizerNode(centeredAt: CGPoint(x: 500, y: 100))
+    _ = cache.topology(for: try #require(model.canvasContent))
+    #expect(cache.topologyBuildCount == 2)
+  }
+
+  @Test @MainActor
   func selectedNodeRendersLastAndCarriesItsPorts() throws {
     let model = RoutingWorkspaceModel()
     let firstID = model.addApplicationAudioNode(centeredAt: CGPoint(x: 100, y: 100))

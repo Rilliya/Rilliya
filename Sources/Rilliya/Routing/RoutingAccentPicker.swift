@@ -1,13 +1,28 @@
 import FlowingDayControls
 import SwiftUI
 
+enum RoutingAccentGridMetrics {
+  static let chipLabelSize: CGFloat = 10.5
+}
+
 struct RoutingAccentGrid: View {
   let selection: RoutingAccentID?
   let inheritedAccentID: RoutingAccentID
   let inheritedLabel: String
   let setSelection: (RoutingAccentID?) -> Void
 
+  @Environment(\.flowingTypography) private var typography
+
   private let columns = Array(repeating: GridItem(.flexible(), spacing: 7), count: 7)
+
+  private var chipTypography: FlowingTypography {
+    var result = typography
+    result.selectionLabel = FlowingTextStyle(
+      size: RoutingAccentGridMetrics.chipLabelSize,
+      weight: .medium
+    )
+    return result
+  }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 10) {
@@ -50,6 +65,7 @@ struct RoutingAccentGrid: View {
                 setSelection(accentID)
               }
               .flowingAccent(accentID.accent)
+              .flowingTypography(chipTypography)
               .accessibilityValue(selection == accentID ? "Selected" : "Not selected")
             }
           }

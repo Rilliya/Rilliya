@@ -35,7 +35,7 @@ struct RilliyaApp: App {
 
     MenuBarExtra(
       "Rilliya",
-      systemImage: "waveform.path.ecg",
+      image: "RilliyaStatusIcon",
       isInserted: Binding(
         get: { settings.showsInStatusBar },
         set: { isVisible in

@@ -187,17 +187,18 @@ private struct RoutingCanvasPaletteDropDelegate: DropDelegate {
   }
 }
 
-private enum RoutingNodePaletteMetrics {
+enum RoutingNodePaletteMetrics {
   static let outerWidth: CGFloat = 286
-  static let outerLeadingInset: CGFloat = 12
+  static let outerLeadingInset = NativeWindowChrome.contentEdgeInset
   static let outerTrailingInset: CGFloat = 10
-  static let outerTopInset: CGFloat = 26
-  static let outerBottomInset: CGFloat = 12
-  static let panelCornerRadius: CGFloat = 18
+  static let outerTopInset = NativeWindowChrome.contentEdgeInset
+  static let outerBottomInset = NativeWindowChrome.contentEdgeInset
+  static let panelCornerRadius = NativeWindowChrome.visualWindowCornerRadius
   static let panelHorizontalPadding: CGFloat = 14
   static let panelTopPadding: CGFloat = 34
   static let panelBottomPadding: CGFloat = 14
-  static let scrollIndicatorTrailingOffset: CGFloat = 8
+  static let scrollIndicatorTrailingOffset = panelHorizontalPadding
+  static let cardHoverOutset: CGFloat = 2
   static let scrollIndicatorVerticalInset = panelCornerRadius / 2
   static let panelBackgroundWidth = outerWidth - outerLeadingInset - outerTrailingInset
   static let panelContentWidth = panelBackgroundWidth - panelHorizontalPadding * 2
@@ -227,6 +228,7 @@ struct RoutingCanvasView: View {
   @State private var isDropTargeted = false
   @State private var dropPreview: RoutingDropPreviewState?
   @State private var dropTask: Task<Void, Never>?
+  @State private var metalSceneTopologyCache = RoutingMetalSceneTopologyCache()
 
   var body: some View {
     ZStack {
@@ -597,7 +599,7 @@ struct RoutingCanvasView: View {
       }
     }
     return RoutingMetalScene(
-      content: content,
+      topology: metalSceneTopologyCache.topology(for: content),
       supplements: supplements,
       accentIDs: Dictionary(
         uniqueKeysWithValues: workspace.nodes.map { ($0.id, resolvedAccentID(for: $0)) }
@@ -1109,37 +1111,41 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
         .overlay(FlowingPalette.hairline)
         .padding(.vertical, 12)
 
-      ScrollView {
-        VStack(spacing: 18) {
-          RoutingPaletteSection(
-            "Audio Nodes",
-            footer:
-              "Drag a node onto the canvas. Search matches every category."
-          ) {
-            FlowingTextField(
-              "Search audio nodes",
-              text: $searchText,
-              placeholder: "Search nodes",
-              systemImage: "magnifyingglass",
-              emphasis: .standard
-            )
+      GeometryReader { geometry in
+        ScrollView {
+          VStack(spacing: 18) {
+            RoutingPaletteSection(
+              "Audio Nodes",
+              footer:
+                "Drag a node onto the canvas. Search matches every category."
+            ) {
+              FlowingTextField(
+                "Search audio nodes",
+                text: $searchText,
+                placeholder: "Search nodes",
+                systemImage: "magnifyingglass",
+                emphasis: .standard
+              )
+            }
+
+            paletteResults
+
+            catalogIssue
+              .padding(.top, 14)
           }
-
-          paletteResults
-
-          catalogIssue
-            .padding(.top, 14)
+          .frame(width: RoutingNodePaletteMetrics.panelContentWidth, alignment: .leading)
+          .frame(minHeight: geometry.size.height, alignment: .top)
+          .frame(maxWidth: .infinity, alignment: .leading)
+          .background(NativeWindowDragRegion().accessibilityHidden(true))
         }
-        .frame(width: RoutingNodePaletteMetrics.panelContentWidth, alignment: .leading)
-        .frame(maxWidth: .infinity, alignment: .leading)
+        .contentMargins(
+          .vertical,
+          RoutingNodePaletteMetrics.scrollIndicatorVerticalInset,
+          for: .scrollIndicators
+        )
+        .scrollContentBackground(.hidden)
+        .background(Color.clear)
       }
-      .contentMargins(
-        .vertical,
-        RoutingNodePaletteMetrics.scrollIndicatorVerticalInset,
-        for: .scrollIndicators
-      )
-      .scrollContentBackground(.hidden)
-      .background(Color.clear)
       .frame(
         width: RoutingNodePaletteMetrics.panelContentWidth
           + RoutingNodePaletteMetrics.scrollIndicatorTrailingOffset,
@@ -1200,21 +1206,6 @@ struct RoutingNodePaletteView<WorkflowNavigation: View>: View {
 
       Spacer(minLength: 8)
 
-      if applicationCatalog.state.isLoading {
-        ProgressView()
-          .controlSize(.small)
-          .accessibilityLabel("Refreshing installed applications")
-      }
-
-      FlowingIconButton(
-        "Refresh Applications",
-        systemImage: "arrow.clockwise",
-        emphasis: .standard
-      ) {
-        Task {
-          await applicationCatalog.refresh()
-        }
-      }
     }
     .background(NativeWindowDragRegion().accessibilityHidden(true))
   }
@@ -1331,6 +1322,7 @@ private struct RoutingPaletteNodeItem: View {
       }
       .onHover { isHovering = $0 }
       .scaleEffect(isHovering ? 1.012 : 1)
+      .padding(.horizontal, RoutingNodePaletteMetrics.cardHoverOutset)
       .animation(.easeOut(duration: 0.14), value: isHovering)
       .help(
         allowsClickInsertion

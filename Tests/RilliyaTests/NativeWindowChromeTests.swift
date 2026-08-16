@@ -28,6 +28,39 @@ struct NativeWindowChromeTests {
     #expect(window.standardWindowButton(.closeButton)?.isHidden == false)
     #expect(window.standardWindowButton(.miniaturizeButton)?.isHidden == false)
     #expect(window.standardWindowButton(.zoomButton)?.isHidden == false)
+
+    let closeButton = window.standardWindowButton(.closeButton)
+    let miniaturizeButton = window.standardWindowButton(.miniaturizeButton)
+    let zoomButton = window.standardWindowButton(.zoomButton)
+    #expect(closeButton?.frame.origin.x == NativeWindowChrome.trafficLightLeadingOrigin)
+    #expect(closeButton?.frame.origin.y == NativeWindowChrome.trafficLightBottomOrigin)
+    #expect(
+      miniaturizeButton?.frame.origin.x
+        == NativeWindowChrome.trafficLightLeadingOrigin
+        + (closeButton?.frame.width ?? 0)
+        + NativeWindowChrome.trafficLightSpacing
+    )
+    #expect(
+      zoomButton?.frame.origin.x
+        == (miniaturizeButton?.frame.maxX ?? 0) + NativeWindowChrome.trafficLightSpacing
+    )
+  }
+
+  @Test
+  func paletteUsesEqualTopLeadingAndBottomInsetsWithHoverBreathingRoom() {
+    #expect(RoutingNodePaletteMetrics.outerTopInset == RoutingNodePaletteMetrics.outerLeadingInset)
+    #expect(
+      RoutingNodePaletteMetrics.outerBottomInset == RoutingNodePaletteMetrics.outerLeadingInset
+    )
+    #expect(
+      RoutingNodePaletteMetrics.panelCornerRadius
+        == NativeWindowChrome.visualWindowCornerRadius
+    )
+    #expect(
+      RoutingNodePaletteMetrics.scrollIndicatorTrailingOffset
+        == RoutingNodePaletteMetrics.panelHorizontalPadding
+    )
+    #expect(RoutingNodePaletteMetrics.cardHoverOutset > 0)
   }
 
   @Test

@@ -403,6 +403,95 @@ struct RoutingMetalScene {
     let cullingBounds: CGRect
   }
 
+  struct Topology {
+    let contentID: FlowingLayoutInputID
+    let presentationSnapshotID: FlowingGraphPresentationSnapshotID
+    let nodes: [Node]
+    let edges: [Edge]
+    let contentBounds: CGRect
+    let portByID: [RoutingCanvasElementID: Port]
+
+    init(content: RoutingCanvasContent) {
+      contentID = content.id
+      presentationSnapshotID = content.presentation.snapshotID
+
+      var nextNodes: [Node] = []
+      nextNodes.reserveCapacity(content.presentation.nodes.count)
+      var nextPortsByID: [RoutingCanvasElementID: Port] = [:]
+
+      for presentationNode in content.presentation.nodes {
+        guard case .node(let workspaceID) = presentationNode.address.elementID,
+          let frame = content.frame(for: presentationNode.localID)
+        else {
+          continue
+        }
+        let ports: [Port] = content.portLocalIDs(of: presentationNode.localID).compactMap {
+          localID -> Port? in
+          guard let presentationPort = content.port(for: localID),
+            let anchor = content.anchor(for: localID)
+          else {
+            return nil
+          }
+          return Port(
+            id: presentationPort.id,
+            nodeID: presentationNode.id,
+            workspaceNodeID: workspaceID,
+            value: presentationPort.value,
+            position: anchor.position
+          )
+        }
+        for port in ports {
+          nextPortsByID[port.id] = port
+        }
+        nextNodes.append(
+          Node(
+            id: presentationNode.id,
+            workspaceID: workspaceID,
+            value: presentationNode.value,
+            frame: frame,
+            ports: ports,
+            supplement: .empty,
+            accentID: presentationNode.value.kind.builtInAccentID
+          )
+        )
+      }
+
+      let nextNodesByID = Dictionary(uniqueKeysWithValues: nextNodes.map { ($0.id, $0) })
+      nodes = nextNodes
+      portByID = nextPortsByID
+      edges = content.presentation.edges.compactMap { presentationEdge in
+        guard let route = content.route(for: presentationEdge.localID),
+          case .edge(let workspaceID) = presentationEdge.address.elementID,
+          case .directed(.port(let sourcePortID), .port(let targetPortID)) =
+            presentationEdge.endpoints,
+          let sourcePort = nextPortsByID[sourcePortID],
+          let targetPort = nextPortsByID[targetPortID],
+          nextNodesByID[sourcePort.nodeID] != nil,
+          nextNodesByID[targetPort.nodeID] != nil
+        else {
+          return nil
+        }
+        return Edge(
+          id: presentationEdge.id,
+          workspaceID: workspaceID,
+          route: route,
+          sourceNodeID: sourcePort.nodeID,
+          targetNodeID: targetPort.nodeID,
+          sourcePort: sourcePort,
+          targetPort: targetPort,
+          label: nil,
+          isEnabled: presentationEdge.value.isEnabled,
+          isActive: presentationEdge.value.isActive,
+          cullingBounds: RoutingMetalScene.cullingBounds(for: route)
+        )
+      }
+      contentBounds =
+        nextNodes.map(\.frame).reduce(nil) { bounds, frame in
+          bounds?.union(frame) ?? frame
+        }?.insetBy(dx: -72, dy: -72) ?? CGRect(x: -1, y: -1, width: 2, height: 2)
+    }
+  }
+
   let contentID: FlowingLayoutInputID
   let presentationSnapshotID: FlowingGraphPresentationSnapshotID
   let nodes: [Node]
@@ -418,92 +507,65 @@ struct RoutingMetalScene {
     accentIDs: [UUID: RoutingAccentID] = [:],
     connectionInformationLevel: RoutingConnectionInformationLevel = .format
   ) {
-    contentID = content.id
-    presentationSnapshotID = content.presentation.snapshotID
+    self.init(
+      topology: Topology(content: content),
+      supplements: supplements,
+      accentIDs: accentIDs,
+      connectionInformationLevel: connectionInformationLevel
+    )
+  }
 
-    var nextNodes: [Node] = []
-    nextNodes.reserveCapacity(content.presentation.nodes.count)
-    var nextPortsByID: [RoutingCanvasElementID: Port] = [:]
-
-    for presentationNode in content.presentation.nodes {
-      guard case .node(let workspaceID) = presentationNode.address.elementID,
-        let frame = content.frame(for: presentationNode.localID)
-      else {
-        continue
-      }
-      let ports: [Port] = content.portLocalIDs(of: presentationNode.localID).compactMap {
-        localID -> Port? in
-        guard let presentationPort = content.port(for: localID),
-          let anchor = content.anchor(for: localID)
-        else {
-          return nil
-        }
-        return Port(
-          id: presentationPort.id,
-          nodeID: presentationNode.id,
-          workspaceNodeID: workspaceID,
-          value: presentationPort.value,
-          position: anchor.position
-        )
-      }
-      for port in ports {
-        nextPortsByID[port.id] = port
-      }
-      nextNodes.append(
-        Node(
-          id: presentationNode.id,
-          workspaceID: workspaceID,
-          value: presentationNode.value,
-          frame: frame,
-          ports: ports,
-          supplement: supplements[workspaceID] ?? .empty,
-          accentID: accentIDs[workspaceID] ?? presentationNode.value.kind.builtInAccentID
-        )
+  init(
+    topology: Topology,
+    supplements: [UUID: RoutingMetalNodeSupplement],
+    accentIDs: [UUID: RoutingAccentID] = [:],
+    connectionInformationLevel: RoutingConnectionInformationLevel = .format
+  ) {
+    contentID = topology.contentID
+    presentationSnapshotID = topology.presentationSnapshotID
+    nodes = topology.nodes.map { node in
+      Node(
+        id: node.id,
+        workspaceID: node.workspaceID,
+        value: node.value,
+        frame: node.frame,
+        ports: node.ports,
+        supplement: supplements[node.workspaceID] ?? .empty,
+        accentID: accentIDs[node.workspaceID] ?? node.value.kind.builtInAccentID
       )
     }
-
-    nodes = nextNodes
     miniMapStyleIndexByID = Dictionary(
-      uniqueKeysWithValues: nextNodes.map { ($0.id, $0.miniMapStyleIndex) }
+      uniqueKeysWithValues: nodes.map { ($0.id, $0.miniMapStyleIndex) }
     )
-    let nextNodesByID = Dictionary(uniqueKeysWithValues: nextNodes.map { ($0.id, $0) })
-    portByID = nextPortsByID
-    edges = content.presentation.edges.compactMap { presentationEdge in
-      guard let route = content.route(for: presentationEdge.localID),
-        case .edge(let workspaceID) = presentationEdge.address.elementID,
-        case .directed(.port(let sourcePortID), .port(let targetPortID)) =
-          presentationEdge.endpoints,
-        let sourcePort = nextPortsByID[sourcePortID],
-        let targetPort = nextPortsByID[targetPortID],
-        let sourceNode = nextNodesByID[sourcePort.nodeID],
-        let targetNode = nextNodesByID[targetPort.nodeID]
+    let nodesByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+    portByID = topology.portByID
+    edges = topology.edges.compactMap { edge in
+      guard let sourceNode = nodesByID[edge.sourceNodeID],
+        let targetNode = nodesByID[edge.targetNodeID]
       else {
         return nil
       }
       return Edge(
-        id: presentationEdge.id,
-        workspaceID: workspaceID,
-        route: route,
-        sourceNodeID: sourcePort.nodeID,
-        targetNodeID: targetPort.nodeID,
-        sourcePort: sourcePort,
-        targetPort: targetPort,
+        id: edge.id,
+        workspaceID: edge.workspaceID,
+        route: edge.route,
+        sourceNodeID: edge.sourceNodeID,
+        targetNodeID: edge.targetNodeID,
+        sourcePort: edge.sourcePort,
+        targetPort: edge.targetPort,
         label: RoutingConnectionLabelFormatter.label(
           level: connectionInformationLevel,
-          source: sourcePort.value,
-          target: targetPort.value,
+          source: edge.sourcePort.value,
+          target: edge.targetPort.value,
           targetNode: targetNode.value,
           format: sourceNode.supplement.captureFormat
         ),
-        isEnabled: presentationEdge.value.isEnabled,
-        isActive: presentationEdge.value.isActive,
-        cullingBounds: Self.cullingBounds(for: route)
+        isEnabled: edge.isEnabled,
+        isActive: edge.isActive,
+        cullingBounds: edge.cullingBounds
       )
     }
-    contentBounds =
-      nextNodes.map(\.frame).reduce(nil) { bounds, frame in
-        bounds?.union(frame) ?? frame
-      }?.insetBy(dx: -72, dy: -72) ?? CGRect(x: -1, y: -1, width: 2, height: 2)
+    contentBounds = topology.contentBounds
   }
 
   func port(id: RoutingCanvasElementID) -> Port? {
@@ -628,6 +690,26 @@ struct RoutingMetalScene {
       width: maximumX - minimumX,
       height: maximumY - minimumY
     ).insetBy(dx: -12, dy: -12)
+  }
+}
+
+@MainActor
+final class RoutingMetalSceneTopologyCache {
+  private var cachedTopology: RoutingMetalScene.Topology?
+  private(set) var topologyBuildCount = 0
+
+  func topology(for content: RoutingCanvasContent) -> RoutingMetalScene.Topology {
+    if let cachedTopology,
+      cachedTopology.contentID == content.id,
+      cachedTopology.presentationSnapshotID == content.presentation.snapshotID
+    {
+      return cachedTopology
+    }
+
+    let topology = RoutingMetalScene.Topology(content: content)
+    cachedTopology = topology
+    topologyBuildCount += 1
+    return topology
   }
 }
 
