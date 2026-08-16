@@ -1,0 +1,285 @@
+name: Release
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: Version from project.yml
+        required: true
+        default: 0.1.0
+        type: string
+      rilliya_kit_ref:
+        description: Full 40-character RilliyaKit commit SHA
+        required: true
+        type: string
+      flowing_day_ui_ref:
+        description: Full 40-character FlowingDayUI commit SHA
+        required: true
+        type: string
+
+concurrency:
+  group: release-${{ inputs.version }}
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Sign, notarize, and publish
+    runs-on: macos-26
+    timeout-minutes: 50
+    defaults:
+      run:
+        working-directory: Rilliya
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+    steps:
+      - name: Check out application
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: Rilliya
+          persist-credentials: false
+
+      - name: Validate release inputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ "$GITHUB_REF" != "refs/heads/main" ]]; then
+            echo "Releases must be dispatched from main" >&2
+            exit 1
+          fi
+          if [[ ! "$RELEASE_VERSION" =~ ^[0-9]+\.[0-9]+\.[0-9]+([.-][0-9A-Za-z.-]+)?$ ]]; then
+            echo "Release version is not valid: $RELEASE_VERSION" >&2
+            exit 1
+          fi
+          for ref in '${{ inputs.rilliya_kit_ref }}' '${{ inputs.flowing_day_ui_ref }}'; do
+            if [[ ! "$ref" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "Release dependencies must use full commit SHAs" >&2
+              exit 1
+            fi
+          done
+
+      - name: Check out RilliyaKit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: Rilliya/RilliyaKit
+          ref: ${{ inputs.rilliya_kit_ref }}
+          path: RilliyaKit
+          persist-credentials: false
+
+      - name: Check out FlowingDayUI
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: cocoa-xu/flowing-day-ui
+          ref: ${{ inputs.flowing_day_ui_ref }}
+          path: flowing-day-ui
+          persist-credentials: false
+
+      - name: Verify dependency revisions
+        shell: bash
+        run: |
+          set -euo pipefail
+          [[ "$(git -C ../RilliyaKit rev-parse HEAD)" == '${{ inputs.rilliya_kit_ref }}' ]]
+          [[ "$(git -C ../flowing-day-ui rev-parse HEAD)" == '${{ inputs.flowing_day_ui_ref }}' ]]
+
+      - name: Validate release configuration
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          CERTIFICATE_BASE64: ${{ secrets.DEV_ID_APP_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEV_ID_APP_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for variable in APPLE_ID CERTIFICATE_BASE64 CERTIFICATE_PASSWORD KEYCHAIN_PASSWORD NOTARY_PASSWORD TEAM_ID; do
+            if [[ -z "${!variable}" ]]; then
+              echo "Missing required release configuration: $variable" >&2
+              exit 1
+            fi
+          done
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Check application
+        run: ./scripts/check.sh
+
+      - name: Import Developer ID certificate
+        env:
+          CERTIFICATE_BASE64: ${{ secrets.DEV_ID_APP_CERTIFICATE_BASE64 }}
+          CERTIFICATE_PASSWORD: ${{ secrets.DEV_ID_APP_CERTIFICATE_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        run: scripts/release/import-signing-certificate.sh
+
+      - name: Generate release project
+        run: ./scripts/generate-project.sh
+
+      - name: Verify source version
+        shell: bash
+        run: |
+          set -euo pipefail
+          configured_version="$(xcodebuild \
+            -project Rilliya.xcodeproj \
+            -scheme Rilliya \
+            -configuration Release \
+            -showBuildSettings | awk '/MARKETING_VERSION =/ { print $3; exit }')"
+          if [[ "$configured_version" != "$RELEASE_VERSION" ]]; then
+            echo "Requested $RELEASE_VERSION, but project.yml configures $configured_version" >&2
+            exit 1
+          fi
+
+      - name: Archive applications
+        env:
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          archive() {
+            local name=$1
+            local architecture=$2
+            xcodebuild archive \
+              -project Rilliya.xcodeproj \
+              -scheme Rilliya \
+              -configuration Release \
+              -destination 'generic/platform=macOS' \
+              -archivePath "$RUNNER_TEMP/Rilliya-$name.xcarchive" \
+              -derivedDataPath "$RUNNER_TEMP/RilliyaArchive-$name" \
+              -clonedSourcePackagesDirPath "$RUNNER_TEMP/RilliyaSourcePackages" \
+              ARCHS="$architecture" \
+              ONLY_ACTIVE_ARCH=NO \
+              CODE_SIGN_STYLE=Manual \
+              CODE_SIGN_IDENTITY="$CODE_SIGN_IDENTITY" \
+              DEVELOPMENT_TEAM="$TEAM_ID" \
+              CODE_SIGN_INJECT_BASE_ENTITLEMENTS=NO \
+              CURRENT_PROJECT_VERSION="$GITHUB_RUN_NUMBER"
+          }
+
+          archive arm64 arm64
+          archive intel x86_64
+
+      - name: Assemble and sign Universal application
+        shell: bash
+        run: |
+          set -euo pipefail
+          arm64_app="$RUNNER_TEMP/Rilliya-arm64.xcarchive/Products/Applications/Rilliya.app"
+          intel_app="$RUNNER_TEMP/Rilliya-intel.xcarchive/Products/Applications/Rilliya.app"
+          universal_app="$RUNNER_TEMP/Rilliya-universal.app"
+          entitlements="Sources/Rilliya/Resources/Rilliya.entitlements"
+
+          scripts/release/create-universal-application.sh \
+            "$arm64_app" "$intel_app" "$universal_app"
+          plutil -lint "$entitlements"
+          if plutil -extract com.apple.security.get-task-allow raw "$entitlements" >/dev/null 2>&1; then
+            echo "Release entitlements must not include get-task-allow" >&2
+            exit 1
+          fi
+          codesign \
+            --force \
+            --options runtime \
+            --timestamp \
+            --keychain "$SIGNING_KEYCHAIN" \
+            --entitlements "$entitlements" \
+            --sign "$CODE_SIGN_IDENTITY" \
+            "$universal_app"
+
+      - name: Verify application signatures and architectures
+        shell: bash
+        run: |
+          set -euo pipefail
+          arm64_app="$RUNNER_TEMP/Rilliya-arm64.xcarchive/Products/Applications/Rilliya.app"
+          intel_app="$RUNNER_TEMP/Rilliya-intel.xcarchive/Products/Applications/Rilliya.app"
+          universal_app="$RUNNER_TEMP/Rilliya-universal.app"
+
+          for app in "$arm64_app" "$intel_app" "$universal_app"; do
+            codesign --verify --deep --strict --verbose=2 "$app"
+          done
+
+          [[ "$(lipo -archs "$arm64_app/Contents/MacOS/Rilliya")" == "arm64" ]]
+          [[ "$(lipo -archs "$intel_app/Contents/MacOS/Rilliya")" == "x86_64" ]]
+          universal_architectures="$(lipo -archs "$universal_app/Contents/MacOS/Rilliya")"
+          [[ "$universal_architectures" == *arm64* && "$universal_architectures" == *x86_64* ]]
+
+      - name: Create signed disk images
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p release
+
+          create_disk_image() {
+            local app=$1
+            local output=$2
+            scripts/release/create-disk-image.sh "$app" "$output"
+            codesign \
+              --force \
+              --timestamp \
+              --keychain "$SIGNING_KEYCHAIN" \
+              --sign "$CODE_SIGN_IDENTITY" \
+              "$output"
+          }
+
+          create_disk_image \
+            "$RUNNER_TEMP/Rilliya-arm64.xcarchive/Products/Applications/Rilliya.app" \
+            "release/Rilliya-Apple-Silicon-$RELEASE_VERSION.dmg"
+          create_disk_image \
+            "$RUNNER_TEMP/Rilliya-intel.xcarchive/Products/Applications/Rilliya.app" \
+            "release/Rilliya-Intel-$RELEASE_VERSION.dmg"
+          create_disk_image \
+            "$RUNNER_TEMP/Rilliya-universal.app" \
+            "release/Rilliya-$RELEASE_VERSION.dmg"
+
+      - name: Notarize disk images
+        env:
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          NOTARY_PASSWORD: ${{ secrets.NOTARY_PASSWORD }}
+          TEAM_ID: ${{ secrets.TEAM_ID }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          for dmg in \
+            "release/Rilliya-Apple-Silicon-$RELEASE_VERSION.dmg" \
+            "release/Rilliya-Intel-$RELEASE_VERSION.dmg" \
+            "release/Rilliya-$RELEASE_VERSION.dmg"; do
+            xcrun notarytool submit "$dmg" \
+              --apple-id "$APPLE_ID" \
+              --password "$NOTARY_PASSWORD" \
+              --team-id "$TEAM_ID" \
+              --wait
+            xcrun stapler staple "$dmg"
+            xcrun stapler validate "$dmg"
+            spctl --assess --type open --context context:primary-signature --verbose=2 "$dmg"
+          done
+
+      - name: Create checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          for dmg in release/*.dmg; do
+            shasum -a 256 "$dmg" > "$dmg.sha256"
+          done
+
+      - name: Publish GitHub release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          tag="v$RELEASE_VERSION"
+          assets=(release/*.dmg release/*.dmg.sha256)
+
+          if gh release view "$tag" >/dev/null 2>&1; then
+            gh release upload "$tag" "${assets[@]}" --clobber
+          else
+            gh release create "$tag" "${assets[@]}" \
+              --target "$GITHUB_SHA" \
+              --title "Rilliya $RELEASE_VERSION" \
+              --generate-notes \
+              --prerelease
+          fi
+
+      - name: Remove signing keychain
+        if: always()
+        run: security delete-keychain "$RUNNER_TEMP/rilliya-signing.keychain-db" 2>/dev/null || true

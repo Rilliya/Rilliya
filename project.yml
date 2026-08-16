@@ -55,6 +55,17 @@ targets:
         MARKETING_VERSION: 0.1.0
         PRODUCT_BUNDLE_IDENTIFIER: moe.uwucocoa.rilliya
         PRODUCT_NAME: Rilliya
+      configs:
+        Release:
+          CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+          COPY_PHASE_STRIP: YES
+          DEAD_CODE_STRIPPING: YES
+          DEPLOYMENT_POSTPROCESSING: YES
+          LLVM_LTO: YES_THIN
+          STRIP_INSTALLED_PRODUCT: YES
+          STRIP_STYLE: all
+          SWIFT_COMPILATION_MODE: wholemodule
+          SWIFT_OPTIMIZATION_LEVEL: -O
     dependencies:
       - package: RilliyaKit
         product: RilliyaKit

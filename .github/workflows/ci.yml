@@ -1,0 +1,101 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  native:
+    name: Native
+    runs-on: macos-26
+    timeout-minutes: 35
+    defaults:
+      run:
+        working-directory: Rilliya
+    steps:
+      - name: Check out application
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          path: Rilliya
+          persist-credentials: false
+
+      - name: Check out RilliyaKit
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: Rilliya/RilliyaKit
+          path: RilliyaKit
+          persist-credentials: false
+
+      - name: Check out FlowingDayUI
+        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+        with:
+          repository: cocoa-xu/flowing-day-ui
+          path: flowing-day-ui
+          persist-credentials: false
+
+      - name: Fingerprint Swift toolchain
+        id: toolchain
+        shell: bash
+        run: |
+          set -euo pipefail
+          xcodebuild -version
+          xcrun swift --version
+          fingerprint="$(xcodebuild -version | shasum -a 256 | cut -d ' ' -f 1)"
+          echo "fingerprint=$fingerprint" >> "$GITHUB_OUTPUT"
+
+      - name: Restore Swift package cache
+        uses: actions/cache@caa296126883cff596d87d8935842f9db880ef25 # v5
+        with:
+          path: |
+            ~/.swiftpm
+            ~/Library/Caches/org.swift.swiftpm
+          key: rilliya-swiftpm-${{ runner.os }}-${{ runner.arch }}-${{ steps.toolchain.outputs.fingerprint }}-${{ hashFiles('Rilliya/project.yml', 'RilliyaKit/Package.swift', 'flowing-day-ui/Package.swift') }}
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Check application
+        run: ./scripts/check.sh
+
+      - name: Build release architectures
+        shell: bash
+        run: |
+          set -euo pipefail
+          ./scripts/generate-project.sh
+
+          build() {
+            local name=$1
+            local architecture=$2
+            xcodebuild build \
+              -project Rilliya.xcodeproj \
+              -scheme Rilliya \
+              -configuration Release \
+              -destination 'generic/platform=macOS' \
+              -derivedDataPath "$RUNNER_TEMP/RilliyaBuild-$name" \
+              -clonedSourcePackagesDirPath "$RUNNER_TEMP/RilliyaSourcePackages" \
+              CODE_SIGNING_ALLOWED=NO \
+              ONLY_ACTIVE_ARCH=NO \
+              ARCHS="$architecture"
+          }
+
+          build arm64 arm64
+          build intel x86_64
+
+      - name: Verify Universal assembly
+        run: |
+          arm64_app="$RUNNER_TEMP/RilliyaBuild-arm64/Build/Products/Release/Rilliya.app"
+          intel_app="$RUNNER_TEMP/RilliyaBuild-intel/Build/Products/Release/Rilliya.app"
+          universal_app="$RUNNER_TEMP/Rilliya-Universal.app"
+          scripts/release/create-universal-application.sh \
+            "$arm64_app" "$intel_app" "$universal_app"
+          architectures="$(lipo -archs "$universal_app/Contents/MacOS/Rilliya")"
+          [[ "$architectures" == *arm64* && "$architectures" == *x86_64* ]]
