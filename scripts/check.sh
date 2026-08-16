@@ -3,6 +3,8 @@ set -eu
 
 cd "$(dirname "$0")/.."
 
+./scripts/check-repository-hygiene.sh
+
 xcrun swift-format lint \
   --configuration .swift-format \
   --strict \

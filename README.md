@@ -69,6 +69,3 @@ Apply the repository's Swift formatting rules with:
 ```sh
 ./scripts/format.sh
 ```
-
-Release baselines, profiling methodology, and the deterministic routing stress
-workload are documented in [PERFORMANCE.md](PERFORMANCE.md).

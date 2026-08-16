@@ -5,3 +5,26 @@ DerivedData/
 *.xcuserstate
 xcuserdata/
 .rilliya-signing.local
+
+# Local planning, audits, signing material, and generated measurements
+/plans/
+/design/
+/audits/
+/benchmarks/
+/performance/
+/profiles/
+/release/
+/PERFORMANCE*.md
+/AUDIT*.md
+*.cer
+*.key
+*.keychain-db
+*.mobileprovision
+*.p12
+*.pem
+*.pfx
+*.provisionprofile
+*.profdata
+*.profraw
+*.trace
+*.xcresult
