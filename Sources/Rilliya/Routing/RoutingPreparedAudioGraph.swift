@@ -1156,6 +1156,32 @@ private enum RoutingPreparedAudioOperation {
   }
 }
 
+/// The bounded-latency policy every destination applies to its realtime capture cursor.
+enum RoutingPreparedCaptureReadPolicy {
+  /// The oldest audio a destination keeps before dropping frames to bound its latency.
+  static let maximumBufferedDuration = 0.25
+
+  /// Returns the backlog a destination retains before discarding its oldest frames.
+  ///
+  /// A capture device or network peer delivers one IO cycle at a time, so the backlog a healthy
+  /// source presents is set by the producer's granularity rather than by the consumer's render
+  /// quantum. Bounding it by elapsed time keeps latency predictable for every producer, while a
+  /// bound derived from the render quantum would discard audio the destination is about to
+  /// consume whenever a destination renders smaller quanta than its producer delivers.
+  static func maximumBufferedFrameCount(
+    source: RoutingRealtimeCaptureSource,
+    maximumFrameCount: Int
+  ) -> Int {
+    min(
+      source.capacityFrameCount,
+      max(
+        maximumFrameCount * 2,
+        Int((source.format.sampleRate * maximumBufferedDuration).rounded())
+      )
+    )
+  }
+}
+
 private final class RoutingPreparedCaptureRead {
   private let source: RoutingRealtimeCaptureSource
   private let outputs: RoutingPreparedPointerList
@@ -1170,10 +1196,10 @@ private final class RoutingPreparedCaptureRead {
     guard source.format.channelCount == plan.outputBufferIndices.count else {
       throw RoutingPreparedAudioGraphError.invalidRoute
     }
-    maximumBufferedFrameCount =
-      maximumFrameCount >= source.capacityFrameCount / 2
-      ? source.capacityFrameCount
-      : maximumFrameCount * 2
+    maximumBufferedFrameCount = RoutingPreparedCaptureReadPolicy.maximumBufferedFrameCount(
+      source: source,
+      maximumFrameCount: maximumFrameCount
+    )
     outputs = RoutingPreparedPointerList(
       bufferIndices: plan.outputBufferIndices,
       storage: storage

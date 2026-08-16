@@ -26,6 +26,40 @@ struct RoutingPreparedAudioGraphTests {
     #expect(rendered.channels[1] == [0, 0, 0, 0])
   }
 
+  /// A capture device delivers one IO cycle at a time, so a destination whose render quantum is
+  /// smaller than that burst must still consume every captured frame.
+  @Test
+  func aSmallRenderQuantumConsumesEveryFrameOfABurstingCapture() throws {
+    let sourceID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(channelCount: 1, capacityFrameCount: 4_096)
+    let renderer = try makeRenderer(
+      nodes: [sourceNode(id: sourceID, channelCount: 1), networkSendNode(id: outputID)],
+      edges: [edge(from: sourceID, .all, to: outputID, .all)],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer],
+      outputChannelCount: 1,
+      maximumFrameCount: RoutingRealtimeDestinationDefaults.renderQuantumFrameCount
+    )
+
+    let quantumFrameCount = RoutingRealtimeDestinationDefaults.renderQuantumFrameCount
+    let burstFrameCount = 512
+    var captured: [Float] = []
+    var rendered: [Float] = []
+    for burst in 0..<8 {
+      let samples = (0..<burstFrameCount).map { Float(burst * burstFrameCount + $0 + 1) }
+      try write([samples], to: buffer)
+      captured.append(contentsOf: samples)
+      for _ in 0..<(burstFrameCount / quantumFrameCount) {
+        let quantum = render(renderer, channelCount: 1, frameCount: quantumFrameCount)
+        #expect(quantum.result == .rendered)
+        rendered.append(contentsOf: quantum.channels[0])
+      }
+    }
+
+    #expect(rendered == captured)
+  }
+
   @Test
   func fileOutputActsAsAFirstClassTerminalSink() throws {
     let sourceID = UUID()
@@ -187,24 +221,32 @@ struct RoutingPreparedAudioGraphTests {
   }
 
   @Test
-  func captureBacklogIsTrimmedToTwoPreparedRenderQuanta() throws {
+  func captureBacklogIsTrimmedToABoundedDuration() throws {
     let sourceID = UUID()
     let outputID = UUID()
-    let buffer = try makeFrameBuffer(channelCount: 1, capacityFrameCount: 128)
-    try write([Array(0..<64).map(Float.init)], to: buffer)
+    let sampleRate = 48_000.0
+    let buffer = try makeFrameBuffer(
+      channelCount: 1,
+      sampleRate: sampleRate,
+      capacityFrameCount: 65_536
+    )
+    let backlogFrameCount = 30_000
+    try write([Array(0..<backlogFrameCount).map(Float.init)], to: buffer)
     let renderer = try makeRenderer(
       nodes: [sourceNode(id: sourceID, channelCount: 1), outputNode(id: outputID)],
       edges: [edge(from: sourceID, .all, to: outputID, .all)],
       outputNodeID: outputID,
       frameBuffers: [sourceID: buffer],
       outputChannelCount: 1,
-      maximumFrameCount: 8
+      maximumFrameCount: 512
     )
 
-    let rendered = render(renderer, channelCount: 1, frameCount: 8)
+    let rendered = render(renderer, channelCount: 1, frameCount: 512)
 
-    #expect(rendered.channels[0] == Array(48..<56).map(Float.init))
-    #expect(buffer.statistics().discardedFrameCount == 48)
+    let retained = Int(sampleRate * RoutingPreparedCaptureReadPolicy.maximumBufferedDuration)
+    let discarded = backlogFrameCount - retained
+    #expect(rendered.channels[0] == Array(discarded..<(discarded + 512)).map(Float.init))
+    #expect(buffer.statistics().discardedFrameCount == UInt64(discarded))
   }
 
   @Test
@@ -811,6 +853,14 @@ struct RoutingPreparedAudioGraphTests {
     RoutingWorkspaceNode(
       id: id,
       value: .outputAudio(selection: nil, channelPresentation: .aggregate),
+      frame: .zero
+    )
+  }
+
+  private func networkSendNode(id: UUID) -> RoutingWorkspaceNode {
+    RoutingWorkspaceNode(
+      id: id,
+      value: .networkSend(configuration: .initial),
       frame: .zero
     )
   }
