@@ -232,6 +232,7 @@ private actor FakeRoutingFilePlaybackStarter: RoutingFilePlaybackStarting {
 
   func start(
     request: RoutingFilePlaybackRequest,
+    waveformUpdatesPerSecond: Int,
     eventHandler: @escaping AudioFileFrameStream.EventHandler
   ) async throws -> any RoutingFilePlaybackSession {
     startCount += 1

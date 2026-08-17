@@ -42,6 +42,7 @@ protocol RoutingFilePlaybackSession: AnyObject, Sendable {
 protocol RoutingFilePlaybackStarting: Sendable {
   func start(
     request: RoutingFilePlaybackRequest,
+    waveformUpdatesPerSecond: Int,
     eventHandler: @escaping AudioFileFrameStream.EventHandler
   ) async throws -> any RoutingFilePlaybackSession
 }
@@ -49,6 +50,7 @@ protocol RoutingFilePlaybackStarting: Sendable {
 struct SystemRoutingFilePlaybackStarter: RoutingFilePlaybackStarting {
   func start(
     request: RoutingFilePlaybackRequest,
+    waveformUpdatesPerSecond: Int,
     eventHandler: @escaping AudioFileFrameStream.EventHandler
   ) async throws -> any RoutingFilePlaybackSession {
     try await Task.detached(priority: .userInitiated) {
@@ -56,7 +58,8 @@ struct SystemRoutingFilePlaybackStarter: RoutingFilePlaybackStarting {
         url: request.url,
         configuration: AudioFileFrameStreamConfiguration(
           sampleRate: request.sampleRate,
-          loopMode: request.loopMode.filePlaybackLoopMode
+          loopMode: request.loopMode.filePlaybackLoopMode,
+          waveformUpdatesPerSecond: waveformUpdatesPerSecond
         ),
         eventHandler: eventHandler
       )
@@ -133,6 +136,12 @@ final class RoutingFilePlaybackController {
   /// Written whenever a stream has something new, because an interface redraws when observed
   /// state changes and never because a value it did not look at moved.
   private(set) var snapshots: [UUID: RoutingFilePlaybackMeterSnapshot] = [:]
+
+  /// How many times a second a playing file reports its waveform.
+  ///
+  /// Taken from the application's preferences when a file starts, so it belongs to the
+  /// application rather than to a saved workflow.
+  var waveformUpdatesPerSecond = RilliyaSettings.shared.waveformUpdatesPerSecond
 
   func snapshot(for nodeID: UUID) -> RoutingFilePlaybackMeterSnapshot? {
     snapshots[nodeID]
@@ -228,13 +237,20 @@ final class RoutingFilePlaybackController {
       states[nodeID] = .failed(failure)
     case .ready(let request):
       states[nodeID] = .preparing
+      // A preference belongs to the application, not to a node, so it is read here rather than
+      // carried in the request and written into a saved workflow.
+      let rate = waveformUpdatesPerSecond
       let eventHandler: AudioFileFrameStream.EventHandler = { [weak self] event in
         Task { @MainActor [weak self] in
           self?.receive(event, nodeID: nodeID, generation: generation)
         }
       }
       do {
-        let session = try await starter.start(request: request, eventHandler: eventHandler)
+        let session = try await starter.start(
+          request: request,
+          waveformUpdatesPerSecond: rate,
+          eventHandler: eventHandler
+        )
         guard generations[nodeID] == generation else {
           await session.stop()
           return

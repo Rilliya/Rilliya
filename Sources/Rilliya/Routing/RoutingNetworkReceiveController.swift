@@ -29,6 +29,7 @@ protocol RoutingNetworkReceiveSession: AnyObject, Sendable {
 protocol RoutingNetworkReceiveStarting: Sendable {
   func start(
     configuration: RoutingNetworkReceiveConfiguration,
+    waveformUpdatesPerSecond: Int,
     failureHandler: @escaping @Sendable (NetworkAudioReceiverError) -> Void
   ) async throws -> any RoutingNetworkReceiveSession
 }
@@ -42,6 +43,7 @@ struct SystemRoutingNetworkReceiveStarter: RoutingNetworkReceiveStarting {
 
   func start(
     configuration: RoutingNetworkReceiveConfiguration,
+    waveformUpdatesPerSecond: Int,
     failureHandler: @escaping @Sendable (NetworkAudioReceiverError) -> Void
   ) async throws -> any RoutingNetworkReceiveSession {
     try await Task.detached(priority: .userInitiated) {
@@ -62,6 +64,7 @@ struct SystemRoutingNetworkReceiveStarter: RoutingNetworkReceiveStarting {
           port: configuration.port,
           format: format,
           jitter: try configuration.jitter.resolve(),
+          waveformUpdatesPerSecond: waveformUpdatesPerSecond,
           sharedKey: sharedKey
         ),
         failureHandler: failureHandler
@@ -155,6 +158,12 @@ final class RoutingNetworkReceiveController {
   /// Written whenever a receiver has something new, because an interface redraws when observed
   /// state changes and never because a value it did not look at moved.
   private(set) var snapshots: [UUID: RoutingNetworkReceiveMeterSnapshot] = [:]
+
+  /// How many times a second a running node reports its waveform.
+  ///
+  /// Taken from the application's preferences when a node starts. Changing it takes effect the
+  /// next time one does, which is what restarting a node already does.
+  var waveformUpdatesPerSecond = RilliyaSettings.shared.waveformUpdatesPerSecond
 
   func snapshot(for nodeID: UUID) -> RoutingNetworkReceiveMeterSnapshot? {
     snapshots[nodeID]
@@ -253,6 +262,9 @@ final class RoutingNetworkReceiveController {
     generation: UInt64
   ) {
     let starter = starter
+    // Read where the start is decided: a preference belongs to the application, not to a node,
+    // so it is never written into a saved workflow.
+    let rate = waveformUpdatesPerSecond
     let failureHandler: @Sendable (NetworkAudioReceiverError) -> Void = { [weak self] error in
       Task { @MainActor [weak self] in
         self?.receiveFailure(error, configuration: configuration, generation: generation)
@@ -262,6 +274,7 @@ final class RoutingNetworkReceiveController {
       do {
         let session = try await starter.start(
           configuration: configuration,
+          waveformUpdatesPerSecond: rate,
           failureHandler: failureHandler
         )
         guard let self else {

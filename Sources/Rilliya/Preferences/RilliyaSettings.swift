@@ -1,6 +1,6 @@
 import Foundation
 import Observation
-
+import RilliyaRealtime
 enum RoutingConnectionInformationLevel: String, CaseIterable, Hashable, Sendable {
   case hidden
   case channels
@@ -101,6 +101,31 @@ final class RilliyaSettings {
     }
   }
 
+  /// How many times a second a waveform reports what it has heard.
+  ///
+  /// Thirty is what a capture device meters itself at and what a canvas can draw without waking
+  /// for nothing. Sixty and a hundred and twenty are there for a display that can show them; past
+  /// its refresh rate the extra reports are drawn over before anyone sees them.
+  ///
+  /// Only values below one are refused, because a rate of zero is not a preference. A number a
+  /// machine cannot keep up with is a choice, and one this is not entitled to overrule.
+  var waveformUpdatesPerSecond: Int {
+    didSet {
+      let bounded = max(waveformUpdatesPerSecond, Self.minimumWaveformUpdatesPerSecond)
+      if bounded != waveformUpdatesPerSecond {
+        waveformUpdatesPerSecond = bounded
+        return
+      }
+      defaults.set(waveformUpdatesPerSecond, forKey: Keys.waveformUpdatesPerSecond)
+    }
+  }
+
+  /// The rates offered without typing one.
+  static let waveformUpdatePresets = [30, 60, 120]
+
+  /// The slowest rate that still reports; below this nothing would ever be drawn.
+  static let minimumWaveformUpdatesPerSecond = 1
+
   /// Where a newly entered network audio key is put.
   ///
   /// The Keychain keeps the key out of the workflow file, at the cost of one access prompt per
@@ -152,6 +177,11 @@ final class RilliyaSettings {
     addsNodesOnPaletteClick =
       defaults.object(forKey: Keys.addsNodesOnPaletteClick) as? Bool
       ?? false
+    waveformUpdatesPerSecond = max(
+      defaults.object(forKey: Keys.waveformUpdatesPerSecond) as? Int
+        ?? AudioWaveformMeter.defaultUpdatesPerSecond,
+      Self.minimumWaveformUpdatesPerSecond
+    )
     networkAudioSecretStore =
       defaults.string(forKey: Keys.networkAudioSecretStore)
       .flatMap(RoutingNetworkAudioSecretStore.init(rawValue:))
@@ -232,5 +262,7 @@ final class RilliyaSettings {
       "moe.uwucocoa.rilliya.node-accent-overrides"
     static let networkAudioSecretStore =
       "moe.uwucocoa.rilliya.network-audio-secret-store"
+    static let waveformUpdatesPerSecond =
+      "moe.uwucocoa.rilliya.waveform-updates-per-second"
   }
 }

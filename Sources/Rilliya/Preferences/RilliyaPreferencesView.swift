@@ -267,6 +267,14 @@ private struct RilliyaCanvasPreferencesPane: View {
       }
 
       PreferencesSection(
+        "Waveform",
+        footer:
+          "How often a visualizer redraws what it is hearing. Anything past the display's refresh rate is drawn over before it is seen, and a rate a machine cannot keep up with will simply fall behind."
+      ) {
+        RilliyaWaveformRatePreferenceRows(settings: settings)
+      }
+
+      PreferencesSection(
         "Channel Splitting",
         footer:
           "Native follows the selected output device stream. A preset exposes that many leading channels without claiming they were the application's original source layout."
@@ -460,4 +468,75 @@ final class RilliyaPreferencesWindowController {
   func showPreferences() {
     presenter.show()
   }
+}
+
+/// Chooses how often a waveform reports what it has heard.
+///
+/// Three rates are offered because they are the ones displays run at. Anything else is typed,
+/// because a rate this cannot foresee is still the person's to choose: the only value refused is
+/// one below a single update a second, which would report nothing at all.
+private struct RilliyaWaveformRatePreferenceRows: View {
+  @Bindable var settings: RilliyaSettings
+  @State private var typed = ""
+
+  var body: some View {
+    PreferencesPopupRow(
+      symbol: "waveform.path",
+      title: "Updates per second",
+      caption: "Thirty matches what an audio device meters itself at.",
+      minimumControlWidth: 150,
+      selection: presetSelection,
+      options: RilliyaSettings.waveformUpdatePresets.map {
+        FlowingSelectOption(.preset($0), label: "\($0) per second")
+      } + [FlowingSelectOption(.custom, label: "Custom…")]
+    )
+
+    PreferencesDependentRows(isVisible: isCustom, showsSeparator: true) {
+      PreferencesRow(
+        icon: .system("number"),
+        title: "Custom rate",
+        caption: "Updates per second."
+      ) {
+        TextField("", text: $typed)
+          .textFieldStyle(.roundedBorder)
+          .frame(width: 90)
+          .multilineTextAlignment(.trailing)
+          .onSubmit(applyTyped)
+          .onChange(of: typed) { _, _ in applyTyped() }
+      }
+    }
+    .onAppear { typed = String(settings.waveformUpdatesPerSecond) }
+  }
+
+  private var isCustom: Bool {
+    !RilliyaSettings.waveformUpdatePresets.contains(settings.waveformUpdatesPerSecond)
+  }
+
+  private var presetSelection: Binding<WaveformRateChoice> {
+    Binding(
+      get: { isCustom ? .custom : .preset(settings.waveformUpdatesPerSecond) },
+      set: { choice in
+        switch choice {
+        case .preset(let rate):
+          settings.waveformUpdatesPerSecond = rate
+          typed = String(rate)
+        case .custom:
+          // Leaves the current rate in place until one is typed, so choosing "Custom" alone
+          // never changes what is happening.
+          typed = String(settings.waveformUpdatesPerSecond)
+        }
+      }
+    )
+  }
+
+  private func applyTyped() {
+    guard let rate = Int(typed.trimmingCharacters(in: .whitespaces)), rate >= 1 else { return }
+    settings.waveformUpdatesPerSecond = rate
+  }
+}
+
+/// Which rate a person picked, and whether they picked it from the list.
+private enum WaveformRateChoice: Hashable {
+  case preset(Int)
+  case custom
 }

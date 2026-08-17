@@ -196,6 +196,7 @@ private actor NetworkReceiveTestStarter: RoutingNetworkReceiveStarting {
 
   func start(
     configuration: RoutingNetworkReceiveConfiguration,
+    waveformUpdatesPerSecond: Int,
     failureHandler: @escaping @Sendable (NetworkAudioReceiverError) -> Void
   ) async throws -> any RoutingNetworkReceiveSession {
     startCount += 1
