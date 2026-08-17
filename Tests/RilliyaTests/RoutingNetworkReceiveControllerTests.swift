@@ -121,6 +121,9 @@ struct RoutingNetworkReceiveControllerTests {
   }
 }
 
+/// The receiver default, which is large enough for the jitter buffer ceiling.
+private let receiverCapacityFrameCount = 32_768
+
 private enum NetworkReceiveTestError: Error, LocalizedError {
   case portUnavailable
 
@@ -147,13 +150,16 @@ private actor NetworkReceiveTestStarter: RoutingNetworkReceiveStarting {
       sampleRate: configuration.sampleRate,
       channelCount: configuration.channelCount
     )
-    let frameBuffer = try AudioRealtimeFrameBuffer(
-      format: AudioProcessingFormat(
-        sampleRate: configuration.sampleRate,
-        channelCount: configuration.channelCount
+    let jitterBuffer = try AudioJitterBuffer(
+      frameBuffer: AudioRealtimeFrameBuffer(
+        format: AudioProcessingFormat(
+          sampleRate: configuration.sampleRate,
+          channelCount: configuration.channelCount
+        ),
+        capacityFrameCount: receiverCapacityFrameCount
       )
     )
-    return NetworkReceiveTestSession(format: format, frameBuffer: frameBuffer) { [self] in
+    return NetworkReceiveTestSession(format: format, jitterBuffer: jitterBuffer) { [self] in
       await recordStop()
     }
   }
@@ -165,18 +171,18 @@ private actor NetworkReceiveTestStarter: RoutingNetworkReceiveStarting {
 
 private actor NetworkReceiveTestSession: RoutingNetworkReceiveSession {
   nonisolated let format: NetworkAudioStreamFormat
-  nonisolated let frameBuffer: AudioRealtimeFrameBuffer
+  nonisolated let jitterBuffer: AudioJitterBuffer
 
   private let stopHandler: @Sendable () async -> Void
   private var didStop = false
 
   init(
     format: NetworkAudioStreamFormat,
-    frameBuffer: AudioRealtimeFrameBuffer,
+    jitterBuffer: AudioJitterBuffer,
     stopHandler: @escaping @Sendable () async -> Void
   ) {
     self.format = format
-    self.frameBuffer = frameBuffer
+    self.jitterBuffer = jitterBuffer
     self.stopHandler = stopHandler
   }
 

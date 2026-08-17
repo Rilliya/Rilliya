@@ -409,9 +409,7 @@ final class RoutingNetworkSendController {
               failure = sourceFailure
             }
           case .networkReceive:
-            source = networkReceiveController.frameBuffer(for: node.id).map {
-              .frameBuffer($0)
-            }
+            source = networkReceiveController.captureSource(for: node.id)
             if case .failed(let sourceFailure) = networkReceiveController.state(for: node.id) {
               failure = sourceFailure
             }

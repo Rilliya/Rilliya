@@ -19,11 +19,13 @@ enum RoutingCaptureCapacity {
 enum RoutingRealtimeCaptureSource: @unchecked Sendable {
   case frameBuffer(AudioRealtimeFrameBuffer)
   case subscription(AudioRealtimeFrameSubscription)
+  case jitterBuffer(AudioJitterBuffer)
 
   var format: AudioProcessingFormat {
     switch self {
     case .frameBuffer(let frameBuffer): frameBuffer.format
     case .subscription(let subscription): subscription.format
+    case .jitterBuffer(let jitterBuffer): jitterBuffer.frameBuffer.format
     }
   }
 
@@ -31,6 +33,7 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
     switch self {
     case .frameBuffer(let frameBuffer): frameBuffer.capacityFrameCount
     case .subscription(let subscription): subscription.capacityFrameCount
+    case .jitterBuffer(let jitterBuffer): jitterBuffer.frameBuffer.capacityFrameCount
     }
   }
 
@@ -38,12 +41,13 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
     switch self {
     case .frameBuffer(let frameBuffer): ObjectIdentifier(frameBuffer)
     case .subscription(let subscription): ObjectIdentifier(subscription)
+    case .jitterBuffer(let jitterBuffer): ObjectIdentifier(jitterBuffer.frameBuffer)
     }
   }
 
   var isActive: Bool {
     switch self {
-    case .frameBuffer:
+    case .frameBuffer, .jitterBuffer:
       true
     case .subscription(let subscription):
       subscription.statistics().isActive
@@ -57,6 +61,9 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
       frameBuffer.discardOldestFrames(keepingLatest: retainedFrameCount)
     case .subscription(let subscription):
       subscription.discardOldestFrames(keepingLatest: retainedFrameCount)
+    case .jitterBuffer:
+      // The jitter buffer holds a measured target; a second bound here would fight it.
+      0
     }
   }
 
@@ -81,6 +88,12 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
           outputChannels[channel].update(repeating: 0, count: max(frameCount, 0))
         }
         return .rendered
+      case .invalidFrameCount: return .invalidFrameCount
+      case .insufficientChannels: return .insufficientChannels
+      }
+    case .jitterBuffer(let jitterBuffer):
+      switch jitterBuffer.read(into: outputChannels, frameCount: frameCount) {
+      case .read: return .rendered
       case .invalidFrameCount: return .invalidFrameCount
       case .insufficientChannels: return .insufficientChannels
       }

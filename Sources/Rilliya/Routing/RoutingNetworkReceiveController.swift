@@ -12,7 +12,7 @@ enum RoutingNetworkReceiveState: Equatable {
 
 protocol RoutingNetworkReceiveSession: AnyObject, Sendable {
   var format: NetworkAudioStreamFormat { get }
-  var frameBuffer: AudioRealtimeFrameBuffer { get }
+  var jitterBuffer: AudioJitterBuffer { get }
 
   func stop() async
 }
@@ -56,14 +56,14 @@ private final class SystemRoutingNetworkReceiveSession: RoutingNetworkReceiveSes
   @unchecked Sendable
 {
   let format: NetworkAudioStreamFormat
-  let frameBuffer: AudioRealtimeFrameBuffer
+  let jitterBuffer: AudioJitterBuffer
 
   private let receiver: NetworkAudioReceiver
 
   init(receiver: NetworkAudioReceiver, format: NetworkAudioStreamFormat) {
     self.receiver = receiver
     self.format = format
-    frameBuffer = receiver.frameBuffer
+    jitterBuffer = receiver.jitterBuffer
   }
 
   func stop() async {
@@ -104,12 +104,17 @@ final class RoutingNetworkReceiveController {
     states[nodeID] ?? .idle
   }
 
-  func frameBuffer(for nodeID: UUID) -> AudioRealtimeFrameBuffer? {
+  func captureSource(for nodeID: UUID) -> RoutingRealtimeCaptureSource? {
     guard let configuration = configurationsByNode[nodeID],
       let source = sources[configuration],
       case .running(let session) = source.phase
     else { return nil }
-    return session.frameBuffer
+    return .jitterBuffer(session.jitterBuffer)
+  }
+
+  func frameBuffer(for nodeID: UUID) -> AudioRealtimeFrameBuffer? {
+    guard case .jitterBuffer(let jitterBuffer) = captureSource(for: nodeID) else { return nil }
+    return jitterBuffer.frameBuffer
   }
 
   func reconcile(requirements: [UUID: RoutingNetworkReceiveConfiguration]) {
