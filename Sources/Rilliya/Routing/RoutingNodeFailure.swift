@@ -65,7 +65,8 @@ enum RoutingNodeFailureSummary {
     switch error {
     case .invalidHost: "Invalid host"
     case .invalidPort: "Invalid port"
-    case .invalidDatagramBound, .invalidBufferCapacity: "Invalid settings"
+    case .invalidDatagramBound, .invalidBufferCapacity, .invalidPacketFrameCount:
+      "Invalid settings"
     case .alreadyStopped: nil
     case .transport(let failure): summary(for: failure)
     case .packet: "Malformed packet"

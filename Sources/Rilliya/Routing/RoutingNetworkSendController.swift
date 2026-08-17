@@ -44,7 +44,8 @@ struct SystemRoutingNetworkSendStarter: RoutingNetworkSendStarting {
         configuration: NetworkAudioSenderConfiguration(
           host: configuration.host,
           port: configuration.port,
-          format: format
+          format: format,
+          framesPerPacket: RoutingRealtimeDestinationDefaults.renderQuantumFrameCount
         )
       ) { error in
         failureHandler(error.localizedDescription)
