@@ -198,7 +198,7 @@ struct RoutingAudioSignalResolver {
       }
       return resolveOutput(edge.source, visited: visited)
     case .some(.all):
-      switch configuration.mode {
+      switch configuration.outputMode {
       case .mixed:
         guard
           let edge = incomingEdges.first(where: {

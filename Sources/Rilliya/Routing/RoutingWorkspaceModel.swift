@@ -760,8 +760,8 @@ final class RoutingWorkspaceModel {
     }
     nodes[index].value = .visualizer(configuration: normalized)
 
-    if previous.mode != normalized.mode {
-      switch normalized.mode {
+    if previous.inputMode != normalized.inputMode {
+      switch normalized.inputMode {
       case .mixed:
         pendingSeparateSourcesByVisualizer[nodeID] = nil
         retargetIncomingEdgesToMixedInput(nodeID: nodeID)
@@ -773,7 +773,7 @@ final class RoutingWorkspaceModel {
           _ = materializePendingSeparation(for: nodeID)
         }
       }
-    } else if normalized.mode == .separate,
+    } else if normalized.inputMode == .separate,
       previous.channelSelection != normalized.channelSelection
     {
       let sourceIDs = Set(incomingEdges(for: nodeID).map(\.source.nodeID))
@@ -1076,7 +1076,7 @@ final class RoutingWorkspaceModel {
 
     let separateVisualizerIDs = nodes.compactMap { node -> UUID? in
       guard case .visualizer(let configuration) = node.value,
-        configuration.mode == .separate
+        configuration.inputMode == .separate
       else { return nil }
       return node.id
     }
@@ -1720,7 +1720,7 @@ final class RoutingWorkspaceModel {
       return false
     }
 
-    configuration.mode = .separate
+    configuration.inputMode = .separate
     configuration.availableChannelCount = maximumChannelCount
     nodes[visualizerIndex].value = .visualizer(configuration: configuration)
     resizeNode(at: visualizerIndex)

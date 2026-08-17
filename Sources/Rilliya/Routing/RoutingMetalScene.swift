@@ -191,7 +191,7 @@ struct RoutingMetalScene {
       case .virtualInput(let selection, _):
         return selection?.displayName ?? "Choose a virtual input"
       case .visualizer(let configuration):
-        if configuration.mode == .mixed { return "Mixed waveform" }
+        if configuration.displayMode == .mixed { return "Mixed waveform" }
         let count = configuration.normalizedSelectedChannels.count
         return "\(count) selected channel\(count == 1 ? "" : "s")"
       case .audioMixer(let configuration):

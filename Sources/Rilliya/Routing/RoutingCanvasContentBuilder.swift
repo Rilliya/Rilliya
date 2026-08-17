@@ -394,7 +394,7 @@ enum RoutingCanvasContentBuilder {
       hint = "Choose a shared virtual input that will receive routed audio."
     case .visualizer(let configuration):
       value =
-        configuration.mode == .mixed
+        configuration.displayMode == .mixed
         ? "Mixed waveform"
         : "\(configuration.normalizedSelectedChannels.count) selected channels"
       hint = "Select to configure the routed channels shown by this visualizer."

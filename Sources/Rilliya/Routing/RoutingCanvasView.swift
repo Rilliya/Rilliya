@@ -2398,7 +2398,7 @@ private struct VisualizerNodeView: View {
           Text("Visualizer")
             .font(.callout.weight(.semibold))
             .foregroundStyle(FlowingPalette.ink)
-          Text(configuration.mode == .mixed ? "Mixed waveform" : channelSummary)
+          Text(configuration.displayMode == .mixed ? "Mixed waveform" : channelSummary)
             .font(.caption)
             .foregroundStyle(FlowingPalette.muted)
         }
@@ -6974,15 +6974,33 @@ private struct SelectedVisualizerInspector: View {
       .frame(maxWidth: .infinity, alignment: .leading)
 
       FlowingSegmentedControl(
+        label: "Input",
+        selection: inputMode,
+        options: [
+          FlowingSegmentOption(.mixed, label: "One cable"),
+          FlowingSegmentOption(.separate, label: "Per channel"),
+        ]
+      )
+
+      FlowingSegmentedControl(
         label: "Waveform presentation",
-        selection: mode,
+        selection: displayMode,
         options: [
           FlowingSegmentOption(.mixed, label: "Mixed"),
           FlowingSegmentOption(.separate, label: "Separate"),
         ]
       )
 
-      if configuration.mode == .separate {
+      FlowingSegmentedControl(
+        label: "Output",
+        selection: outputMode,
+        options: [
+          FlowingSegmentOption(.mixed, label: "One cable"),
+          FlowingSegmentOption(.separate, label: "Per channel"),
+        ]
+      )
+
+      if configuration.usesChannelSelection {
         VStack(alignment: .leading, spacing: 9) {
           Text("Channel Set")
             .font(.caption.weight(.semibold))
@@ -7042,12 +7060,27 @@ private struct SelectedVisualizerInspector: View {
     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
   }
 
-  private var mode: Binding<RoutingVisualizerMode> {
+  private var inputMode: Binding<RoutingVisualizerMode> {
+    mode(\.inputMode)
+  }
+
+  private var displayMode: Binding<RoutingVisualizerMode> {
+    mode(\.displayMode)
+  }
+
+  private var outputMode: Binding<RoutingVisualizerMode> {
+    mode(\.outputMode)
+  }
+
+  /// The three choices are the same control over different fields, so they share one binding.
+  private func mode(
+    _ keyPath: WritableKeyPath<RoutingVisualizerConfiguration, RoutingVisualizerMode>
+  ) -> Binding<RoutingVisualizerMode> {
     Binding(
-      get: { configuration.mode },
+      get: { configuration[keyPath: keyPath] },
       set: { newMode in
         var updated = configuration
-        updated.mode = newMode
+        updated[keyPath: keyPath] = newMode
         updateConfiguration(updated)
       }
     )

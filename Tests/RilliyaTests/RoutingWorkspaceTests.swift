@@ -1118,7 +1118,7 @@ struct RoutingWorkspaceTests {
       sourceID: try captureFormat(channelCount: 2)
     ])
     var configuration = RoutingVisualizerConfiguration.initial
-    configuration.mode = .separate
+    configuration.inputMode = .separate
 
     model.configureVisualizer(configuration, for: visualizerID)
 
@@ -1145,7 +1145,7 @@ struct RoutingWorkspaceTests {
       preferredSeparateChannelCount: 2
     )
     var configuration = RoutingVisualizerConfiguration.initial
-    configuration.mode = .separate
+    configuration.inputMode = .separate
 
     model.configureVisualizer(configuration, for: visualizerID)
 
@@ -1159,7 +1159,11 @@ struct RoutingWorkspaceTests {
       model.node(id: visualizerID)?.value
         == .visualizer(
           configuration: RoutingVisualizerConfiguration(
-            mode: .separate,
+            // Asking for the input to be wired apart says nothing about how the node draws or
+            // what it hands on, so those two stay where they were.
+            inputMode: .separate,
+            displayMode: .mixed,
+            outputMode: .mixed,
             availableChannelCount: 2,
             channelSelection: .preset(.stereo)
           )
@@ -1178,7 +1182,7 @@ struct RoutingWorkspaceTests {
       preferredSeparateChannelCount: 2
     )
     var configuration = RoutingVisualizerConfiguration.initial
-    configuration.mode = .separate
+    configuration.inputMode = .separate
     model.configureVisualizer(configuration, for: visualizerID)
 
     configuration = try #require(model.node(id: visualizerID)?.value.visualizerConfiguration)
@@ -1200,7 +1204,7 @@ struct RoutingWorkspaceTests {
     let visualizerID = model.addVisualizerNode(centeredAt: CGPoint(x: 400, y: 0))
     try connectAggregate(sourceID: sourceID, targetID: visualizerID, model: model)
     var configuration = RoutingVisualizerConfiguration.initial
-    configuration.mode = .separate
+    configuration.inputMode = .separate
 
     model.configureVisualizer(configuration, for: visualizerID)
 
@@ -1225,7 +1229,7 @@ struct RoutingWorkspaceTests {
       sourceID: try captureFormat(channelCount: 48)
     ])
     var configuration = RoutingVisualizerConfiguration.initial
-    configuration.mode = .separate
+    configuration.inputMode = .separate
 
     model.configureVisualizer(configuration, for: visualizerID)
 

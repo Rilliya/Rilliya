@@ -39,7 +39,9 @@ enum RoutingVisualizerSignalBuilder {
     resolvedSignalsForSource: (RoutingWorkspacePortAddress) -> [RoutingResolvedAudioChannelSignal]
   ) -> RoutingVisualizerSignal? {
     build(configuration: configuration, incomingEdges: incomingEdges) { edge in
-      resolvedSignalsForSource(edge.source).map(\.waveform)
+      resolvedSignalsForSource(edge.source).map {
+        RoutedChannel(channel: $0.channelIndex, waveform: $0.waveform)
+      }
     }
   }
 
@@ -58,36 +60,49 @@ enum RoutingVisualizerSignalBuilder {
     }
   }
 
+  /// One channel of audio arriving on a connection, and which channel it is.
+  ///
+  /// The channel travels with the samples because a single connection carries every channel of
+  /// its source. Drawing them apart from one connection is only possible while that is known.
+  private struct RoutedChannel {
+    let channel: Int
+    let waveform: [Float]
+  }
+
   private static func build(
     configuration: RoutingVisualizerConfiguration,
     incomingEdges: [RoutingWorkspaceEdge],
-    routedWaveforms: (RoutingWorkspaceEdge) -> [[Float]]
+    routedChannels: (RoutingWorkspaceEdge) -> [RoutedChannel]
   ) -> RoutingVisualizerSignal? {
-    switch configuration.mode {
+    switch configuration.displayMode {
     case .mixed:
-      let waveforms = incomingEdges.flatMap(routedWaveforms)
+      let waveforms = incomingEdges.flatMap { routedChannels($0).map(\.waveform) }
       guard let mixed = mix(waveforms) else { return nil }
       return RoutingVisualizerSignal(
         lanes: [RoutingVisualizerLaneSignal(id: .mixed, samples: mixed)]
       )
     case .separate:
       let selectedChannels = configuration.normalizedSelectedChannels
-      var routedByTarget = Dictionary(
+      var routedByLane = Dictionary(
         uniqueKeysWithValues: selectedChannels.map { ($0, [[Float]]()) })
       for edge in incomingEdges {
-        guard case .some(.channel(let targetChannel)) = edge.target.portID.audioChannel,
-          routedByTarget[targetChannel] != nil
-        else {
-          continue
+        // A connection made to one channel's port carries that channel, whatever the source calls
+        // it. One carrying every channel keeps each where it belongs — which is what lets a node
+        // fed by a single cable still be drawn channel by channel.
+        var targetChannel: Int?
+        if case .some(.channel(let channelIndex)) = edge.target.portID.audioChannel {
+          targetChannel = channelIndex
         }
-        routedByTarget[targetChannel]?.append(
-          contentsOf: routedWaveforms(edge)
-        )
+        for routed in routedChannels(edge) {
+          let lane = targetChannel ?? routed.channel
+          guard routedByLane[lane] != nil else { continue }
+          routedByLane[lane]?.append(routed.waveform)
+        }
       }
       let lanes = selectedChannels.map { channel in
         RoutingVisualizerLaneSignal(
           id: .channel(channel),
-          samples: mix(routedByTarget[channel] ?? []) ?? []
+          samples: mix(routedByLane[channel] ?? []) ?? []
         )
       }
       guard lanes.contains(where: { !$0.samples.isEmpty }) else { return nil }
@@ -99,23 +114,30 @@ enum RoutingVisualizerSignalBuilder {
     for edge: RoutingWorkspaceEdge,
     snapshotForNode: (UUID) -> (any RoutingAudioMeterSnapshot)?,
     channelControl: (UUID, Int) -> RoutingAudioChannelControl
-  ) -> [[Float]] {
+  ) -> [RoutedChannel] {
     guard let snapshot = snapshotForNode(edge.source.nodeID) else { return [] }
     switch edge.source.portID.audioChannel {
     case .some(.all):
       return snapshot.channels.map { channel in
-        scaled(
-          channel.waveform,
-          by: channelControl(edge.source.nodeID, channel.channelID.index.rawValue).linearGain
+        let index = channel.channelID.index.rawValue
+        return RoutedChannel(
+          channel: index,
+          waveform: scaled(
+            channel.waveform,
+            by: channelControl(edge.source.nodeID, index).linearGain
+          )
         )
       }
     case .some(.channel(let channelIndex)):
       return snapshot.channels
         .filter { $0.channelID.index.rawValue == channelIndex }
         .map {
-          scaled(
-            $0.waveform,
-            by: channelControl(edge.source.nodeID, channelIndex).linearGain
+          RoutedChannel(
+            channel: channelIndex,
+            waveform: scaled(
+              $0.waveform,
+              by: channelControl(edge.source.nodeID, channelIndex).linearGain
+            )
           )
         }
     case .none:

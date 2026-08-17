@@ -720,7 +720,7 @@ private struct RoutingPreparedAudioGraphCompiler {
       throw RoutingPreparedAudioGraphError.invalidRoute
     }
     let incoming = sortedIncomingEdges(for: nodeID)
-    switch (configuration.mode, outputChannel) {
+    switch (configuration.outputMode, outputChannel) {
     case (.mixed, .all):
       guard let edge = incoming.first(where: { $0.target.portID.audioChannel == .all }) else {
         return []

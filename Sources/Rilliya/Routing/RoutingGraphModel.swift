@@ -1119,28 +1119,64 @@ struct RoutingVisualizerConfiguration: Codable, Equatable, Sendable {
   static let maximumAvailableChannelCount = 256
   static let maximumSeparateLaneCount = 8
 
-  var mode: RoutingVisualizerMode
+  /// How audio reaches the node: one connection carrying every channel, or one per channel.
+  var inputMode: RoutingVisualizerMode
+
+  /// How it is drawn: one waveform for everything, or one per channel.
+  ///
+  /// Independent of ``inputMode``. A single connection already carries every channel, so drawing
+  /// them apart never required wiring them apart — and requiring it was tedious for no reason.
+  var displayMode: RoutingVisualizerMode
+
+  /// What it passes on: one connection carrying every channel, or one per channel.
+  var outputMode: RoutingVisualizerMode
+
   var availableChannelCount: Int
   var channelSelection: RoutingVisualizerChannelSelection
+
+  /// Whether a node passing channels on separately also offers the mix of them.
   var includesMixedOutput: Bool
 
   static let initial = RoutingVisualizerConfiguration(
-    mode: .mixed,
+    inputMode: .mixed,
+    displayMode: .mixed,
+    outputMode: .mixed,
     availableChannelCount: 2,
     channelSelection: .preset(.stereo),
     includesMixedOutput: false
   )
 
   init(
+    inputMode: RoutingVisualizerMode,
+    displayMode: RoutingVisualizerMode,
+    outputMode: RoutingVisualizerMode,
+    availableChannelCount: Int,
+    channelSelection: RoutingVisualizerChannelSelection,
+    includesMixedOutput: Bool = false
+  ) {
+    self.inputMode = inputMode
+    self.displayMode = displayMode
+    self.outputMode = outputMode
+    self.availableChannelCount = availableChannelCount
+    self.channelSelection = channelSelection
+    self.includesMixedOutput = includesMixedOutput
+  }
+
+  /// Creates a node whose three choices are the same, which is what one control used to set.
+  init(
     mode: RoutingVisualizerMode,
     availableChannelCount: Int,
     channelSelection: RoutingVisualizerChannelSelection,
     includesMixedOutput: Bool = false
   ) {
-    self.mode = mode
-    self.availableChannelCount = availableChannelCount
-    self.channelSelection = channelSelection
-    self.includesMixedOutput = includesMixedOutput
+    self.init(
+      inputMode: mode,
+      displayMode: mode,
+      outputMode: mode,
+      availableChannelCount: availableChannelCount,
+      channelSelection: channelSelection,
+      includesMixedOutput: includesMixedOutput
+    )
   }
 
   init(
@@ -1155,6 +1191,14 @@ struct RoutingVisualizerConfiguration: Codable, Equatable, Sendable {
       channelSelection: .custom(selectedChannels),
       includesMixedOutput: includesMixedOutput
     )
+  }
+
+  /// Whether any of the three choices needs a set of channels named.
+  ///
+  /// Drawing them apart needs it as much as wiring them apart does, so the control appears for
+  /// either rather than only for the one that used to imply both.
+  var usesChannelSelection: Bool {
+    inputMode == .separate || displayMode == .separate || outputMode == .separate
   }
 
   var selectedChannels: Set<Int> {
@@ -1177,6 +1221,9 @@ struct RoutingVisualizerConfiguration: Codable, Equatable, Sendable {
 
   private enum CodingKeys: String, CodingKey {
     case mode
+    case inputMode
+    case displayMode
+    case outputMode
     case availableChannelCount
     case channelSelection
     case includesMixedOutput
@@ -1184,8 +1231,16 @@ struct RoutingVisualizerConfiguration: Codable, Equatable, Sendable {
 
   init(from decoder: Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
+    // A document written when one control set all three carries only `mode`, so that is what the
+    // three fall back to.
+    let single = try container.decodeIfPresent(RoutingVisualizerMode.self, forKey: .mode) ?? .mixed
     self.init(
-      mode: try container.decode(RoutingVisualizerMode.self, forKey: .mode),
+      inputMode: try container.decodeIfPresent(
+        RoutingVisualizerMode.self, forKey: .inputMode) ?? single,
+      displayMode: try container.decodeIfPresent(
+        RoutingVisualizerMode.self, forKey: .displayMode) ?? single,
+      outputMode: try container.decodeIfPresent(
+        RoutingVisualizerMode.self, forKey: .outputMode) ?? single,
       availableChannelCount: try container.decode(Int.self, forKey: .availableChannelCount),
       channelSelection: try container.decode(
         RoutingVisualizerChannelSelection.self,
@@ -1200,7 +1255,9 @@ struct RoutingVisualizerConfiguration: Codable, Equatable, Sendable {
 
   func encode(to encoder: Encoder) throws {
     var container = encoder.container(keyedBy: CodingKeys.self)
-    try container.encode(mode, forKey: .mode)
+    try container.encode(inputMode, forKey: .inputMode)
+    try container.encode(displayMode, forKey: .displayMode)
+    try container.encode(outputMode, forKey: .outputMode)
     try container.encode(availableChannelCount, forKey: .availableChannelCount)
     try container.encode(channelSelection, forKey: .channelSelection)
     try container.encode(includesMixedOutput, forKey: .includesMixedOutput)
@@ -1724,13 +1781,13 @@ enum RoutingVisualizerLayout {
     + bottomInset
 
   static func laneCount(for configuration: RoutingVisualizerConfiguration) -> Int {
-    configuration.mode == .mixed
+    configuration.displayMode == .mixed
       ? 1
       : max(configuration.normalizedSelectedChannels.count, 1)
   }
 
   static func laneHeight(for configuration: RoutingVisualizerConfiguration) -> CGFloat {
-    configuration.mode == .mixed ? singleLaneHeight : separateLaneHeight
+    configuration.displayMode == .mixed ? singleLaneHeight : separateLaneHeight
   }
 
   static func waveformContentHeight(
@@ -1743,7 +1800,7 @@ enum RoutingVisualizerLayout {
 
   static func nodeHeight(for configuration: RoutingVisualizerConfiguration) -> CGFloat {
     let mixedOutputExtraHeight =
-      configuration.mode == .separate && configuration.includesMixedOutput
+      configuration.outputMode == .separate && configuration.includesMixedOutput
       ? mixedOutputSpacing + mixedOutputHeight
       : 0
     return min(
@@ -1787,7 +1844,7 @@ enum RoutingVisualizerLayout {
     in nodeFrame: CGRect,
     configuration: RoutingVisualizerConfiguration
   ) -> CGFloat? {
-    guard configuration.mode == .separate, configuration.includesMixedOutput else {
+    guard configuration.outputMode == .separate, configuration.includesMixedOutput else {
       return nil
     }
     return nodeFrame.minY + waveformTop + waveformContentHeight(for: configuration)
@@ -1962,10 +2019,20 @@ enum RoutingGraphPorts {
     }
   }
 
+  /// The ports a visualizer offers.
+  ///
+  /// Its input and its output are decided apart from each other, because they answer different
+  /// questions: how audio reaches the node, and what it hands on. Neither decides how it is drawn.
   private static func visualizerValues(
     for configuration: RoutingVisualizerConfiguration
   ) -> [RoutingGraphPortValue] {
-    switch configuration.mode {
+    visualizerInputs(for: configuration) + visualizerOutputs(for: configuration)
+  }
+
+  private static func visualizerInputs(
+    for configuration: RoutingVisualizerConfiguration
+  ) -> [RoutingGraphPortValue] {
+    switch configuration.inputMode {
     case .mixed:
       return [
         RoutingGraphPortValue(
@@ -1974,19 +2041,11 @@ enum RoutingGraphPorts {
           connectionPolicy: .singleInput,
           ordinal: 0,
           total: 1
-        ),
-        RoutingGraphPortValue(
-          direction: .output,
-          channel: .all,
-          name: "Pass-through",
-          connectionPolicy: .fanOut,
-          ordinal: 0,
-          total: 1
-        ),
+        )
       ]
     case .separate:
       let channels = configuration.normalizedSelectedChannels
-      let inputs = channels.enumerated().map { ordinal, channel in
+      return channels.enumerated().map { ordinal, channel in
         RoutingGraphPortValue(
           direction: .input,
           channel: .channel(channel),
@@ -1995,6 +2054,26 @@ enum RoutingGraphPorts {
           total: channels.count
         )
       }
+    }
+  }
+
+  private static func visualizerOutputs(
+    for configuration: RoutingVisualizerConfiguration
+  ) -> [RoutingGraphPortValue] {
+    switch configuration.outputMode {
+    case .mixed:
+      return [
+        RoutingGraphPortValue(
+          direction: .output,
+          channel: .all,
+          name: "Pass-through",
+          connectionPolicy: .fanOut,
+          ordinal: 0,
+          total: 1
+        )
+      ]
+    case .separate:
+      let channels = configuration.normalizedSelectedChannels
       let outputCount = channels.count + (configuration.includesMixedOutput ? 1 : 0)
       let outputs = channels.enumerated().map { ordinal, channel in
         RoutingGraphPortValue(
@@ -2005,8 +2084,8 @@ enum RoutingGraphPorts {
           total: outputCount
         )
       }
-      guard configuration.includesMixedOutput else { return inputs + outputs }
-      return inputs + outputs + [
+      guard configuration.includesMixedOutput else { return outputs }
+      return outputs + [
         RoutingGraphPortValue(
           direction: .output,
           channel: .all,
