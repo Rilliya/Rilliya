@@ -172,6 +172,8 @@ private actor NetworkReceiveTestStarter: RoutingNetworkReceiveStarting {
 private actor NetworkReceiveTestSession: RoutingNetworkReceiveSession {
   nonisolated let format: NetworkAudioStreamFormat
   nonisolated let jitterBuffer: AudioJitterBuffer
+  /// What a fake stream sounds like, which the tests here do not exercise.
+  nonisolated let meterChannels: [AudioChannelMeterSnapshot]
 
   private let stopHandler: @Sendable () async -> Void
   private var didStop = false
@@ -179,12 +181,16 @@ private actor NetworkReceiveTestSession: RoutingNetworkReceiveSession {
   init(
     format: NetworkAudioStreamFormat,
     jitterBuffer: AudioJitterBuffer,
+    meterChannels: [AudioChannelMeterSnapshot] = [],
     stopHandler: @escaping @Sendable () async -> Void
   ) {
     self.format = format
     self.jitterBuffer = jitterBuffer
+    self.meterChannels = meterChannels
     self.stopHandler = stopHandler
   }
+
+  nonisolated func meterSnapshot() -> [AudioChannelMeterSnapshot] { meterChannels }
 
   func stop() async {
     guard !didStop else { return }

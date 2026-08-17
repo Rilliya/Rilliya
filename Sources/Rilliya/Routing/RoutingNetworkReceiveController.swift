@@ -14,6 +14,12 @@ protocol RoutingNetworkReceiveSession: AnyObject, Sendable {
   var format: NetworkAudioStreamFormat { get }
   var jitterBuffer: AudioJitterBuffer { get }
 
+  /// What the stream currently sounds like, per channel.
+  ///
+  /// Reading the queue would take the audio away from whatever is playing it, so what is drawn
+  /// comes from the receiver's own meter instead.
+  func meterSnapshot() -> [AudioChannelMeterSnapshot]
+
   func stop() async
 }
 
@@ -82,6 +88,10 @@ private final class SystemRoutingNetworkReceiveSession: RoutingNetworkReceiveSes
     jitterBuffer = receiver.jitterBuffer
   }
 
+  func meterSnapshot() -> [AudioChannelMeterSnapshot] {
+    receiver.meterSnapshot()
+  }
+
   func stop() async {
     receiver.stop()
   }
@@ -131,6 +141,15 @@ final class RoutingNetworkReceiveController {
   func frameBuffer(for nodeID: UUID) -> AudioRealtimeFrameBuffer? {
     guard case .jitterBuffer(let jitterBuffer) = captureSource(for: nodeID) else { return nil }
     return jitterBuffer.frameBuffer
+  }
+
+  func snapshot(for nodeID: UUID) -> RoutingNetworkReceiveMeterSnapshot? {
+    guard let configuration = configurationsByNode[nodeID],
+      let source = sources[configuration],
+      case .running(let session) = source.phase
+    else { return nil }
+    let channels = session.meterSnapshot()
+    return channels.isEmpty ? nil : RoutingNetworkReceiveMeterSnapshot(channels: channels)
   }
 
   func reconcile(requirements: [UUID: RoutingNetworkReceiveConfiguration]) {
@@ -353,4 +372,9 @@ enum RoutingNetworkReceiveRequirementResolver {
     }
     return result
   }
+}
+
+/// What a receive node currently sounds like, in the shape everything that draws audio reads.
+struct RoutingNetworkReceiveMeterSnapshot: RoutingAudioMeterSnapshot {
+  let channels: [AudioChannelMeterSnapshot]
 }

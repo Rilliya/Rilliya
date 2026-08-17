@@ -148,7 +148,6 @@ struct RoutingNetworkWireLoopbackTests {
     func run(seconds: Double) async throws -> Float {
       if ownsListener { try receiver.start() }
       try sender.start()
-      defer { Task { await sender.stop() } }
 
       let quantum = Fixture.renderQuantum
       let cycles = Int(seconds * Fixture.sampleRate) / quantum
@@ -156,7 +155,17 @@ struct RoutingNetworkWireLoopbackTests {
         Int64(Double(quantum) / Fixture.sampleRate * 1_000_000_000))
       var left = [Float](repeating: 0, count: quantum)
       var right = [Float](repeating: 0, count: quantum)
-      var read = [Float](repeating: 0, count: quantum * Fixture.channelCount)
+      // The jitter buffer reads planar, one pointer per channel.
+      let readChannels = (0..<Fixture.channelCount).map { _ in
+        UnsafeMutablePointer<Float>.allocate(capacity: quantum)
+      }
+      for channel in readChannels { channel.initialize(repeating: 0, count: quantum) }
+      defer {
+        for channel in readChannels {
+          channel.deinitialize(count: quantum)
+          channel.deallocate()
+        }
+      }
       var energy = 0.0
       var counted = 0
       let clock = ContinuousClock()
@@ -181,18 +190,23 @@ struct RoutingNetworkWireLoopbackTests {
             }
           }
         }
-        read.withUnsafeBufferPointer {
+        readChannels.withUnsafeBufferPointer {
           _ = receiver.jitterBuffer.read(into: $0, frameCount: quantum)
         }
         if cycle >= settled {
-          for sample in read { energy += Double(sample) * Double(sample) }
-          counted += read.count
+          for channel in readChannels {
+            for frame in 0..<quantum {
+              energy += Double(channel[frame]) * Double(channel[frame])
+            }
+          }
+          counted += quantum * Fixture.channelCount
         }
         deadline += period
         if deadline < clock.now { deadline = clock.now }
         try? await clock.sleep(until: deadline)
       }
 
+      await sender.stop()
       guard counted > 0 else { return 0 }
       return Float((energy / Double(counted)).squareRoot())
     }

@@ -1,5 +1,6 @@
 import Foundation
 import RilliyaCapture
+import RilliyaRealtime
 
 struct RoutingResolvedAudioChannelSignal: Equatable, Sendable {
   let channelIndex: Int
@@ -78,7 +79,11 @@ struct RoutingAudioSignalResolver {
         return []
       }
       return resolveOutput(edge.source, visited: visited)
-    case .peakLevel, .signalGenerator, .filePlayback, .networkReceive:
+    case .networkReceive:
+      // A stream meters itself, so it draws like any other source. The kinds below still have no
+      // meter of their own, which is why they resolve to nothing rather than to silence.
+      return sourceSignals(for: address, node: node)
+    case .peakLevel, .signalGenerator, .filePlayback:
       return []
     }
   }
