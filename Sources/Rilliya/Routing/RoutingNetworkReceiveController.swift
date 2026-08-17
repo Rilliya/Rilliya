@@ -25,21 +25,35 @@ protocol RoutingNetworkReceiveStarting: Sendable {
 }
 
 struct SystemRoutingNetworkReceiveStarter: RoutingNetworkReceiveStarting {
+  /// How long a node adopting the sender's format waits before saying nothing arrived.
+  ///
+  /// Waiting without end would leave the start in flight for as long as the node exists, so the
+  /// node reports it instead and the user retries once the other machine is sending.
+  static let formatDiscoveryTimeout = Duration.seconds(60)
+
   func start(
     configuration: RoutingNetworkReceiveConfiguration,
     failureHandler: @escaping @Sendable (NetworkAudioReceiverError) -> Void
   ) async throws -> any RoutingNetworkReceiveSession {
     try await Task.detached(priority: .userInitiated) {
-      let format = try NetworkAudioStreamFormat(
-        sampleRate: configuration.sampleRate,
-        channelCount: configuration.channelCount
-      )
+      let sharedKey = try configuration.secret?.resolve()
+      let format =
+        configuration.adoptsSenderFormat
+        ? try await NetworkAudioFormatDiscovery.discover(
+          port: configuration.port,
+          sharedKey: sharedKey,
+          timeout: SystemRoutingNetworkReceiveStarter.formatDiscoveryTimeout
+        )
+        : try NetworkAudioStreamFormat(
+          sampleRate: configuration.sampleRate,
+          channelCount: configuration.channelCount
+        )
       let receiver = try NetworkAudioReceiver(
         configuration: NetworkAudioReceiverConfiguration(
           port: configuration.port,
           format: format,
           jitter: try configuration.jitter.resolve(),
-          sharedKey: try configuration.secret?.resolve()
+          sharedKey: sharedKey
         ),
         failureHandler: failureHandler
       )

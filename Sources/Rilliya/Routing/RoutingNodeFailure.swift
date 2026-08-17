@@ -40,6 +40,7 @@ enum RoutingNodeFailureSummary {
     case let error as RoutingPreparedAudioGraphError: summary(for: error)
     case let error as NetworkAudioSenderError: summary(for: error)
     case let error as NetworkAudioReceiverError: summary(for: error)
+    case let error as NetworkAudioFormatDiscoveryError: summary(for: error)
     case let error as DeviceOutputPlaybackError: summary(for: error)
     case let error as DeviceInputCaptureError: summary(for: error)
     case let error as DeviceOutputCaptureError: summary(for: error)
@@ -80,6 +81,15 @@ enum RoutingNodeFailureSummary {
       .invalidReorderDepth:
       "Invalid settings"
     case .alreadyStopped: nil
+    case .transport(let failure): summary(for: failure)
+    }
+  }
+
+  private static func summary(for error: NetworkAudioFormatDiscoveryError) -> String? {
+    switch error {
+    case .timedOut: "No sender heard"
+    case .invalidPort: "Invalid port"
+    case .invalidTimeout: "Invalid settings"
     case .transport(let failure): summary(for: failure)
     }
   }

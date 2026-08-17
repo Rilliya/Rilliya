@@ -476,12 +476,20 @@ struct RoutingNetworkReceiveConfiguration: Codable, Equatable, Hashable, Sendabl
   var secret: RoutingNetworkAudioSecret?
   var jitter: RoutingNetworkJitterControls
 
+  /// Whether the node takes its format from the first sender it hears.
+  ///
+  /// A receiver is built around one format, so settings that do not match the sender reject every
+  /// packet. Adopting the sender's saves the user from matching two machines by hand; the stored
+  /// sample rate and channel count remain as the fallback when it is switched off again.
+  var adoptsSenderFormat: Bool
+
   init(
     port: UInt16,
     sampleRate: Double,
     channelCount: Int,
     secret: RoutingNetworkAudioSecret? = nil,
-    jitter: RoutingNetworkJitterControls = .initial
+    jitter: RoutingNetworkJitterControls = .initial,
+    adoptsSenderFormat: Bool = false
   ) {
     precondition(port > 0)
     precondition(sampleRate.isFinite && sampleRate >= 1 && sampleRate <= 768_000)
@@ -491,6 +499,7 @@ struct RoutingNetworkReceiveConfiguration: Codable, Equatable, Hashable, Sendabl
     self.channelCount = channelCount
     self.secret = secret
     self.jitter = jitter
+    self.adoptsSenderFormat = adoptsSenderFormat
   }
 
   /// Documents saved before the jitter controls existed restore the defaults rather than failing.
@@ -502,6 +511,8 @@ struct RoutingNetworkReceiveConfiguration: Codable, Equatable, Hashable, Sendabl
     secret = try container.decodeIfPresent(RoutingNetworkAudioSecret.self, forKey: .secret)
     jitter =
       try container.decodeIfPresent(RoutingNetworkJitterControls.self, forKey: .jitter) ?? .initial
+    adoptsSenderFormat =
+      try container.decodeIfPresent(Bool.self, forKey: .adoptsSenderFormat) ?? false
   }
 }
 

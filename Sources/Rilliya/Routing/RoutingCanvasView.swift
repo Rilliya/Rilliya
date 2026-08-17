@@ -6203,10 +6203,33 @@ private struct SelectedNetworkReceiveInspector: View {
         )
       }
 
-      NetworkAudioFormatControls(
-        sampleRate: sampleRate,
-        channelCount: channelCount
-      )
+      VStack(alignment: .leading, spacing: 7) {
+        Text("Format")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+        FlowingSegmentedControl(
+          label: "Network format source",
+          selection: adoptsSenderFormat,
+          options: [
+            FlowingSegmentOption(true, label: "Automatic"),
+            FlowingSegmentOption(false, label: "Manual"),
+          ]
+        )
+      }
+
+      if configuration.adoptsSenderFormat {
+        FlowingCallout(
+          adoptedFormatDescription,
+          title: "Format from the sender",
+          systemImage: "waveform.badge.magnifyingglass",
+          tone: hasAdoptedFormat ? .success : .neutral
+        )
+      } else {
+        NetworkAudioFormatControls(
+          sampleRate: sampleRate,
+          channelCount: channelCount
+        )
+      }
 
       NetworkAudioSecretControls(secret: configuration.secret, store: secretStore) { secret in
         edit { $0.secret = secret }
@@ -6268,6 +6291,28 @@ private struct SelectedNetworkReceiveInspector: View {
       get: { configuration.channelCount },
       set: { channelCount in edit { $0.channelCount = channelCount } }
     )
+  }
+
+  private var adoptsSenderFormat: Binding<Bool> {
+    Binding(
+      get: { configuration.adoptsSenderFormat },
+      set: { adopts in edit { $0.adoptsSenderFormat = adopts } }
+    )
+  }
+
+  /// Whether a sender has been heard, which is when the adopted format becomes known.
+  private var hasAdoptedFormat: Bool {
+    if case .running = state { return true }
+    return false
+  }
+
+  private var adoptedFormatDescription: String {
+    guard case .running(let format) = state else {
+      return "Listening for one packet to learn the sender's sample rate and channel count. "
+        + "Nothing plays until a sender is heard."
+    }
+    let channels = format.channelCount == 1 ? "mono" : "\(format.channelCount) channels"
+    return "Playing \(Int(format.sampleRate / 1_000)) kHz, \(channels), as the sender declared it."
   }
 
   private var stateTitle: String {
