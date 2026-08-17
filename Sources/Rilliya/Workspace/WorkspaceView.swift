@@ -101,7 +101,12 @@ struct WorkspaceView: View {
       if let workflowPersistenceIssue {
         FlowingCanvasViewportOverlay(
           alignment: .bottomTrailing,
-          insets: EdgeInsets(top: 0, leading: 0, bottom: 22, trailing: 22)
+          insets: EdgeInsets(
+            top: 0,
+            leading: 0,
+            bottom: RoutingViewportControlMetrics.clearance,
+            trailing: 22
+          )
         ) {
           FlowingCallout(
             workflowPersistenceIssue,

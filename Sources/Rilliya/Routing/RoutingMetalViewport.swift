@@ -113,7 +113,12 @@ struct RoutingMetalViewport: View {
 
         FlowingCanvasViewportOverlay(
           alignment: .bottomTrailing,
-          insets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+          insets: EdgeInsets(
+            top: RoutingViewportControlMetrics.inset,
+            leading: RoutingViewportControlMetrics.inset,
+            bottom: RoutingViewportControlMetrics.inset,
+            trailing: RoutingViewportControlMetrics.inset
+          )
         ) {
           viewportControls
         }
@@ -193,7 +198,7 @@ struct RoutingMetalViewport: View {
               .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
           }
           .foregroundStyle(Color(nsColor: .systemOrange))
-          .frame(height: 28)
+          .frame(height: RoutingViewportControlMetrics.buttonHeight)
           .padding(.horizontal, 7)
           .contentShape(Rectangle())
         }
@@ -277,7 +282,7 @@ struct RoutingMetalViewport: View {
         setMiniMapVisible(!isMiniMapVisible)
       }
     }
-    .padding(4)
+    .padding(RoutingViewportControlMetrics.padding)
     .background(
       FlowingPalette.control.opacity(0.94),
       in: RoundedRectangle(cornerRadius: 13, style: .continuous)
@@ -361,6 +366,24 @@ enum RoutingViewportPersistencePolicy {
   static func shouldPersist(phase: FlowingCanvasViewportChangePhase) -> Bool {
     phase == .ended
   }
+}
+
+/// What the viewport controls occupy in the bottom-trailing corner.
+///
+/// Anything else placed in that corner has to clear them, or it covers the only way to reach a
+/// failing node.
+enum RoutingViewportControlMetrics {
+  /// The control strip's button height.
+  static let buttonHeight: CGFloat = 28
+
+  /// The padding inside the strip's background.
+  static let padding: CGFloat = 4
+
+  /// The strip's distance from the viewport edge.
+  static let inset: CGFloat = 14
+
+  /// The bottom inset another bottom-trailing overlay needs to sit clear of the strip.
+  static let clearance = inset + buttonHeight + padding * 2 + 8
 }
 
 private struct RoutingViewportControlButton: View {
