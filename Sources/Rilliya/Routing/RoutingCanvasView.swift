@@ -1050,6 +1050,7 @@ struct RoutingCanvasView: View {
     case .networkSend(let configuration):
       SelectedNetworkSendInspector(
         configuration: configuration,
+        secretStore: settings.networkAudioSecretStore,
         state: networkSendController.state(for: node.id),
         onRetry: { networkSendController.retry(nodeID: node.id) },
         updateConfiguration: { updated in
@@ -1059,6 +1060,7 @@ struct RoutingCanvasView: View {
     case .networkReceive(let configuration):
       SelectedNetworkReceiveInspector(
         configuration: configuration,
+        secretStore: settings.networkAudioSecretStore,
         state: networkReceiveController.state(for: node.id),
         onRetry: { networkReceiveController.retry(nodeID: node.id) },
         updateConfiguration: { updated in
@@ -6001,6 +6003,7 @@ private func labeledFileOutputControl<Content: View>(
 
 private struct SelectedNetworkSendInspector: View {
   let configuration: RoutingNetworkSendConfiguration
+  let secretStore: RoutingNetworkAudioSecretStore
   let state: RoutingNetworkSendState
   let onRetry: () -> Void
   let updateConfiguration: (RoutingNetworkSendConfiguration) -> Void
@@ -6010,11 +6013,13 @@ private struct SelectedNetworkSendInspector: View {
 
   init(
     configuration: RoutingNetworkSendConfiguration,
+    secretStore: RoutingNetworkAudioSecretStore,
     state: RoutingNetworkSendState,
     onRetry: @escaping () -> Void,
     updateConfiguration: @escaping (RoutingNetworkSendConfiguration) -> Void
   ) {
     self.configuration = configuration
+    self.secretStore = secretStore
     self.state = state
     self.onRetry = onRetry
     self.updateConfiguration = updateConfiguration
@@ -6055,7 +6060,7 @@ private struct SelectedNetworkSendInspector: View {
         channelCount: channelCount
       )
 
-      NetworkAudioSecretControls(secret: configuration.secret) { secret in
+      NetworkAudioSecretControls(secret: configuration.secret, store: secretStore) { secret in
         edit { $0.secret = secret }
       }
 
@@ -6160,6 +6165,7 @@ private struct SelectedNetworkSendInspector: View {
 
 private struct SelectedNetworkReceiveInspector: View {
   let configuration: RoutingNetworkReceiveConfiguration
+  let secretStore: RoutingNetworkAudioSecretStore
   let state: RoutingNetworkReceiveState
   let onRetry: () -> Void
   let updateConfiguration: (RoutingNetworkReceiveConfiguration) -> Void
@@ -6168,11 +6174,13 @@ private struct SelectedNetworkReceiveInspector: View {
 
   init(
     configuration: RoutingNetworkReceiveConfiguration,
+    secretStore: RoutingNetworkAudioSecretStore,
     state: RoutingNetworkReceiveState,
     onRetry: @escaping () -> Void,
     updateConfiguration: @escaping (RoutingNetworkReceiveConfiguration) -> Void
   ) {
     self.configuration = configuration
+    self.secretStore = secretStore
     self.state = state
     self.onRetry = onRetry
     self.updateConfiguration = updateConfiguration
@@ -6200,7 +6208,7 @@ private struct SelectedNetworkReceiveInspector: View {
         channelCount: channelCount
       )
 
-      NetworkAudioSecretControls(secret: configuration.secret) { secret in
+      NetworkAudioSecretControls(secret: configuration.secret, store: secretStore) { secret in
         edit { $0.secret = secret }
       }
 
@@ -7067,18 +7075,22 @@ private struct SelectedVisualizerInspector: View {
 /// stated rather than left implied.
 private struct NetworkAudioSecretControls: View {
   let secret: RoutingNetworkAudioSecret?
+  let store: RoutingNetworkAudioSecretStore
   let update: (RoutingNetworkAudioSecret?) -> Void
 
-  @State private var keyText: String
+  @State private var keyText = ""
+  @State private var availability = Availability.absent
   @State private var didCopy = false
 
-  init(
-    secret: RoutingNetworkAudioSecret?,
-    update: @escaping (RoutingNetworkAudioSecret?) -> Void
-  ) {
-    self.secret = secret
-    self.update = update
-    _keyText = State(initialValue: secret?.base64EncodedString ?? "")
+  private enum Availability: Equatable {
+    case absent
+    case readable(base64: String)
+    case unreadable(reason: String)
+
+    var base64: String? {
+      guard case .readable(let base64) = self else { return nil }
+      return base64
+    }
   }
 
   var body: some View {
@@ -7087,47 +7099,69 @@ private struct NetworkAudioSecretControls: View {
         FlowingTextField(
           "Shared key",
           text: $keyText,
-          placeholder: "Paste the key from the other Mac",
+          placeholder: fieldPlaceholder,
           systemImage: "key",
           validation: validation,
           onSubmit: commit
         )
         HStack(spacing: 6) {
           FlowingIconButton("Generate Key", systemImage: "sparkles", emphasis: .standard) {
-            let generated = RoutingNetworkAudioSecret.generated()
-            keyText = generated.base64EncodedString
-            update(generated)
+            generate()
           }
-          if secret?.isValid == true {
+          if availability.base64 != nil {
             FlowingIconButton(
               didCopy ? "Copied" : "Copy Key",
               systemImage: didCopy ? "checkmark" : "doc.on.doc",
               emphasis: .standard
             ) {
-              NSPasteboard.general.clearContents()
-              NSPasteboard.general.setString(keyText, forType: .string)
-              didCopy = true
+              copy()
             }
           }
           if secret != nil {
             FlowingIconButton("Remove", systemImage: "xmark", emphasis: .standard) {
-              keyText = ""
-              didCopy = false
-              update(nil)
+              remove()
             }
           }
         }
         FlowingCallout(
           statusDescription,
           title: statusTitle,
-          systemImage: secret?.isValid == true ? "lock.fill" : "lock.open",
-          tone: secret?.isValid == true ? .success : .warning
+          systemImage: statusSymbol,
+          tone: statusTone
         )
       }
     }
+    .task(id: secret) { refresh() }
     .onChange(of: keyText) { _, _ in
       didCopy = false
       commit()
+    }
+  }
+
+  /// Reads the key once per change rather than on every layout pass, because reading a
+  /// Keychain-backed key is a system call that can prompt.
+  private func refresh() {
+    guard let secret else {
+      availability = .absent
+      keyText = ""
+      return
+    }
+    do {
+      let base64 = try secret.revealBase64()
+      availability = .readable(base64: base64)
+      keyText = secret.inlineBase64 ?? ""
+    } catch {
+      availability = .unreadable(reason: error.localizedDescription)
+      keyText = ""
+    }
+  }
+
+  private var fieldPlaceholder: String {
+    switch availability {
+    case .readable where secret?.inlineBase64 == nil:
+      "Held in the Keychain"
+    case .absent, .readable, .unreadable:
+      "Paste the key from the other Mac"
     }
   }
 
@@ -7139,24 +7173,89 @@ private struct NetworkAudioSecretControls: View {
   }
 
   private var statusTitle: String {
-    secret?.isValid == true ? "Encrypted" : "Not encrypted"
+    switch availability {
+    case .absent: "Not encrypted"
+    case .readable: "Encrypted"
+    case .unreadable: "Key unavailable"
+    }
+  }
+
+  private var statusSymbol: String {
+    switch availability {
+    case .absent: "lock.open"
+    case .readable: "lock.fill"
+    case .unreadable: "exclamationmark.triangle"
+    }
+  }
+
+  private var statusTone: FlowingStatusTone {
+    switch availability {
+    case .absent: .warning
+    case .readable: .success
+    case .unreadable: .warning
+    }
   }
 
   private var statusDescription: String {
-    secret?.isValid == true
-      ? "Only a peer holding this key can send or read this audio."
-      : "Anyone who can reach this port can send or read this audio. Generate a key here and paste it on the other Mac to change that."
+    switch availability {
+    case .absent:
+      "Anyone who can reach this port can send or read this audio. Generate a key here and paste "
+        + "it on the other Mac to change that."
+    case .readable where secret?.inlineBase64 == nil:
+      "Only a peer holding this key can send or read this audio. The key is in the Keychain, so "
+        + "this workflow file does not carry it."
+    case .readable:
+      "Only a peer holding this key can send or read this audio. The key is in the workflow file, "
+        + "so anything that can read the file can read the key."
+    case .unreadable(let reason):
+      "\(reason) This node cannot start until the key is entered again."
+    }
   }
 
+  private func generate() {
+    do {
+      let generated = try RoutingNetworkAudioSecret.generated(in: store)
+      try secret?.discard()
+      update(generated)
+    } catch {
+      availability = .unreadable(reason: error.localizedDescription)
+    }
+  }
+
+  private func copy() {
+    guard let base64 = availability.base64 else { return }
+    NSPasteboard.general.clearContents()
+    NSPasteboard.general.setString(base64, forType: .string)
+    didCopy = true
+  }
+
+  private func remove() {
+    try? secret?.discard()
+    keyText = ""
+    didCopy = false
+    update(nil)
+  }
+
+  /// Saves what the field holds, if it holds a key.
+  ///
+  /// Emptying the field only clears a key the field is actually showing. A Keychain-backed key is
+  /// never in the field, so clearing it there must not silently strand the stored item.
   private func commit() {
     let trimmed = keyText.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !trimmed.isEmpty else {
-      if secret != nil { update(nil) }
+      if secret?.inlineBase64 != nil { update(nil) }
       return
     }
-    let candidate = RoutingNetworkAudioSecret.inline(base64: trimmed)
-    guard candidate.isValid, candidate != secret else { return }
-    update(candidate)
+    guard RoutingNetworkAudioSecret.inline(base64: trimmed).isValid,
+      trimmed != availability.base64
+    else { return }
+    do {
+      let stored = try store.save(base64Encoded: trimmed)
+      try secret?.discard()
+      update(stored)
+    } catch {
+      availability = .unreadable(reason: error.localizedDescription)
+    }
   }
 }
 

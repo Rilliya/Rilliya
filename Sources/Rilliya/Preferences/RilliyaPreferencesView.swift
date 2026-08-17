@@ -209,6 +209,25 @@ private struct RilliyaCanvasPreferencesPane: View {
       }
 
       PreferencesSection(
+        "Network Audio Keys",
+        footer:
+          "The Keychain keeps the key out of the workflow file. It grants access per signed "
+          + "build, so a development build asks once each time it is rebuilt."
+      ) {
+        PreferencesSegmentedRow(
+          symbol: "key",
+          title: "Store new keys in",
+          caption: "Choose where a generated or pasted shared key is kept.",
+          controlWidth: 240,
+          selection: $settings.networkAudioSecretStore,
+          options: [
+            FlowingSegmentOption(.keychain, label: "Keychain"),
+            FlowingSegmentOption(.inline, label: "Workflow File"),
+          ]
+        )
+      }
+
+      PreferencesSection(
         "Node Palette",
         footer: "Dragging a node onto the canvas always remains available."
       ) {

@@ -170,7 +170,7 @@ struct RoutingWorkflowPersistenceTests {
           port: 49_101,
           sampleRate: 96_000,
           channelCount: 8,
-          secret: .generated()
+          secret: try .generated(in: .inline)
         )
       ),
       .networkReceive(
@@ -178,7 +178,7 @@ struct RoutingWorkflowPersistenceTests {
           port: 49_102,
           sampleRate: 44_100,
           channelCount: 2,
-          secret: .generated(),
+          secret: try .generated(in: .inline),
           jitter: RoutingNetworkJitterControls(targetMilliseconds: 32, correction: .discard)
         )
       ),

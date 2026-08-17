@@ -101,6 +101,17 @@ final class RilliyaSettings {
     }
   }
 
+  /// Where a newly entered network audio key is put.
+  ///
+  /// The Keychain keeps the key out of the workflow file, at the cost of one access prompt per
+  /// build whose code signature the Keychain has not seen before. A development build is signed
+  /// afresh every time, which is why the workflow file remains an option.
+  var networkAudioSecretStore: RoutingNetworkAudioSecretStore {
+    didSet {
+      defaults.set(networkAudioSecretStore.rawValue, forKey: Keys.networkAudioSecretStore)
+    }
+  }
+
   private(set) var nodeAccentOverrides: [RoutingNodeKind: RoutingAccentID]
 
   @ObservationIgnored private let defaults: UserDefaults
@@ -141,6 +152,10 @@ final class RilliyaSettings {
     addsNodesOnPaletteClick =
       defaults.object(forKey: Keys.addsNodesOnPaletteClick) as? Bool
       ?? false
+    networkAudioSecretStore =
+      defaults.string(forKey: Keys.networkAudioSecretStore)
+      .flatMap(RoutingNetworkAudioSecretStore.init(rawValue:))
+      ?? .keychain
     nodeAccentOverrides = Self.decodeNodeAccentOverrides(
       defaults.dictionary(forKey: Keys.nodeAccentOverrides) ?? [:]
     )
@@ -215,5 +230,7 @@ final class RilliyaSettings {
       "moe.uwucocoa.rilliya.adds-nodes-on-palette-click"
     static let nodeAccentOverrides =
       "moe.uwucocoa.rilliya.node-accent-overrides"
+    static let networkAudioSecretStore =
+      "moe.uwucocoa.rilliya.network-audio-secret-store"
   }
 }
