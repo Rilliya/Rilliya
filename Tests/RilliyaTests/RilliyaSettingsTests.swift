@@ -22,6 +22,7 @@ struct RilliyaSettingsTests {
     #expect(first.showsDisabledPortCrosses)
     #expect(!first.addsNodesOnPaletteClick)
     #expect(first.nodeAccentOverrides.isEmpty)
+    #expect(first.networkSendParameterDefaults == .empty)
 
     first.appearance = .dark
     first.setShowsInStatusBar(true)
@@ -50,6 +51,64 @@ struct RilliyaSettingsTests {
     #expect(restored.nodeAccentOverride(for: .delay) == nil)
     #expect(restored.resolvedAccentID(for: .delay) == .wisteria)
     #expect(!RoutingConnectionInformationLevel.allCases.map(\.rawValue).contains("debug"))
+  }
+
+  @Test @MainActor
+  func networkSendParameterDefaultsPersistAndIgnoreUnreadableEntries() throws {
+    let suiteName = "moe.uwucocoa.rilliya.tests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let first = RilliyaSettings(defaults: defaults)
+    var parameterDefaults = RoutingNetworkSendParameterDefaults.empty
+    parameterDefaults.wireEncoding = .opus
+    parameterDefaults.bitRate = 96_000
+    parameterDefaults.sampleRate = 48_000
+    parameterDefaults.channelCount = 4
+    first.setNetworkSendParameterDefaults(parameterDefaults)
+
+    let restored = RilliyaSettings(defaults: defaults)
+    #expect(restored.networkSendParameterDefaults == parameterDefaults)
+
+    defaults.set(
+      [RoutingNodeKind.networkSend.rawValue: "not encoded defaults"],
+      forKey: "moe.uwucocoa.rilliya.node-parameter-defaults"
+    )
+    #expect(RilliyaSettings(defaults: defaults).networkSendParameterDefaults == .empty)
+  }
+
+  @Test @MainActor
+  func networkSendNodesUseAndClearParameterDefaults() throws {
+    let suiteName = "moe.uwucocoa.rilliya.tests.\(UUID().uuidString)"
+    let defaults = try #require(UserDefaults(suiteName: suiteName))
+    defer { defaults.removePersistentDomain(forName: suiteName) }
+    let settings = RilliyaSettings(defaults: defaults)
+    var parameterDefaults = RoutingNetworkSendParameterDefaults.empty
+    parameterDefaults.wireEncoding = .opus
+    parameterDefaults.bitRate = 96_000
+    parameterDefaults.channelCount = 4
+    settings.setNetworkSendParameterDefaults(parameterDefaults)
+    let customizedWorkspace = RoutingWorkspaceModel(settings: settings)
+
+    let customizedID = customizedWorkspace.addNetworkSendNode(centeredAt: .zero)
+    let customized = try #require(customizedWorkspace.node(id: customizedID))
+    guard case .networkSend(let customizedConfiguration) = customized.value else {
+      Issue.record("Expected a network send node")
+      return
+    }
+    #expect(customizedConfiguration.wire.encoding == .opus)
+    #expect(customizedConfiguration.wire.bitRate == 96_000)
+    #expect(customizedConfiguration.channelCount == 4)
+    #expect(
+      customizedConfiguration.sampleRate == RoutingNetworkSendConfiguration.initial.sampleRate)
+    #expect(customizedConfiguration.host == RoutingNetworkSendConfiguration.initial.host)
+
+    settings.setNetworkSendParameterDefaults(.empty)
+    let resetWorkspace = RoutingWorkspaceModel(settings: settings)
+    let resetID = resetWorkspace.addNetworkSendNode(centeredAt: .zero)
+    #expect(
+      resetWorkspace.node(id: resetID)?.value
+        == .networkSend(configuration: RoutingNetworkSendConfiguration.initial)
+    )
   }
 
   @Test @MainActor

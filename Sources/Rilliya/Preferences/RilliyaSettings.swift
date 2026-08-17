@@ -1,6 +1,7 @@
 import Foundation
 import Observation
 import RilliyaRealtime
+
 enum RoutingConnectionInformationLevel: String, CaseIterable, Hashable, Sendable {
   case hidden
   case channels
@@ -34,6 +35,30 @@ enum RilliyaAppearance: String, CaseIterable, Hashable, Sendable {
   case system
   case light
   case dark
+}
+
+struct RoutingNetworkSendParameterDefaults: Codable, Equatable, Sendable {
+  var wireEncoding: RoutingNetworkWireEncoding?
+  var bitRate: Int?
+  var sampleRate: Double?
+  var channelCount: Int?
+
+  static let empty = RoutingNetworkSendParameterDefaults()
+
+  var isEmpty: Bool {
+    wireEncoding == nil && bitRate == nil && sampleRate == nil && channelCount == nil
+  }
+
+  func applying(to configuration: RoutingNetworkSendConfiguration)
+    -> RoutingNetworkSendConfiguration
+  {
+    var updated = configuration
+    if let wireEncoding { updated.wire.encoding = wireEncoding }
+    if let bitRate { updated.wire.bitRate = bitRate }
+    if let sampleRate { updated.sampleRate = sampleRate }
+    if let channelCount { updated.channelCount = channelCount }
+    return updated
+  }
 }
 
 @MainActor
@@ -138,6 +163,7 @@ final class RilliyaSettings {
   }
 
   private(set) var nodeAccentOverrides: [RoutingNodeKind: RoutingAccentID]
+  private(set) var networkSendParameterDefaults: RoutingNetworkSendParameterDefaults
 
   @ObservationIgnored private let defaults: UserDefaults
 
@@ -188,6 +214,10 @@ final class RilliyaSettings {
     nodeAccentOverrides = Self.decodeNodeAccentOverrides(
       defaults.dictionary(forKey: Keys.nodeAccentOverrides) ?? [:]
     )
+    networkSendParameterDefaults =
+      Self.decodeNodeParameterDefaults(
+        defaults.dictionary(forKey: Keys.nodeParameterDefaults) ?? [:]
+      )[.networkSend] ?? .empty
   }
 
   func setShowsInDock(_ isVisible: Bool) {
@@ -229,6 +259,18 @@ final class RilliyaSettings {
     )
   }
 
+  func setNetworkSendParameterDefaults(_ parameterDefaults: RoutingNetworkSendParameterDefaults) {
+    guard networkSendParameterDefaults != parameterDefaults else { return }
+    networkSendParameterDefaults = parameterDefaults
+    var stored = defaults.dictionary(forKey: Keys.nodeParameterDefaults) ?? [:]
+    if parameterDefaults.isEmpty {
+      stored[RoutingNodeKind.networkSend.rawValue] = nil
+    } else if let encoded = try? JSONEncoder().encode(parameterDefaults) {
+      stored[RoutingNodeKind.networkSend.rawValue] = encoded
+    }
+    defaults.set(stored, forKey: Keys.nodeParameterDefaults)
+  }
+
   nonisolated private static func decodeNodeAccentOverrides(
     _ dictionary: [String: Any]
   ) -> [RoutingNodeKind: RoutingAccentID] {
@@ -238,6 +280,19 @@ final class RilliyaSettings {
         let accent = RoutingAccentID(rawValue: rawAccent)
       else { return }
       result[kind] = accent
+    }
+  }
+
+  nonisolated private static func decodeNodeParameterDefaults(
+    _ dictionary: [String: Any]
+  ) -> [RoutingNodeKind: RoutingNetworkSendParameterDefaults] {
+    dictionary.reduce(into: [:]) { result, entry in
+      guard let kind = RoutingNodeKind(rawValue: entry.key), kind == .networkSend,
+        let data = entry.value as? Data,
+        let decoded = try? JSONDecoder().decode(
+          RoutingNetworkSendParameterDefaults.self, from: data)
+      else { return }
+      result[kind] = decoded
     }
   }
 
@@ -259,6 +314,8 @@ final class RilliyaSettings {
       "moe.uwucocoa.rilliya.adds-nodes-on-palette-click"
     static let nodeAccentOverrides =
       "moe.uwucocoa.rilliya.node-accent-overrides"
+    static let nodeParameterDefaults =
+      "moe.uwucocoa.rilliya.node-parameter-defaults"
     static let networkAudioSecretStore =
       "moe.uwucocoa.rilliya.network-audio-secret-store"
     static let waveformUpdatesPerSecond =

@@ -15,6 +15,7 @@ enum RoutingWorkspaceRestorationError: Error, Equatable {
 @Observable
 final class RoutingWorkspaceModel {
   let id: UUID
+  @ObservationIgnored private let settings: RilliyaSettings
 
   private(set) var nodes: [RoutingWorkspaceNode] = []
   private(set) var edges: [RoutingWorkspaceEdge] = []
@@ -28,15 +29,17 @@ final class RoutingWorkspaceModel {
   private var preferredSeparateChannelCount: Int?
   @ObservationIgnored private var canvasBuildGeneration: UInt64 = 0
 
-  init(id: UUID = UUID()) {
+  init(id: UUID = UUID(), settings: RilliyaSettings = .shared) {
     self.id = id
+    self.settings = settings
     rebuildCanvas()
   }
 
   init(
     restoringID id: UUID,
     nodes: [RoutingWorkspaceNode],
-    edges: [RoutingWorkspaceEdge]
+    edges: [RoutingWorkspaceEdge],
+    settings: RilliyaSettings = .shared
   ) throws {
     guard Set(nodes.map(\.id)).count == nodes.count else {
       throw RoutingWorkspaceRestorationError.duplicateNodeID
@@ -49,6 +52,7 @@ final class RoutingWorkspaceModel {
     }
 
     self.id = id
+    self.settings = settings
     self.nodes = nodes.map { node in
       var restored = node
       let size = RoutingCanvasMetrics.nodeSize(for: restored.value)
@@ -120,7 +124,9 @@ final class RoutingWorkspaceModel {
       case .fileOutput:
         .fileOutput(configuration: .initial)
       case .networkSend:
-        .networkSend(configuration: .initial)
+        .networkSend(
+          configuration: settings.networkSendParameterDefaults.applying(to: .initial)
+        )
       case .networkReceive:
         .networkReceive(configuration: .initial)
       case .delay:
@@ -443,7 +449,13 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    appendNode(id: id, value: .networkSend(configuration: .initial), centeredAt: worldPoint)
+    appendNode(
+      id: id,
+      value: .networkSend(
+        configuration: settings.networkSendParameterDefaults.applying(to: .initial)
+      ),
+      centeredAt: worldPoint
+    )
     rebuildCanvas()
     return id
   }

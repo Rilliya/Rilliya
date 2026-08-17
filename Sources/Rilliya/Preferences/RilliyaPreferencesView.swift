@@ -7,6 +7,7 @@ private enum RilliyaPreferencesPage: Hashable {
   case general
   case canvas
   case customization
+  case nodeDefaults
   case virtualAudio
   case about
 }
@@ -30,6 +31,14 @@ private struct RilliyaPreferencesRoot: View {
           id: "workspace",
           title: "Workspace",
           pages: [
+            PreferencesPage(
+              id: .nodeDefaults,
+              title: "Node Defaults",
+              subtitle: "Starting values for new audio nodes",
+              icon: .system("slider.horizontal.3")
+            ) {
+              RilliyaNodeDefaultsPreferencesPane(settings: settings)
+            },
             PreferencesPage(
               id: .general,
               title: "General",
@@ -93,6 +102,210 @@ private struct RilliyaPreferencesRoot: View {
     let info = Bundle.main.infoDictionary
     let version = info?["CFBundleShortVersionString"] as? String ?? "0.1.0"
     return "Version \(version)"
+  }
+}
+
+private struct RilliyaNodeDefaultsPreferencesPane: View {
+  @Bindable var settings: RilliyaSettings
+  @State private var expandedKind: RoutingNodeKind?
+
+  var body: some View {
+    PreferencesPaneStack {
+      PreferencesSection(
+        "Node Parameters",
+        footer:
+          "Only enabled values replace Rilliya's starting values. Existing nodes are never changed."
+      ) {
+        RilliyaNetworkSendDefaultsRow(
+          settings: settings,
+          isExpanded: Binding(
+            get: { expandedKind == .networkSend },
+            set: { expandedKind = $0 ? .networkSend : nil }
+          )
+        )
+      }
+    }
+  }
+}
+
+private struct RilliyaNetworkSendDefaultsRow: View {
+  @Bindable var settings: RilliyaSettings
+  @Binding var isExpanded: Bool
+
+  var body: some View {
+    VStack(spacing: 0) {
+      PreferencesExpandableRow(
+        symbol: RoutingNodeKind.networkSend.systemImage,
+        title: RoutingNodeKind.networkSend.title,
+        caption: enabledDescription,
+        isExpanded: $isExpanded
+      )
+      PreferencesDependentRows(isVisible: isExpanded, showsSeparator: false) {
+        parameterToggle(
+          title: "Wire format",
+          caption: "Choose how new send nodes encode audio.",
+          isOn: wireEncodingEnabled
+        )
+        PreferencesDependentRows(isVisible: wireEncodingEnabled.wrappedValue, showsSeparator: true)
+        {
+          PreferencesPopupRow(
+            symbol: "waveform",
+            title: "Format",
+            caption: "The representation placed on the network.",
+            minimumControlWidth: 170,
+            selection: wireEncoding,
+            options: RoutingNetworkWireEncoding.allCases.map {
+              FlowingSelectOption($0, label: $0.displayName)
+            }
+          )
+        }
+        PreferencesRowSeparator(leadingEdge: .iconText)
+        parameterToggle(
+          title: "Bit rate",
+          caption: "The target used by compressed formats.",
+          isOn: bitRateEnabled
+        )
+        PreferencesDependentRows(isVisible: bitRateEnabled.wrappedValue, showsSeparator: true) {
+          PreferencesPopupRow(
+            symbol: "gauge.with.dots.needle.67percent",
+            title: "Rate",
+            caption: "Lower rates save payload bytes, but packet framing remains.",
+            minimumControlWidth: 150,
+            selection: bitRate,
+            options: RoutingNetworkWireFormat.bitRates.map {
+              FlowingSelectOption($0, label: "\($0 / 1_000) kbit/s")
+            }
+          )
+        }
+        PreferencesRowSeparator(leadingEdge: .iconText)
+        parameterToggle(
+          title: "Sample rate",
+          caption: "The rate requested by a new send node.",
+          isOn: sampleRateEnabled
+        )
+        PreferencesDependentRows(isVisible: sampleRateEnabled.wrappedValue, showsSeparator: true) {
+          PreferencesPopupRow(
+            symbol: "waveform.path.ecg",
+            title: "Rate",
+            caption: "Choose a common audio sample rate.",
+            minimumControlWidth: 150,
+            selection: sampleRate,
+            options: [44_100.0, 48_000.0, 96_000.0].map {
+              FlowingSelectOption($0, label: Self.sampleRateLabel($0))
+            }
+          )
+        }
+        PreferencesRowSeparator(leadingEdge: .iconText)
+        parameterToggle(
+          title: "Channels",
+          caption: "The channel count requested by a new send node.",
+          isOn: channelCountEnabled
+        )
+        PreferencesDependentRows(isVisible: channelCountEnabled.wrappedValue, showsSeparator: true)
+        {
+          PreferencesPopupRow(
+            symbol: "speaker.wave.2",
+            title: "Channels",
+            caption: "Choose the number of channels to send.",
+            minimumControlWidth: 150,
+            selection: channelCount,
+            options: [1, 2, 4, 6, 8].map {
+              FlowingSelectOption($0, label: "\($0) ch")
+            }
+          )
+        }
+      }
+    }
+  }
+
+  private func parameterToggle(
+    title: String,
+    caption: String,
+    isOn: Binding<Bool>
+  ) -> some View {
+    PreferencesSwitchRow(
+      symbol: "arrow.turn.down.right",
+      title: title,
+      caption: caption,
+      isOn: isOn
+    )
+  }
+
+  private var enabledDescription: String {
+    let values = settings.networkSendParameterDefaults
+    let count = [
+      values.wireEncoding != nil,
+      values.bitRate != nil,
+      values.sampleRate != nil,
+      values.channelCount != nil,
+    ].filter { $0 }.count
+    return count == 0 ? "Use Rilliya defaults" : "\(count) custom default\(count == 1 ? "" : "s")"
+  }
+
+  private var wireEncodingEnabled: Binding<Bool> {
+    enabled(\.wireEncoding, fallback: RoutingNetworkWireFormat.initial.encoding)
+  }
+
+  private var bitRateEnabled: Binding<Bool> {
+    enabled(\.bitRate, fallback: RoutingNetworkWireFormat.initial.bitRate)
+  }
+
+  private var sampleRateEnabled: Binding<Bool> {
+    enabled(\.sampleRate, fallback: RoutingNetworkSendConfiguration.initial.sampleRate)
+  }
+
+  private var channelCountEnabled: Binding<Bool> {
+    enabled(\.channelCount, fallback: RoutingNetworkSendConfiguration.initial.channelCount)
+  }
+
+  private var wireEncoding: Binding<RoutingNetworkWireEncoding> {
+    value(\.wireEncoding, fallback: RoutingNetworkWireFormat.initial.encoding)
+  }
+
+  private var bitRate: Binding<Int> {
+    value(\.bitRate, fallback: RoutingNetworkWireFormat.initial.bitRate)
+  }
+
+  private var sampleRate: Binding<Double> {
+    value(\.sampleRate, fallback: RoutingNetworkSendConfiguration.initial.sampleRate)
+  }
+
+  private var channelCount: Binding<Int> {
+    value(\.channelCount, fallback: RoutingNetworkSendConfiguration.initial.channelCount)
+  }
+
+  private func enabled<Value>(
+    _ keyPath: WritableKeyPath<RoutingNetworkSendParameterDefaults, Value?>,
+    fallback: Value
+  ) -> Binding<Bool> {
+    Binding(
+      get: { settings.networkSendParameterDefaults[keyPath: keyPath] != nil },
+      set: { isEnabled in
+        edit { $0[keyPath: keyPath] = isEnabled ? fallback : nil }
+      }
+    )
+  }
+
+  private func value<Value>(
+    _ keyPath: WritableKeyPath<RoutingNetworkSendParameterDefaults, Value?>,
+    fallback: Value
+  ) -> Binding<Value> {
+    Binding(
+      get: { settings.networkSendParameterDefaults[keyPath: keyPath] ?? fallback },
+      set: { value in edit { $0[keyPath: keyPath] = value } }
+    )
+  }
+
+  private func edit(_ change: (inout RoutingNetworkSendParameterDefaults) -> Void) {
+    var updated = settings.networkSendParameterDefaults
+    change(&updated)
+    settings.setNetworkSendParameterDefaults(updated)
+  }
+
+  private static func sampleRateLabel(_ sampleRate: Double) -> String {
+    sampleRate.truncatingRemainder(dividingBy: 1_000) == 0
+      ? "\(Int(sampleRate / 1_000)) kHz"
+      : String(format: "%.1f kHz", sampleRate / 1_000)
   }
 }
 
