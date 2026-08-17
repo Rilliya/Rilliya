@@ -1,8 +1,9 @@
 import Foundation
+import RilliyaCore
 import RilliyaNetworkAudio
 import RilliyaRealtime
 import Testing
-
+import os.lock
 @testable import Rilliya
 
 struct RoutingNetworkReceiveControllerTests {
@@ -12,6 +13,23 @@ struct RoutingNetworkReceiveControllerTests {
     static let sampleRate = 48_000.0
     static let channelCount = 2
     static let reconcileAttempts = 5
+
+    /// What a running receiver's meter would report.
+    static func meterChannels(rootMeanSquare: Float) -> [AudioChannelMeterSnapshot] {
+      let owner = AudioChannelOwnerID.source(.stream(UUID()))
+      return (0..<channelCount).compactMap { index in
+        AudioChannelIndex(rawValue: index).map { channelIndex in
+          AudioChannelMeterSnapshot(
+            channelID: AudioChannelID(ownerID: owner, index: channelIndex),
+            rootMeanSquare: rootMeanSquare,
+            peak: rootMeanSquare * 2,
+            decibels: -12,
+            isClipping: false,
+            waveform: (0..<32).map { _ in rootMeanSquare }
+          )
+        }
+      }
+    }
 
     static var configuration: RoutingNetworkReceiveConfiguration {
       RoutingNetworkReceiveConfiguration(
@@ -28,6 +46,39 @@ struct RoutingNetworkReceiveControllerTests {
         channelCount: channelCount
       )
     }
+  }
+
+  /// A waveform is drawn when the interface is told it changed.
+  ///
+  /// Reading the meter on demand made it look right in a test and move about once every ten
+  /// seconds on screen: nothing marked the node as changed, so nothing redrew it. What a running
+  /// receiver reports has to land in state the interface observes.
+  @Test @MainActor
+  func aNewWaveformReachesObservedState() async throws {
+    let nodeID = UUID()
+    let starter = NetworkReceiveTestStarter()
+    let controller = RoutingNetworkReceiveController(starter: starter)
+
+    controller.reconcile(requirements: [nodeID: Fixture.configuration])
+    #expect(await eventually { controller.state(for: nodeID).isRunning })
+    #expect(controller.snapshot(for: nodeID) == nil, "nothing has been reported yet")
+
+    let session = try #require(await starter.lastSession)
+    session.publish(Fixture.meterChannels(rootMeanSquare: 0.4))
+    #expect(await eventually { controller.snapshot(for: nodeID) != nil })
+    let first = try #require(controller.snapshot(for: nodeID))
+    #expect(first.channels.count == 2)
+    #expect(first.channels.first?.rootMeanSquare == 0.4)
+
+    // A later interval replaces it, which is what makes a waveform move.
+    session.publish(Fixture.meterChannels(rootMeanSquare: 0.1))
+    #expect(
+      await eventually { controller.snapshot(for: nodeID)?.channels.first?.rootMeanSquare == 0.1 }
+    )
+
+    // And a node that stops stops being drawn.
+    controller.reconcile(requirements: [:])
+    #expect(await eventually { controller.snapshot(for: nodeID) == nil })
   }
 
   @Test @MainActor
@@ -136,6 +187,9 @@ private actor NetworkReceiveTestStarter: RoutingNetworkReceiveStarting {
 
   private let failure: (any Error)?
 
+  /// The session handed out most recently, so a test can drive its meter.
+  private(set) var lastSession: NetworkReceiveTestSession?
+
   init(failsWith failure: (any Error)? = nil) {
     self.failure = failure
   }
@@ -159,9 +213,11 @@ private actor NetworkReceiveTestStarter: RoutingNetworkReceiveStarting {
         capacityFrameCount: receiverCapacityFrameCount
       )
     )
-    return NetworkReceiveTestSession(format: format, jitterBuffer: jitterBuffer) { [self] in
+    let session = NetworkReceiveTestSession(format: format, jitterBuffer: jitterBuffer) { [self] in
       await recordStop()
     }
+    lastSession = session
+    return session
   }
 
   private func recordStop() {
@@ -174,6 +230,9 @@ private actor NetworkReceiveTestSession: RoutingNetworkReceiveSession {
   nonisolated let jitterBuffer: AudioJitterBuffer
   /// What a fake stream sounds like, which the tests here do not exercise.
   nonisolated let meterChannels: [AudioChannelMeterSnapshot]
+  private let handler = OSAllocatedUnfairLock<
+    (@Sendable ([AudioChannelMeterSnapshot]) -> Void)?
+  >(initialState: nil)
 
   private let stopHandler: @Sendable () async -> Void
   private var didStop = false
@@ -191,6 +250,15 @@ private actor NetworkReceiveTestSession: RoutingNetworkReceiveSession {
   }
 
   nonisolated func meterSnapshot() -> [AudioChannelMeterSnapshot] { meterChannels }
+
+  nonisolated func onMeter(_ handler: (@Sendable ([AudioChannelMeterSnapshot]) -> Void)?) {
+    self.handler.withLock { $0 = handler }
+  }
+
+  /// Pretends a new interval arrived, as a running receiver's meter would.
+  nonisolated func publish(_ channels: [AudioChannelMeterSnapshot]) {
+    handler.withLock { $0 }?(channels)
+  }
 
   func stop() async {
     guard !didStop else { return }

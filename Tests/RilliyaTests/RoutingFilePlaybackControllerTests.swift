@@ -2,7 +2,7 @@ import Foundation
 import RilliyaFilePlayback
 import RilliyaRealtime
 import Testing
-
+import os.lock
 @testable import Rilliya
 
 struct RoutingFilePlaybackControllerTests {
@@ -275,8 +275,20 @@ private actor FakeRoutingFilePlaybackSession: RoutingFilePlaybackSession {
   nonisolated let frameBuffer: AudioRealtimeFrameBuffer
   /// What a fake file sounds like, which the tests here do not exercise.
   nonisolated let meterChannels: [AudioChannelMeterSnapshot] = []
+  private let handler = OSAllocatedUnfairLock<
+    (@Sendable ([AudioChannelMeterSnapshot]) -> Void)?
+  >(initialState: nil)
 
   nonisolated func meterSnapshot() -> [AudioChannelMeterSnapshot] { meterChannels }
+
+  nonisolated func onMeter(_ handler: (@Sendable ([AudioChannelMeterSnapshot]) -> Void)?) {
+    self.handler.withLock { $0 = handler }
+  }
+
+  /// Pretends a new interval arrived, as a playing file's meter would.
+  nonisolated func publish(_ channels: [AudioChannelMeterSnapshot]) {
+    handler.withLock { $0 }?(channels)
+  }
 
   private let stopHandler: @Sendable () async -> Void
   private var isStopped = false

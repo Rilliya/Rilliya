@@ -33,6 +33,9 @@ protocol RoutingFilePlaybackSession: AnyObject, Sendable {
   /// comes from the stream's own meter instead.
   func meterSnapshot() -> [AudioChannelMeterSnapshot]
 
+  /// Asks to be told whenever there is a new waveform, rather than having to poll for one.
+  func onMeter(_ handler: (@Sendable ([AudioChannelMeterSnapshot]) -> Void)?)
+
   func stop() async
 }
 
@@ -91,6 +94,10 @@ private final class SystemRoutingFilePlaybackSession: RoutingFilePlaybackSession
     stream.meterSnapshot()
   }
 
+  func onMeter(_ handler: (@Sendable ([AudioChannelMeterSnapshot]) -> Void)?) {
+    stream.onMeter(handler)
+  }
+
   func stop() async {
     await stream.stop()
   }
@@ -121,9 +128,26 @@ final class RoutingFilePlaybackController {
     states[nodeID] ?? .idle
   }
 
+  /// What each playing file currently sounds like.
+  ///
+  /// Written whenever a stream has something new, because an interface redraws when observed
+  /// state changes and never because a value it did not look at moved.
+  private(set) var snapshots: [UUID: RoutingFilePlaybackMeterSnapshot] = [:]
+
   func snapshot(for nodeID: UUID) -> RoutingFilePlaybackMeterSnapshot? {
-    let channels = runningSessions[nodeID]?.session.meterSnapshot() ?? []
-    return channels.isEmpty ? nil : RoutingFilePlaybackMeterSnapshot(channels: channels)
+    snapshots[nodeID]
+  }
+
+  private func observeMeter(of session: any RoutingFilePlaybackSession, nodeID: UUID) {
+    session.onMeter { [weak self] channels in
+      Task { @MainActor in
+        guard let self else { return }
+        self.snapshots[nodeID] =
+          channels.isEmpty
+          ? nil
+          : RoutingFilePlaybackMeterSnapshot(channels: channels)
+      }
+    }
   }
 
   func frameBuffer(for nodeID: UUID) -> AudioRealtimeFrameBuffer? {
@@ -180,6 +204,7 @@ final class RoutingFilePlaybackController {
     lifecycleTasks[nodeID] = Task { @MainActor [weak self] in
       await previousTask?.value
       guard let self, generations[nodeID] == generation else { return }
+      snapshots[nodeID] = nil
       if let running = runningSessions.removeValue(forKey: nodeID) {
         await running.session.stop()
       }
@@ -215,6 +240,7 @@ final class RoutingFilePlaybackController {
           return
         }
         runningSessions[nodeID] = RunningSession(request: request, session: session)
+        observeMeter(of: session, nodeID: nodeID)
         states[nodeID] = .streaming(session.sourceDescription)
         if let pending = pendingEvents.removeValue(forKey: nodeID),
           pending.0 == generation

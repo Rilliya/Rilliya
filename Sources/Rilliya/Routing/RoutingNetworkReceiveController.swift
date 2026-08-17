@@ -20,6 +20,9 @@ protocol RoutingNetworkReceiveSession: AnyObject, Sendable {
   /// comes from the receiver's own meter instead.
   func meterSnapshot() -> [AudioChannelMeterSnapshot]
 
+  /// Asks to be told whenever there is a new waveform, rather than having to poll for one.
+  func onMeter(_ handler: (@Sendable ([AudioChannelMeterSnapshot]) -> Void)?)
+
   func stop() async
 }
 
@@ -92,6 +95,10 @@ private final class SystemRoutingNetworkReceiveSession: RoutingNetworkReceiveSes
     receiver.meterSnapshot()
   }
 
+  func onMeter(_ handler: (@Sendable ([AudioChannelMeterSnapshot]) -> Void)?) {
+    receiver.onMeter(handler)
+  }
+
   func stop() async {
     receiver.stop()
   }
@@ -143,13 +150,27 @@ final class RoutingNetworkReceiveController {
     return jitterBuffer.frameBuffer
   }
 
+  /// What each running node currently sounds like.
+  ///
+  /// Written whenever a receiver has something new, because an interface redraws when observed
+  /// state changes and never because a value it did not look at moved.
+  private(set) var snapshots: [UUID: RoutingNetworkReceiveMeterSnapshot] = [:]
+
   func snapshot(for nodeID: UUID) -> RoutingNetworkReceiveMeterSnapshot? {
-    guard let configuration = configurationsByNode[nodeID],
-      let source = sources[configuration],
-      case .running(let session) = source.phase
-    else { return nil }
-    let channels = session.meterSnapshot()
-    return channels.isEmpty ? nil : RoutingNetworkReceiveMeterSnapshot(channels: channels)
+    snapshots[nodeID]
+  }
+
+  /// Points a running session's meter at this node's observed snapshot.
+  private func observeMeter(of session: any RoutingNetworkReceiveSession, nodeID: UUID) {
+    session.onMeter { [weak self] channels in
+      Task { @MainActor in
+        guard let self else { return }
+        self.snapshots[nodeID] =
+          channels.isEmpty
+          ? nil
+          : RoutingNetworkReceiveMeterSnapshot(channels: channels)
+      }
+    }
   }
 
   func reconcile(requirements: [UUID: RoutingNetworkReceiveConfiguration]) {
@@ -169,6 +190,7 @@ final class RoutingNetworkReceiveController {
     guard case .failed = state(for: nodeID) else { return }
     failedConfigurations[nodeID] = nil
     states[nodeID] = .idle
+    snapshots[nodeID] = nil
   }
 
   func stopAll() {
@@ -209,6 +231,7 @@ final class RoutingNetworkReceiveController {
 
   private func detach(nodeID: UUID, publishesIdleState: Bool) {
     if publishesIdleState { states[nodeID] = .idle }
+    snapshots[nodeID] = nil
     guard let configuration = configurationsByNode.removeValue(forKey: nodeID),
       var source = sources[configuration]
     else { return }
@@ -273,6 +296,7 @@ final class RoutingNetworkReceiveController {
     sources[configuration] = source
     for nodeID in source.nodeIDs where configurationsByNode[nodeID] == configuration {
       states[nodeID] = .running(session.format)
+      observeMeter(of: session, nodeID: nodeID)
     }
   }
 
