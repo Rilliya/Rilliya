@@ -2,6 +2,7 @@ import CoreGraphics
 import FlowingDayGraphCanvas
 import FlowingDayGraphLayout
 import Foundation
+import RilliyaNetworkAudio
 import Testing
 
 @testable import Rilliya
@@ -36,6 +37,58 @@ struct RoutingMetalSceneTests {
     _ = model.addVisualizerNode(centeredAt: CGPoint(x: 500, y: 100))
     _ = cache.topology(for: try #require(model.canvasContent))
     #expect(cache.topologyBuildCount == 2)
+  }
+
+  @Test @MainActor
+  func runtimeStateAndFailureEnterTheAccessibilityRepresentation() throws {
+    let model = RoutingWorkspaceModel()
+    let nodeID = model.addNetworkSendNode(centeredAt: CGPoint(x: 100, y: 100))
+    let content = try #require(model.canvasContent)
+    let baseSnapshot = try #require(model.accessibilitySnapshot)
+    let elementID = try #require(model.elementID(for: nodeID))
+    let format = try NetworkAudioStreamFormat(sampleRate: 48_000, channelCount: 2)
+
+    let runningScene = RoutingMetalScene(
+      content: content,
+      supplements: [
+        nodeID: RoutingMetalNodeSupplement(
+          isRunning: false,
+          isCapturing: false,
+          captureConsumerCount: 0,
+          visualizerSignal: nil,
+          networkSendState: .running(format)
+        )
+      ]
+    )
+    let runningItem = try #require(
+      runningScene.accessibilitySnapshot(updating: baseSnapshot)?.item(for: elementID)
+    )
+    #expect(runningItem.description.value == "127.0.0.1:48620. Sending live audio")
+
+    let failure = RoutingNodeFailure(
+      summary: "Port in use",
+      message: "The selected UDP port is already in use."
+    )
+    let failedScene = RoutingMetalScene(
+      content: content,
+      supplements: [
+        nodeID: RoutingMetalNodeSupplement(
+          isRunning: false,
+          isCapturing: false,
+          captureConsumerCount: 0,
+          visualizerSignal: nil,
+          networkSendState: .failed(failure)
+        )
+      ]
+    )
+    let failedItem = try #require(
+      failedScene.accessibilitySnapshot(updating: baseSnapshot)?.item(for: elementID)
+    )
+    #expect(
+      failedItem.description.value
+        == "127.0.0.1:48620. Network send stopped. Port in use. "
+        + "The selected UDP port is already in use."
+    )
   }
 
   @Test @MainActor

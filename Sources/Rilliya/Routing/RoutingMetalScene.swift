@@ -355,6 +355,19 @@ struct RoutingMetalScene {
       }
     }
 
+    var accessibilityStatus: String {
+      var parts = [status]
+      if let failure = supplement.failure {
+        if let summary = failure.summary, !parts.contains(summary) {
+          parts.append(summary)
+        }
+        if !parts.contains(failure.message) {
+          parts.append(failure.message)
+        }
+      }
+      return parts.joined(separator: ". ")
+    }
+
     var applicationStatusText: String? {
       guard case .applicationAudio(let selection, _) = value else { return nil }
       return selection == nil ? "Select this node to configure" : nil
@@ -712,6 +725,44 @@ struct RoutingMetalScene {
       )
     }
     contentBounds = topology.contentBounds
+  }
+
+  func accessibilitySnapshot(
+    updating snapshot: RoutingCanvasAccessibilitySnapshot?
+  ) -> RoutingCanvasAccessibilitySnapshot? {
+    guard let snapshot else { return nil }
+    let nodesByID = Dictionary(uniqueKeysWithValues: nodes.map { ($0.id, $0) })
+    let items = snapshot.items.map { item in
+      guard let node = nodesByID[item.id] else { return item }
+      let description = item.description
+      let value = [description.value, node.accessibilityStatus]
+        .compactMap { $0 }
+        .joined(separator: ". ")
+      return FlowingGraphCanvasAccessibilityItem(
+        id: item.id,
+        kind: item.kind,
+        frame: item.frame,
+        description: FlowingGraphCanvasAccessibilityDescription(
+          label: description.label,
+          value: value,
+          hint: description.hint,
+          roleDescription: description.roleDescription,
+          identifier: description.identifier,
+          actions: description.actions
+        ),
+        relatedElementIDs: item.relatedElementIDs
+      )
+    }
+    do {
+      return try RoutingCanvasAccessibilitySnapshot(
+        id: snapshot.id,
+        canvasDescription: snapshot.canvasDescription,
+        items: items
+      )
+    } catch {
+      assertionFailure("Failed to update routing accessibility: \(error)")
+      return snapshot
+    }
   }
 
   func port(id: RoutingCanvasElementID) -> Port? {

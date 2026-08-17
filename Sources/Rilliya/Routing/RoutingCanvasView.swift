@@ -304,7 +304,8 @@ struct RoutingCanvasView: View {
   }
 
   private func canvas(_ content: RoutingCanvasContent) -> some View {
-    FlowingGraphCanvas(
+    let scene = metalScene(for: content)
+    return FlowingGraphCanvas(
       content: content,
       sessionID: sessionID,
       session: $session,
@@ -333,7 +334,7 @@ struct RoutingCanvasView: View {
       metalVisualAdapter: FlowingGraphCanvasMetalVisualAdapter { context in
         RoutingMetalViewport(
           context: context,
-          scene: metalScene(for: context.content),
+          scene: scene,
           inspectorID: selectedWorkspaceNodeID,
           inspector: AnyView(selectedNodeInspector),
           removeNodes: workspace.removeNodes,
@@ -356,7 +357,9 @@ struct RoutingCanvasView: View {
           setMiniMapVisible: setMiniMapVisible
         )
       },
-      accessibilitySnapshot: workspace.accessibilitySnapshot,
+      accessibilitySnapshot: scene.accessibilitySnapshot(
+        updating: workspace.accessibilitySnapshot
+      ),
       contentInsets: EdgeInsets(top: 22, leading: 300, bottom: 22, trailing: 22),
       interactionPolicy: FlowingGraphCanvasInteractionPolicy(
         connectionPolicy: FlowingGraphCanvasConnectionPolicy(
