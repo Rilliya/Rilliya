@@ -21,6 +21,7 @@ struct RoutingMetalViewport: View {
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
   @State private var contextMenuRequest: RoutingCanvasContextMenuRequest?
+  @State private var lastRevealedFailure: RoutingCanvasElementID?
   @StateObject private var controller: RoutingMetalCanvasController
 
   init(
@@ -183,6 +184,32 @@ struct RoutingMetalViewport: View {
 
   private var viewportControls: some View {
     HStack(spacing: 0) {
+      if !failingNodes.isEmpty {
+        Button(action: revealNextFailure) {
+          HStack(spacing: 4) {
+            Image(systemName: "exclamationmark.triangle.fill")
+              .font(.system(size: 9.5, weight: .bold))
+            Text("\(failingNodes.count)")
+              .font(.system(size: 9.5, weight: .semibold, design: .monospaced))
+          }
+          .foregroundStyle(Color(nsColor: .systemOrange))
+          .frame(height: 28)
+          .padding(.horizontal, 7)
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+          failingNodes.count == 1
+            ? "Go to the node with an issue" : "Go to the next node with an issue"
+        )
+        .accessibilityValue("\(failingNodes.count) nodes have issues")
+
+        Rectangle()
+          .fill(FlowingPalette.hairline)
+          .frame(width: 1, height: 18)
+          .padding(.horizontal, 3)
+      }
+
       FlowingIconButton(
         "Select and move nodes",
         systemImage: "cursorarrow",
@@ -265,6 +292,23 @@ struct RoutingMetalViewport: View {
   private func updateSelection(_ selection: Set<RoutingCanvasElementID>) {
     context.session.wrappedValue.selection = selection
     context.session.wrappedValue.focusedElementID = selection.first
+  }
+
+  /// The nodes wearing a failure badge, in the order the canvas lays them out.
+  private var failingNodes: [RoutingMetalScene.Node] {
+    scene.nodes.filter(\.showsFailureBadge)
+  }
+
+  /// Brings the next failing node into view and selects it, so its inspector explains the failure.
+  private func revealNextFailure() {
+    let failing = failingNodes
+    guard
+      let nextID = RoutingWorkflowFailures.nodeAfter(lastRevealedFailure, in: failing.map(\.id)),
+      let next = failing.first(where: { $0.id == nextID })
+    else { return }
+    lastRevealedFailure = nextID
+    controller.center(on: CGPoint(x: next.frame.midX, y: next.frame.midY))
+    updateSelection([nextID])
   }
 
   private func moveNodes(

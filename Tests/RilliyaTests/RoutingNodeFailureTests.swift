@@ -86,3 +86,44 @@ private enum UnrecognizedTestError: Error, LocalizedError {
 
   var errorDescription: String? { "Something outside the recognized causes went wrong." }
 }
+
+@Suite("Walking a workflow's failing nodes")
+struct RoutingFailureWalkTests {
+  private let nodes = ["a", "b", "c"]
+
+  @Test("The walk starts at the first node and wraps past the end")
+  func walkWrapsAround() {
+    var current: String?
+    var visited: [String] = []
+    for _ in 0..<4 {
+      current = RoutingWorkflowFailures.nodeAfter(current, in: nodes)
+      visited.append(current ?? "")
+    }
+
+    #expect(visited == ["a", "b", "c", "a"])
+  }
+
+  @Test("Nothing to reveal when nothing is failing")
+  func emptyListRevealsNothing() {
+    #expect(RoutingWorkflowFailures.nodeAfter(nil, in: [String]()) == nil)
+    #expect(RoutingWorkflowFailures.nodeAfter("a", in: [String]()) == nil)
+  }
+
+  /// A node that recovers while the user is stepping through must not strand the walk.
+  @Test("A node that stops failing restarts the walk rather than stranding it")
+  func recoveredNodeRestartsTheWalk() {
+    #expect(RoutingWorkflowFailures.nodeAfter("gone", in: nodes) == "a")
+  }
+
+  /// A node failing partway through the walk joins the list without resetting it.
+  @Test("A newly failing node joins the walk in canvas order")
+  func newFailureJoinsInOrder() {
+    #expect(RoutingWorkflowFailures.nodeAfter("a", in: ["a", "new", "b", "c"]) == "new")
+  }
+
+  @Test("A single failing node is revealed again on every press")
+  func singleNodeRepeats() {
+    #expect(RoutingWorkflowFailures.nodeAfter(nil, in: ["only"]) == "only")
+    #expect(RoutingWorkflowFailures.nodeAfter("only", in: ["only"]) == "only")
+  }
+}

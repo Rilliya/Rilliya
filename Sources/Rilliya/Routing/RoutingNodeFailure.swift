@@ -284,4 +284,15 @@ enum RoutingWorkflowFailures {
       .filter { node in reporters.contains { $0.failure(for: node.id) != nil } }
       .map(\.id)
   }
+
+  /// The failing node to reveal after `current`, wrapping past the end.
+  ///
+  /// Advancing from the node last revealed rather than from a remembered position keeps the walk
+  /// in step when a node recovers or a new one fails partway through it. A `current` that is no
+  /// longer failing restarts the walk rather than stranding it.
+  nonisolated static func nodeAfter<ID: Equatable>(_ current: ID?, in failing: [ID]) -> ID? {
+    guard !failing.isEmpty else { return nil }
+    let position = current.flatMap { id in failing.firstIndex(of: id) }
+    return failing[((position ?? -1) + 1) % failing.count]
+  }
 }
