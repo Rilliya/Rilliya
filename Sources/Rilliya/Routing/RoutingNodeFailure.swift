@@ -55,7 +55,6 @@ enum RoutingNodeFailureSummary {
     switch error {
     case .missingOutputNode: "Output missing"
     case .missingCapture: "Source unavailable"
-    case .incompatibleSampleRate: "Sample rate mismatch"
     case .invalidRoute: "Invalid route"
     case .cycle: "Feedback loop"
     case .resourceBudgetExceeded: "Graph too large"

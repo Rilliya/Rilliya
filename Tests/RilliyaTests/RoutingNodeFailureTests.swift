@@ -11,12 +11,10 @@ import Testing
 struct RoutingNodeFailureTests {
   @Test
   func aRecognizedErrorCarriesBothAPhraseAndTheFullMessage() {
-    let failure = RoutingNodeFailure(
-      RoutingPreparedAudioGraphError.incompatibleSampleRate(UUID())
-    )
+    let failure = RoutingNodeFailure(RoutingPreparedAudioGraphError.cycle)
 
-    #expect(failure.summary == "Sample rate mismatch")
-    #expect(failure.message.contains("sample-rate conversion"))
+    #expect(failure.summary == "Feedback loop")
+    #expect(!failure.message.isEmpty)
   }
 
   /// A node showing the first few words of an arbitrary message reads as noise, so an

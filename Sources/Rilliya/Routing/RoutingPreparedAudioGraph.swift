@@ -5,7 +5,6 @@ import RilliyaRealtime
 enum RoutingPreparedAudioGraphError: Error, Equatable, LocalizedError, Sendable {
   case missingOutputNode
   case missingCapture(UUID)
-  case incompatibleSampleRate(UUID)
   case invalidRoute
   case cycle
   case resourceBudgetExceeded(RoutingAudioGraphResource)
@@ -16,8 +15,6 @@ enum RoutingPreparedAudioGraphError: Error, Equatable, LocalizedError, Sendable 
       "The selected destination is not a supported audio sink."
     case .missingCapture(let nodeID):
       "Audio capture for node \(nodeID) is not ready."
-    case .incompatibleSampleRate(let nodeID):
-      "Audio source \(nodeID) needs explicit sample-rate conversion before playback."
     case .invalidRoute:
       "The audio graph contains a route that cannot be compiled."
     case .cycle:
@@ -279,7 +276,8 @@ final class RoutingPreparedAudioGraphSource: PreparedAudioSource, @unchecked Sen
           try RoutingPreparedCaptureRead(
             plan: captureRead,
             storage: storage,
-            maximumFrameCount: preparation.maximumFrameCount
+            maximumFrameCount: preparation.maximumFrameCount,
+            renderSampleRate: preparation.format.sampleRate
           )
         )
       case .gain(let gain):
@@ -371,6 +369,13 @@ private struct RoutingCompiledAudioChannel: Hashable {
 private struct RoutingCaptureReadPlan {
   let source: RoutingRealtimeCaptureSource
   let outputBufferIndices: [Int]
+}
+
+/// The staging a capture read needs when its source runs at another rate.
+private struct RoutingPreparedCaptureConversion {
+  let converter: AudioSampleRateConverter
+  let staging: [UnsafeMutablePointer<Float>]
+  let stagingFrameCapacity: Int
 }
 
 private struct RoutingSignalGeneratorPlan {
@@ -648,9 +653,7 @@ private struct RoutingPreparedAudioGraphCompiler {
       guard let captureSource = captureSources[node.id] else {
         throw RoutingPreparedAudioGraphError.missingCapture(node.id)
       }
-      guard captureSource.format.sampleRate == preparation.format.sampleRate else {
-        throw RoutingPreparedAudioGraphError.incompatibleSampleRate(node.id)
-      }
+
       let raw: [RoutingCompiledAudioChannel]
       let sourceIdentity = captureSource.identity
       if let existing = rawSignalsBySource[sourceIdentity] {
@@ -1186,11 +1189,13 @@ private final class RoutingPreparedCaptureRead {
   private let source: RoutingRealtimeCaptureSource
   private let outputs: RoutingPreparedPointerList
   private let maximumBufferedFrameCount: Int
+  private let conversion: RoutingPreparedCaptureConversion?
 
   init(
     plan: RoutingCaptureReadPlan,
     storage: RoutingPreparedAudioStorage,
-    maximumFrameCount: Int
+    maximumFrameCount: Int,
+    renderSampleRate: Double
   ) throws {
     source = plan.source
     guard source.format.channelCount == plan.outputBufferIndices.count else {
@@ -1204,11 +1209,94 @@ private final class RoutingPreparedCaptureRead {
       bufferIndices: plan.outputBufferIndices,
       storage: storage
     )
+    conversion = try Self.conversion(
+      source: source,
+      renderSampleRate: renderSampleRate,
+      maximumFrameCount: maximumFrameCount
+    )
+  }
+
+  deinit {
+    guard let conversion else { return }
+    for channel in conversion.staging {
+      channel.deinitialize(count: conversion.stagingFrameCapacity)
+      channel.deallocate()
+    }
   }
 
   func render(frameCount: Int) -> AudioRenderResult {
     source.discardOldestFrames(keepingLatest: maximumBufferedFrameCount)
-    return source.read(into: outputs.mutableBuffer, frameCount: frameCount)
+    guard let conversion else {
+      return source.read(into: outputs.mutableBuffer, frameCount: frameCount)
+    }
+    return convert(conversion, frameCount: frameCount)
+  }
+
+  /// Reads exactly what the converter asks for, so the source queue drains at the rate it fills.
+  private func convert(
+    _ conversion: RoutingPreparedCaptureConversion,
+    frameCount: Int
+  ) -> AudioRenderResult {
+    let needed = min(
+      conversion.converter.inputFrameCountNeeded(forOutputFrameCount: frameCount),
+      conversion.stagingFrameCapacity
+    )
+    let staged = conversion.staging.withUnsafeBufferPointer { channels in
+      source.read(into: channels, frameCount: needed)
+    }
+    guard staged == .rendered else { return staged }
+
+    let produced: Int
+    do {
+      let readOnly = conversion.staging.map { UnsafePointer<Float>($0) }
+      produced = try readOnly.withUnsafeBufferPointer { input in
+        try conversion.converter.convert(
+          input: input,
+          inputFrameCount: needed,
+          output: outputs.mutableBuffer,
+          outputFrameCount: frameCount
+        )
+      }
+    } catch {
+      // The block and layout were fixed when this was built, so a refusal here is the system
+      // withdrawing the converter. Stopping with a visible failure beats emitting wrong audio.
+      return .invalidFrameCount
+    }
+    // A short block means the converter is still filling its filter; the rest stays silent rather
+    // than repeating whatever the buffer held.
+    if produced < frameCount {
+      for channel in 0..<outputs.mutableBuffer.count {
+        outputs.mutableBuffer[channel].advanced(by: produced)
+          .update(repeating: 0, count: frameCount - produced)
+      }
+    }
+    return .rendered
+  }
+
+  private static func conversion(
+    source: RoutingRealtimeCaptureSource,
+    renderSampleRate: Double,
+    maximumFrameCount: Int
+  ) throws -> RoutingPreparedCaptureConversion? {
+    guard source.format.sampleRate != renderSampleRate else { return nil }
+    let converter = try AudioSampleRateConverter(
+      inputSampleRate: source.format.sampleRate,
+      outputSampleRate: renderSampleRate,
+      channelCount: source.format.channelCount,
+      maximumOutputFrameCount: maximumFrameCount,
+      layout: .planar
+    )
+    let capacity = converter.maximumInputFrameCount
+    let staging = (0..<source.format.channelCount).map { _ -> UnsafeMutablePointer<Float> in
+      let channel = UnsafeMutablePointer<Float>.allocate(capacity: capacity)
+      channel.initialize(repeating: 0, count: capacity)
+      return channel
+    }
+    return RoutingPreparedCaptureConversion(
+      converter: converter,
+      staging: staging,
+      stagingFrameCapacity: capacity
+    )
   }
 }
 

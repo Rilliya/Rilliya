@@ -704,20 +704,91 @@ struct RoutingPreparedAudioGraphTests {
     }
   }
 
+  /// A source recorded at another rate is converted rather than failing the graph.
+  ///
+  /// The mismatch used to stop everything and leave the user to diagnose and correct it by hand.
   @Test
-  func compilerRejectsImplicitSampleRateConversion() throws {
+  func aSourceAtAnotherRateIsConvertedRatherThanRefused() throws {
     let sourceID = UUID()
     let outputID = UUID()
-    let buffer = try makeFrameBuffer(channelCount: 1, sampleRate: 44_100)
-
-    #expect(throws: RoutingPreparedAudioGraphError.incompatibleSampleRate(sourceID)) {
-      try makeRenderer(
-        nodes: [sourceNode(id: sourceID, channelCount: 1), outputNode(id: outputID)],
-        edges: [edge(from: sourceID, .all, to: outputID, .all)],
-        outputNodeID: outputID,
-        frameBuffers: [sourceID: buffer]
-      )
+    let sourceRate = 44_100.0
+    let renderRate = 48_000.0
+    let frequency = 440.0
+    let buffer = try makeFrameBuffer(
+      channelCount: 1,
+      sampleRate: sourceRate,
+      capacityFrameCount: 65_536
+    )
+    let tone = (0..<32_768).map { frame in
+      Float(0.3 * sin(2 * .pi * frequency * Double(frame) / sourceRate))
     }
+    try write([tone], to: buffer)
+
+    let renderer = try makeRenderer(
+      nodes: [sourceNode(id: sourceID, channelCount: 1), outputNode(id: outputID)],
+      edges: [edge(from: sourceID, .all, to: outputID, .all)],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer],
+      outputChannelCount: 1,
+      sampleRate: renderRate,
+      maximumFrameCount: 512
+    )
+
+    // The first block primes the converter's filter; the second is what a listener hears.
+    _ = render(renderer, channelCount: 1, frameCount: 512)
+    let rendered = render(renderer, channelCount: 1, frameCount: 512)
+
+    #expect(rendered.result == .rendered)
+    let level =
+      (rendered.channels[0].reduce(Float(0)) { $0 + $1 * $1 }
+      / Float(rendered.channels[0].count)).squareRoot()
+    #expect(level > 0.15)
+    #expect(level < 0.30)
+    #expect(dominantFrequency(rendered.channels[0], sampleRate: renderRate) > frequency * 0.95)
+    #expect(dominantFrequency(rendered.channels[0], sampleRate: renderRate) < frequency * 1.05)
+  }
+
+  /// A source already at the render rate must not pay for a converter it does not need.
+  @Test
+  func aSourceAtTheRenderRateIsPassedThroughUntouched() throws {
+    let sourceID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(
+      channelCount: 1,
+      sampleRate: 48_000,
+      capacityFrameCount: 65_536
+    )
+    try write([Array(0..<4_096).map(Float.init)], to: buffer)
+
+    let renderer = try makeRenderer(
+      nodes: [sourceNode(id: sourceID, channelCount: 1), outputNode(id: outputID)],
+      edges: [edge(from: sourceID, .all, to: outputID, .all)],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer],
+      outputChannelCount: 1,
+      sampleRate: 48_000,
+      maximumFrameCount: 512
+    )
+
+    let rendered = render(renderer, channelCount: 1, frameCount: 512)
+
+    #expect(rendered.channels[0] == Array(0..<512).map(Float.init))
+  }
+
+  /// The tone's frequency, from the mean period between rising zero crossings.
+  private func dominantFrequency(_ samples: [Float], sampleRate: Double) -> Double {
+    var crossings: [Double] = []
+    for index in 1..<samples.count where samples[index - 1] < 0 && samples[index] >= 0 {
+      let previous = Double(samples[index - 1])
+      let current = Double(samples[index])
+      let fraction = current == previous ? 0 : -previous / (current - previous)
+      crossings.append(Double(index - 1) + fraction)
+    }
+    guard crossings.count > 1, let first = crossings.first, let last = crossings.last else {
+      return 0
+    }
+    let period = (last - first) / Double(crossings.count - 1)
+    return period > 0 ? sampleRate / period : 0
   }
 
   @Test
@@ -799,12 +870,13 @@ struct RoutingPreparedAudioGraphTests {
     outputNodeID: UUID,
     frameBuffers: [UUID: AudioRealtimeFrameBuffer],
     outputChannelCount: Int = 2,
+    sampleRate: Double = 48_000,
     maximumFrameCount: Int = 32,
     resourceBudget: RoutingAudioGraphResourceBudget = .standard
   ) throws -> RoutingPreparedAudioGraphSource {
     try RoutingPreparedAudioGraphSource(
       preparation: AudioRenderPreparation(
-        format: AudioProcessingFormat(sampleRate: 48_000, channelCount: outputChannelCount),
+        format: AudioProcessingFormat(sampleRate: sampleRate, channelCount: outputChannelCount),
         maximumFrameCount: maximumFrameCount
       ),
       nodes: nodes,
