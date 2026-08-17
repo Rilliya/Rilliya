@@ -57,19 +57,16 @@ struct RoutingNetworkJitterControls: Codable, Equatable, Hashable, Sendable {
     self.correction = correction
   }
 
-  /// Decodes tolerantly, because a hand-edited document must not crash the app on load.
+  /// Clamps what it reads, because a hand-edited document must not reach the buffer with a
+  /// value the buffer would refuse.
   init(from decoder: any Decoder) throws {
     let container = try decoder.container(keyedBy: CodingKeys.self)
-    let target =
-      try container.decodeIfPresent(Int.self, forKey: .targetMilliseconds)
-      ?? Self.initial.targetMilliseconds
     targetMilliseconds = min(
-      max(target, Self.minimumTargetMilliseconds),
+      max(
+        try container.decode(Int.self, forKey: .targetMilliseconds), Self.minimumTargetMilliseconds),
       Self.maximumTargetMilliseconds
     )
-    correction =
-      try container.decodeIfPresent(RoutingNetworkJitterCorrection.self, forKey: .correction)
-      ?? Self.initial.correction
+    correction = try container.decode(RoutingNetworkJitterCorrection.self, forKey: .correction)
   }
 
   /// The library controls this describes.

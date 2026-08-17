@@ -443,13 +443,15 @@ struct RoutingNetworkSendConfiguration: Codable, Equatable, Hashable, Sendable {
   var sampleRate: Double
   var channelCount: Int
   var secret: RoutingNetworkAudioSecret?
+  var wire: RoutingNetworkWireFormat
 
   init(
     host: String,
     port: UInt16,
     sampleRate: Double,
     channelCount: Int,
-    secret: RoutingNetworkAudioSecret? = nil
+    secret: RoutingNetworkAudioSecret? = nil,
+    wire: RoutingNetworkWireFormat = .initial
   ) {
     precondition(!host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     precondition(port > 0)
@@ -460,6 +462,7 @@ struct RoutingNetworkSendConfiguration: Codable, Equatable, Hashable, Sendable {
     self.sampleRate = sampleRate
     self.channelCount = channelCount
     self.secret = secret
+    self.wire = wire
   }
 }
 
@@ -500,19 +503,6 @@ struct RoutingNetworkReceiveConfiguration: Codable, Equatable, Hashable, Sendabl
     self.secret = secret
     self.jitter = jitter
     self.adoptsSenderFormat = adoptsSenderFormat
-  }
-
-  /// Documents saved before the jitter controls existed restore the defaults rather than failing.
-  init(from decoder: any Decoder) throws {
-    let container = try decoder.container(keyedBy: CodingKeys.self)
-    port = try container.decode(UInt16.self, forKey: .port)
-    sampleRate = try container.decode(Double.self, forKey: .sampleRate)
-    channelCount = try container.decode(Int.self, forKey: .channelCount)
-    secret = try container.decodeIfPresent(RoutingNetworkAudioSecret.self, forKey: .secret)
-    jitter =
-      try container.decodeIfPresent(RoutingNetworkJitterControls.self, forKey: .jitter) ?? .initial
-    adoptsSenderFormat =
-      try container.decodeIfPresent(Bool.self, forKey: .adoptsSenderFormat) ?? false
   }
 }
 

@@ -45,7 +45,10 @@ struct SystemRoutingNetworkSendStarter: RoutingNetworkSendStarting {
           host: configuration.host,
           port: configuration.port,
           format: format,
-          framesPerPacket: RoutingRealtimeDestinationDefaults.renderQuantumFrameCount,
+          framesPerPacket: configuration.wire.encoding == .uncompressed
+            ? RoutingRealtimeDestinationDefaults.renderQuantumFrameCount : nil,
+          encoding: configuration.wire.encoding.libraryValue,
+          opusBitRate: configuration.wire.bitRate,
           sharedKey: try configuration.secret?.resolve()
         )
       ) { error in

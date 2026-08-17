@@ -404,7 +404,7 @@ private enum RoutingWorkflowPersistenceLimits {
 
 actor RoutingWorkflowPersistenceStore {
   private struct Document: Codable {
-    static let currentSchemaVersion = 1
+    static let currentSchemaVersion = 2
 
     let schemaVersion: Int
     let library: RoutingWorkflowLibrarySnapshot

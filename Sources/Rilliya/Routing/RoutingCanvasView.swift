@@ -6055,6 +6055,14 @@ private struct SelectedNetworkSendInspector: View {
         }
       }
 
+      NetworkAudioWireControls(
+        wire: configuration.wire,
+        sampleRate: configuration.sampleRate,
+        channelCount: configuration.channelCount
+      ) { wire in
+        edit { $0.wire = wire }
+      }
+
       NetworkAudioFormatControls(
         sampleRate: sampleRate,
         channelCount: channelCount
@@ -7395,5 +7403,96 @@ private struct NetworkAudioJitterControls: View {
         update(updated)
       }
     )
+  }
+}
+
+private struct NetworkAudioWireControls: View {
+  let wire: RoutingNetworkWireFormat
+  let sampleRate: Double
+  let channelCount: Int
+  let update: (RoutingNetworkWireFormat) -> Void
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 7) {
+      HStack {
+        Text("Wire Format")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+        Spacer(minLength: 8)
+        Text(bandwidth)
+          .font(.caption.monospacedDigit())
+          .foregroundStyle(FlowingPalette.faint)
+      }
+      FlowingSelect(
+        label: "Wire format",
+        selection: encoding,
+        options: RoutingNetworkWireEncoding.allCases.map {
+          FlowingSelectOption($0, label: $0.displayName)
+        },
+        minimumWidth: 164
+      )
+      .fixedSize(horizontal: false, vertical: true)
+      if let refusal {
+        FlowingCallout(
+          refusal,
+          title: "\(wire.encoding.displayName) cannot carry this format",
+          systemImage: "exclamationmark.triangle",
+          tone: .warning
+        )
+      } else {
+        Text(explanation)
+          .font(.caption2)
+          .foregroundStyle(FlowingPalette.faint)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+  }
+
+  private var encoding: Binding<RoutingNetworkWireEncoding> {
+    Binding(
+      get: { wire.encoding },
+      set: { encoding in
+        var updated = wire
+        updated.encoding = encoding
+        update(updated)
+      }
+    )
+  }
+
+  /// What one second of this audio costs on the wire, shown so the choice has a visible price.
+  private var bandwidth: String {
+    let bits = wire.bitsPerSecond(sampleRate: sampleRate, channelCount: channelCount)
+    return bits >= 1_000_000
+      ? String(format: "%.1f Mbit/s", Double(bits) / 1_000_000)
+      : "\(bits / 1_000) kbit/s"
+  }
+
+  /// What has to change before this format can carry what the node is set to send.
+  private var refusal: String? {
+    guard !wire.carries(sampleRate: sampleRate, channelCount: channelCount) else { return nil }
+    let name = wire.encoding.displayName
+    if let rates = RoutingNetworkWireFormat.supportedSampleRates(for: wire.encoding),
+      !rates.contains(sampleRate)
+    {
+      let readable = rates.map { "\(Int($0 / 1_000)) kHz" }.joined(separator: ", ")
+      return "\(name) carries \(readable). Choose one of those below, or send uncompressed."
+    }
+    let counts = RoutingNetworkWireFormat.supportedChannelCounts(for: wire.encoding) ?? []
+    let readable = counts.map(String.init).joined(separator: ", ")
+    return "\(name) carries \(readable) channels. Choose one of those below, or send "
+      + "uncompressed."
+  }
+
+  private var explanation: String {
+    switch wire.encoding {
+    case .uncompressed:
+      "The samples cross exactly as they are, which costs the most and decodes to what was sent."
+    case .opus:
+      "Compressed by the system's own encoder, in the shortest blocks anything here offers. "
+        + "Measured between two Macs this carried the same audio in a fifteenth of the bytes."
+    case .aacEnhancedLowDelay, .aacLowDelay:
+      "Compressed by the system's own encoder. Carries 44.1 kHz as it is, where Opus would need "
+        + "it converted first, at the cost of a slightly longer block."
+    }
   }
 }

@@ -71,21 +71,6 @@ struct RoutingNetworkJitterControlsTests {
     #expect(try JSONDecoder().decode(RoutingNetworkJitterControls.self, from: encoded) == controls)
   }
 
-  /// A workflow saved before these controls existed has to keep opening.
-  @Test("A receive configuration without jitter controls restores the defaults")
-  func absentControlsRestoreDefaults() throws {
-    let json = """
-      {"port":48620,"sampleRate":48000,"channelCount":2}
-      """
-    let decoded = try JSONDecoder().decode(
-      RoutingNetworkReceiveConfiguration.self,
-      from: Data(json.utf8)
-    )
-
-    #expect(decoded.jitter == .initial)
-    #expect(decoded.port == 48_620)
-  }
-
   /// A hand-edited document must not crash the app, and must not reach the buffer with a value
   /// it would reject.
   @Test(
@@ -109,19 +94,6 @@ struct RoutingNetworkJitterControlsTests {
     #expect(throws: Never.self) { _ = try decoded.resolve() }
   }
 
-  @Test("An unreadable correction falls back rather than failing the whole document")
-  func unknownCorrectionFallsBack() throws {
-    let json = """
-      {"targetMilliseconds":30}
-      """
-    let decoded = try JSONDecoder().decode(
-      RoutingNetworkJitterControls.self,
-      from: Data(json.utf8)
-    )
-
-    #expect(decoded.correction == RoutingNetworkJitterControls.initial.correction)
-    #expect(decoded.targetMilliseconds == 30)
-  }
 }
 
 /// Adopting the sender's format saves the user from matching two machines by hand.
@@ -130,20 +102,6 @@ struct RoutingNetworkJitterControlsTests {
 /// rejects every packet and reports only that nothing arrived.
 @Suite("Routing network automatic format")
 struct RoutingNetworkAutomaticFormatTests {
-  @Test("A workflow saved before the option existed keeps its own format")
-  func absentFlagRestoresManualFormat() throws {
-    let json = """
-      {"port":48620,"sampleRate":48000,"channelCount":2}
-      """
-    let decoded = try JSONDecoder().decode(
-      RoutingNetworkReceiveConfiguration.self,
-      from: Data(json.utf8)
-    )
-
-    #expect(!decoded.adoptsSenderFormat)
-    #expect(decoded.sampleRate == 48_000)
-  }
-
   @Test("The choice round-trips through a saved workflow")
   func choiceSurvivesPersistence() throws {
     let configuration = RoutingNetworkReceiveConfiguration(

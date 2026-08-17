@@ -53,19 +53,6 @@ struct RoutingNetworkAudioSecretTests {
     #expect(String(data: encoded, encoding: .utf8)?.contains("inline") == true)
   }
 
-  @Test("A configuration without a secret still decodes")
-  func absentSecretDecodes() throws {
-    let json = """
-      {"host":"10.0.0.2","port":48620,"sampleRate":48000,"channelCount":2}
-      """
-    let decoded = try JSONDecoder().decode(
-      RoutingNetworkSendConfiguration.self,
-      from: Data(json.utf8)
-    )
-
-    #expect(decoded.secret == nil)
-  }
-
   /// A configuration reaching a log must not carry the key with it.
   @Test("A secret redacts itself when printed")
   func secretRedactsItself() throws {
