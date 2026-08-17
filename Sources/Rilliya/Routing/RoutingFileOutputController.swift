@@ -62,7 +62,7 @@ struct SystemRoutingFileOutputStarter: RoutingFileOutputStarting {
       )
       let renderer = try rendererFactory(preparation)
       let outputURL = try await writer.start()
-      let driver = RoutingPreparedGraphRealtimeDriver(
+      let driver = try RoutingPreparedGraphRealtimeDriver(
         renderer: renderer,
         frameCount: RoutingRealtimeDestinationDefaults.renderQuantumFrameCount,
         failureContext: "file",
@@ -71,7 +71,7 @@ struct SystemRoutingFileOutputStarter: RoutingFileOutputStarting {
         },
         failureHandler: failureHandler
       )
-      driver.start()
+      try driver.start()
       return SystemRoutingFileOutputSession(
         outputURL: outputURL,
         writer: writer,

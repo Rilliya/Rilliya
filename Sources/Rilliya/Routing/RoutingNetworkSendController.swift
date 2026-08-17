@@ -57,7 +57,7 @@ struct SystemRoutingNetworkSendStarter: RoutingNetworkSendStarting {
         maximumFrameCount: RoutingRealtimeDestinationDefaults.renderQuantumFrameCount
       )
       let renderer = try rendererFactory(preparation)
-      let driver = RoutingPreparedGraphRealtimeDriver(
+      let driver = try RoutingPreparedGraphRealtimeDriver(
         renderer: renderer,
         frameCount: RoutingRealtimeDestinationDefaults.renderQuantumFrameCount,
         failureContext: "network",
@@ -68,7 +68,7 @@ struct SystemRoutingNetworkSendStarter: RoutingNetworkSendStarting {
       )
       do {
         try sender.start()
-        driver.start()
+        try driver.start()
         return SystemRoutingNetworkSendSession(
           format: format,
           sender: sender,

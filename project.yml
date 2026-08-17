@@ -10,8 +10,7 @@ options:
 
 packages:
   RilliyaKit:
-    url: https://github.com/Rilliya/RilliyaKit.git
-    exactVersion: 0.1.0-prealpha.1
+    path: ../RilliyaKit
   FlowingDayUI:
     url: https://github.com/cocoa-xu/flowing-day-ui.git
     exactVersion: 2.5.0
