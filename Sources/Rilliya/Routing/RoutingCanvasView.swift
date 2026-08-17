@@ -1042,26 +1042,29 @@ struct RoutingCanvasView: View {
       SelectedFileOutputInspector(
         configuration: configuration,
         state: fileOutputController.state(for: node.id),
-        onRetry: { fileOutputController.retry(nodeID: node.id) }
-      ) { updated in
-        workspace.configureFileOutput(updated, for: node.id)
-      }
+        onRetry: { fileOutputController.retry(nodeID: node.id) },
+        updateConfiguration: { updated in
+          workspace.configureFileOutput(updated, for: node.id)
+        }
+      )
     case .networkSend(let configuration):
       SelectedNetworkSendInspector(
         configuration: configuration,
         state: networkSendController.state(for: node.id),
-        onRetry: { networkSendController.retry(nodeID: node.id) }
-      ) { updated in
-        workspace.configureNetworkSend(updated, for: node.id)
-      }
+        onRetry: { networkSendController.retry(nodeID: node.id) },
+        updateConfiguration: { updated in
+          workspace.configureNetworkSend(updated, for: node.id)
+        }
+      )
     case .networkReceive(let configuration):
       SelectedNetworkReceiveInspector(
         configuration: configuration,
         state: networkReceiveController.state(for: node.id),
-        onRetry: { networkReceiveController.retry(nodeID: node.id) }
-      ) { updated in
-        workspace.configureNetworkReceive(updated, for: node.id)
-      }
+        onRetry: { networkReceiveController.retry(nodeID: node.id) },
+        updateConfiguration: { updated in
+          workspace.configureNetworkReceive(updated, for: node.id)
+        }
+      )
     case .delay(let configuration):
       SelectedDelayInspector(configuration: configuration) { updated in
         workspace.configureDelay(updated, for: node.id)

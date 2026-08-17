@@ -49,12 +49,20 @@ struct RoutingNodeFailureTests {
     #expect(RoutingNodeFailure(error).summary == expected)
   }
 
-  @Test(arguments: [
-    (DeviceInputCaptureError.permissionDenied, "Permission denied"),
-    (DeviceInputCaptureError.deviceUnavailable(AudioDeviceIDFixture.value), "Device unavailable"),
-  ])
-  func inputCaptureFailuresArePhrasedByCause(error: DeviceInputCaptureError, expected: String) {
-    #expect(RoutingNodeFailure(error).summary == expected)
+  @Test
+  func inputCapturePermissionDenialIsPhrasedByCause() {
+    #expect(
+      RoutingNodeFailure(DeviceInputCaptureError.permissionDenied).summary
+        == "Permission denied")
+  }
+
+  @Test
+  func inputCaptureDeviceLossIsPhrasedByCause() throws {
+    let deviceID = try #require(AudioDeviceID(rawValue: "fixture-device"))
+
+    #expect(
+      RoutingNodeFailure(DeviceInputCaptureError.deviceUnavailable(deviceID)).summary
+        == "Device unavailable")
   }
 
   @Test
@@ -77,8 +85,4 @@ private enum UnrecognizedTestError: Error, LocalizedError {
   case somethingElse
 
   var errorDescription: String? { "Something outside the recognized causes went wrong." }
-}
-
-private enum AudioDeviceIDFixture {
-  static let value = AudioDeviceID(rawValue: "fixture-device")!
 }
