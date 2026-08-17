@@ -449,9 +449,13 @@ final class RoutingAudioOutputController {
               sourceFailure = upstreamFailure
             }
           case .filePlayback:
-            source = filePlaybackController.frameBuffer(for: node.id).map {
-              .throttledFrameBuffer($0)
-            }
+            source = captureCursorCache.resolvedSource(
+              for: node.id,
+              consumerID: outputNode.id,
+              provider: filePlaybackController,
+              activeKeys: &candidateCaptureCursorKeys,
+              failure: &sourceFailure
+            )
             if case .failed(let upstreamFailure) = filePlaybackController.state(for: node.id) {
               sourceFailure = upstreamFailure
             }

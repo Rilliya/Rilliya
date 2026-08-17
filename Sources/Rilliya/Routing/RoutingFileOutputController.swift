@@ -413,9 +413,13 @@ final class RoutingFileOutputController {
               failure = sourceFailure
             }
           case .filePlayback:
-            source = filePlaybackController.frameBuffer(for: node.id).map {
-              .throttledFrameBuffer($0)
-            }
+            source = captureCursorCache.resolvedSource(
+              for: node.id,
+              consumerID: outputNode.id,
+              provider: filePlaybackController,
+              activeKeys: &candidateCaptureCursorKeys,
+              failure: &failure
+            )
             if case .failed(let sourceFailure) = filePlaybackController.state(for: node.id) {
               failure = sourceFailure
             }
@@ -531,7 +535,10 @@ final class RoutingFileOutputController {
           case .systemOutput:
             buffer = outputCaptureController.frameBuffer(for: node.id)
           case .filePlayback:
-            buffer = filePlaybackController.frameBuffer(for: node.id)
+            buffer = nil
+            if let identity = filePlaybackController.captureSessionIdentity(for: node.id) {
+              result.insert(identity)
+            }
           case .networkReceive:
             // Answered from the session rather than a queue: asking for a queue would claim one of
             // this stream's destinations and give it straight back.

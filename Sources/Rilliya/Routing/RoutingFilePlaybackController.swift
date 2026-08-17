@@ -25,7 +25,12 @@ enum RoutingFilePlaybackRequirement: Equatable, Sendable {
 
 protocol RoutingFilePlaybackSession: AnyObject, Sendable {
   var sourceDescription: AudioFileDescription { get }
-  var frameBuffer: AudioRealtimeFrameBuffer { get }
+
+  /// Claims one destination's queue.
+  ///
+  /// Every destination gets its own, and the file advances no faster than the furthest behind: a
+  /// file owes each destination the same sequence, so falling behind means being owed audio.
+  func subscribe() throws -> AudioRealtimeFrameSubscription
 
   /// What the file currently sounds like, per channel.
   ///
@@ -83,14 +88,16 @@ private final class SystemRoutingFilePlaybackSession: RoutingFilePlaybackSession
   @unchecked Sendable
 {
   let sourceDescription: AudioFileDescription
-  let frameBuffer: AudioRealtimeFrameBuffer
 
   private let stream: AudioFileFrameStream
 
   init(stream: AudioFileFrameStream) {
     self.stream = stream
     sourceDescription = stream.sourceDescription
-    frameBuffer = stream.frameBuffer
+  }
+
+  func subscribe() throws -> AudioRealtimeFrameSubscription {
+    try stream.subscribe()
   }
 
   func meterSnapshot() -> [AudioChannelMeterSnapshot] {
@@ -159,12 +166,26 @@ final class RoutingFilePlaybackController {
     }
   }
 
-  func frameBuffer(for nodeID: UUID) -> AudioRealtimeFrameBuffer? {
+  /// Identifies the stream behind this node without claiming a destination.
+  ///
+  /// Claiming one to answer a question about identity would give the slot straight back, leaving
+  /// whoever kept the queue reading one that had been handed to somebody else.
+  func captureSessionIdentity(for nodeID: UUID) -> ObjectIdentifier? {
     switch states[nodeID] {
     case .streaming, .completed:
-      runningSessions[nodeID]?.session.frameBuffer
+      runningSessions[nodeID].map { ObjectIdentifier($0.session) }
     case .idle, .preparing, .failed, .none:
       nil
+    }
+  }
+
+  func captureSource(for nodeID: UUID) throws -> RoutingRealtimeCaptureSource? {
+    switch states[nodeID] {
+    case .streaming, .completed:
+      guard let session = runningSessions[nodeID]?.session else { return nil }
+      return .throttledSubscription(try session.subscribe())
+    case .idle, .preparing, .failed, .none:
+      return nil
     }
   }
 

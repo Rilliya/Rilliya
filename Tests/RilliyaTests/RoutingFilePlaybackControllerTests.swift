@@ -25,7 +25,7 @@ struct RoutingFilePlaybackControllerTests {
         return false
       }
     )
-    #expect(controller.frameBuffer(for: nodeID) != nil)
+    #expect(try controller.captureSource(for: nodeID) != nil)
     #expect(await starter.currentStartCount() == 1)
 
     controller.reconcile(requirements: [nodeID: .ready(request)])
@@ -52,7 +52,7 @@ struct RoutingFilePlaybackControllerTests {
     }
     await starter.release()
 
-    #expect(await eventually { controller.frameBuffer(for: nodeID) != nil })
+    #expect(await eventually { (try? controller.captureSource(for: nodeID)) ?? nil != nil })
     #expect(await starter.currentStartCount() == 1)
     #expect(await starter.currentStopCount() == 0)
   }
@@ -199,6 +199,74 @@ struct RoutingFilePlaybackControllerTests {
     }
     return await predicate()
   }
+  /// One file reaching several destinations, which is what the canvas lets a reader draw.
+  ///
+  /// A file source used to hand every destination the same queue, so whichever read first took the
+  /// audio and the second could only be refused.
+  @Test @MainActor
+  func destinationsOfOneFileEachGetTheirOwnQueue() async throws {
+    let nodeID = UUID()
+    let controller = RoutingFilePlaybackController(starter: FakeRoutingFilePlaybackStarter())
+    controller.reconcile(
+      requirements: [
+        nodeID: .ready(
+          RoutingFilePlaybackRequest(
+            url: URL(fileURLWithPath: "/tmp/test.caf"),
+            sampleRate: 48_000,
+            loopMode: .once
+          )
+        )
+      ]
+    )
+    #expect(await eventually { (try? controller.captureSource(for: nodeID)) ?? nil != nil })
+
+    let one = try #require(try controller.captureSource(for: nodeID))
+    let other = try #require(try controller.captureSource(for: nodeID))
+    #expect(one.identity != other.identity, "two destinations were handed the same queue")
+
+    // A file owes each destination the same sequence, so a backlog is audio still owed and
+    // trimming it would skip the file rather than catch anything up.
+    #expect(one.discardOldestFrames(keepingLatest: 0) == 0)
+  }
+
+  /// A graph rebuild must not spend a destination, or playback stops after a few of them.
+  @Test @MainActor
+  func repeatedRebuildsDoNotSpendFileDestinations() async throws {
+    let nodeID = UUID()
+    let consumer = UUID()
+    let controller = RoutingFilePlaybackController(starter: FakeRoutingFilePlaybackStarter())
+    controller.reconcile(
+      requirements: [
+        nodeID: .ready(
+          RoutingFilePlaybackRequest(
+            url: URL(fileURLWithPath: "/tmp/test.caf"),
+            sampleRate: 48_000,
+            loopMode: .once
+          )
+        )
+      ]
+    )
+    #expect(await eventually { (try? controller.captureSource(for: nodeID)) ?? nil != nil })
+
+    var cache = RoutingCaptureCursorCache()
+    var identities: Set<ObjectIdentifier> = []
+    for _ in 0..<50 {
+      var activeKeys = Set<RoutingCaptureCursorKey>()
+      var failure: RoutingNodeFailure?
+      let source = cache.resolvedSource(
+        for: nodeID,
+        consumerID: consumer,
+        provider: controller,
+        activeKeys: &activeKeys,
+        failure: &failure
+      )
+      #expect(failure == nil, "a rebuild ran out of destinations")
+      identities.insert(try #require(source).identity)
+      cache.retain(activeKeys)
+    }
+    #expect(identities.count == 1, "one consumer was handed \(identities.count) destinations")
+  }
+
 }
 
 private actor FakeRoutingFilePlaybackStarter: RoutingFilePlaybackStarting {
@@ -245,16 +313,17 @@ private actor FakeRoutingFilePlaybackStarter: RoutingFilePlaybackStarting {
       channelCount: 1,
       frameCount: 4
     )
-    let buffer = try AudioRealtimeFrameBuffer(
+    let distributor = try AudioRealtimeFrameDistributor(
       format: AudioProcessingFormat(sampleRate: request.sampleRate, channelCount: 1),
-      capacityFrameCount: 8
+      capacityFrameCount: 8,
+      maximumSubscriberCount: 4
     )
     if completesBeforeReturning {
       eventHandler(.completed)
     }
     return FakeRoutingFilePlaybackSession(
       sourceDescription: description,
-      frameBuffer: buffer
+      distributor: distributor
     ) { [self] in
       await recordStop()
     }
@@ -273,12 +342,16 @@ private actor FakeRoutingFilePlaybackStarter: RoutingFilePlaybackStarting {
 
 private actor FakeRoutingFilePlaybackSession: RoutingFilePlaybackSession {
   nonisolated let sourceDescription: AudioFileDescription
-  nonisolated let frameBuffer: AudioRealtimeFrameBuffer
+  nonisolated let distributor: AudioRealtimeFrameDistributor
   /// What a fake file sounds like, which the tests here do not exercise.
   nonisolated let meterChannels: [AudioChannelMeterSnapshot] = []
   private let handler = OSAllocatedUnfairLock<
     (@Sendable ([AudioChannelMeterSnapshot]) -> Void)?
   >(initialState: nil)
+
+  nonisolated func subscribe() throws -> AudioRealtimeFrameSubscription {
+    try distributor.subscribe()
+  }
 
   nonisolated func meterSnapshot() -> [AudioChannelMeterSnapshot] { meterChannels }
 
@@ -296,11 +369,11 @@ private actor FakeRoutingFilePlaybackSession: RoutingFilePlaybackSession {
 
   init(
     sourceDescription: AudioFileDescription,
-    frameBuffer: AudioRealtimeFrameBuffer,
+    distributor: AudioRealtimeFrameDistributor,
     stopHandler: @escaping @Sendable () async -> Void
   ) {
     self.sourceDescription = sourceDescription
-    self.frameBuffer = frameBuffer
+    self.distributor = distributor
     self.stopHandler = stopHandler
   }
 

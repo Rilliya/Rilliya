@@ -30,13 +30,20 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
   case throttledFrameBuffer(AudioRealtimeFrameBuffer)
 
   case subscription(AudioRealtimeFrameSubscription)
+
+  /// A subscription whose producer waits for it, such as one destination of a file.
+  ///
+  /// Reads like any other subscription and discards like none of them: the producer paces itself
+  /// against this queue, so a backlog here is audio still owed rather than audio arriving late.
+  case throttledSubscription(AudioRealtimeFrameSubscription)
   case jitterBuffer(AudioJitterBuffer)
 
   var format: AudioProcessingFormat {
     switch self {
     case .frameBuffer(let frameBuffer), .throttledFrameBuffer(let frameBuffer):
       frameBuffer.format
-    case .subscription(let subscription): subscription.format
+    case .subscription(let subscription), .throttledSubscription(let subscription):
+      subscription.format
     case .jitterBuffer(let jitterBuffer): jitterBuffer.frameBuffer.format
     }
   }
@@ -45,7 +52,8 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
     switch self {
     case .frameBuffer(let frameBuffer), .throttledFrameBuffer(let frameBuffer):
       frameBuffer.capacityFrameCount
-    case .subscription(let subscription): subscription.capacityFrameCount
+    case .subscription(let subscription), .throttledSubscription(let subscription):
+      subscription.capacityFrameCount
     case .jitterBuffer(let jitterBuffer): jitterBuffer.frameBuffer.capacityFrameCount
     }
   }
@@ -54,7 +62,8 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
     switch self {
     case .frameBuffer(let frameBuffer), .throttledFrameBuffer(let frameBuffer):
       ObjectIdentifier(frameBuffer)
-    case .subscription(let subscription): ObjectIdentifier(subscription)
+    case .subscription(let subscription), .throttledSubscription(let subscription):
+      ObjectIdentifier(subscription)
     case .jitterBuffer(let jitterBuffer): ObjectIdentifier(jitterBuffer.frameBuffer)
     }
   }
@@ -63,7 +72,7 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
     switch self {
     case .frameBuffer, .throttledFrameBuffer, .jitterBuffer:
       true
-    case .subscription(let subscription):
+    case .subscription(let subscription), .throttledSubscription(let subscription):
       subscription.statistics().isActive
     }
   }
@@ -75,7 +84,7 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
       frameBuffer.discardOldestFrames(keepingLatest: retainedFrameCount)
     case .subscription(let subscription):
       subscription.discardOldestFrames(keepingLatest: retainedFrameCount)
-    case .throttledFrameBuffer:
+    case .throttledFrameBuffer, .throttledSubscription:
       // The producer waits for this consumer, so a backlog is audio still owed, not lag.
       0
     case .jitterBuffer:
@@ -97,7 +106,7 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
       case .invalidFrameCount: return .invalidFrameCount
       case .insufficientChannels: return .insufficientChannels
       }
-    case .subscription(let subscription):
+    case .subscription(let subscription), .throttledSubscription(let subscription):
       switch subscription.read(into: outputChannels, frameCount: frameCount) {
       case .read: return .rendered
       case .inactive:
@@ -163,6 +172,7 @@ extension RoutingCaptureController: RoutingCaptureSourceProviding {}
 extension RoutingInputCaptureController: RoutingCaptureSourceProviding {}
 extension RoutingOutputCaptureController: RoutingCaptureSourceProviding {}
 extension RoutingNetworkReceiveController: RoutingCaptureSourceProviding {}
+extension RoutingFilePlaybackController: RoutingCaptureSourceProviding {}
 
 extension RoutingCaptureCursorCache {
   @MainActor
