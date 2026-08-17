@@ -120,6 +120,9 @@ private struct RoutingAudioOutputRequest: Sendable {
   let nodes: [RoutingWorkspaceNode]
   let edges: [RoutingWorkspaceEdge]
   let captureSources: [UUID: RoutingRealtimeCaptureSource]
+
+  /// Where a node measured inside the graph reports what it sounds like.
+  let meterHandler: RoutingPreparedAudioGraphSource.MeterHandler?
 }
 
 private enum RoutingAudioOutputPlan {
@@ -297,7 +300,8 @@ final class RoutingAudioOutputController {
           nodes: request.nodes,
           edges: request.edges,
           outputNodeID: outputNodeID,
-          captureSources: request.captureSources
+          captureSources: request.captureSources,
+          meterHandler: request.meterHandler
         )
         rendererHolder.store(renderer)
         return renderer
@@ -535,7 +539,8 @@ final class RoutingAudioOutputController {
             signature: signature,
             nodes: sortedNodes,
             edges: sortedEdges,
-            captureSources: captureSources
+            captureSources: captureSources,
+            meterHandler: RoutingSignalGeneratorMeterController.shared.meterHandler()
           )
         )
         activeCaptureCursorKeys.formUnion(candidateCaptureCursorKeys)

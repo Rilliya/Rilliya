@@ -1,4 +1,5 @@
 import Foundation
+import RilliyaCore
 import RilliyaDSP
 import RilliyaRealtime
 
@@ -211,6 +212,9 @@ final class RoutingPreparedAudioGraphSource: PreparedAudioSource, @unchecked Sen
   private let operations: [RoutingPreparedAudioOperation]
   private let finalMix: RoutingPreparedMixOperation
 
+  /// Receives what a node made inside the graph sounds like, off the audio thread.
+  typealias MeterHandler = @Sendable (UUID, [AudioChannelMeterSnapshot]) -> Void
+
   convenience init(
     preparation: AudioRenderPreparation,
     nodes: [RoutingWorkspaceNode],
@@ -235,7 +239,8 @@ final class RoutingPreparedAudioGraphSource: PreparedAudioSource, @unchecked Sen
     edges: [RoutingWorkspaceEdge],
     outputNodeID: UUID,
     captureSources: [UUID: RoutingRealtimeCaptureSource],
-    resourceBudget: RoutingAudioGraphResourceBudget = .standard
+    resourceBudget: RoutingAudioGraphResourceBudget = .standard,
+    meterHandler: MeterHandler? = nil
   ) throws {
     let enabledEdges = edges.filter(\.isEnabled)
     try resourceBudget.validateTopology(
@@ -268,7 +273,8 @@ final class RoutingPreparedAudioGraphSource: PreparedAudioSource, @unchecked Sen
           try RoutingPreparedSignalGenerator(
             plan: generator,
             preparation: preparation,
-            storage: storage
+            storage: storage,
+            meterHandler: meterHandler
           )
         )
       case .captureRead(let captureRead):
@@ -379,6 +385,7 @@ private struct RoutingPreparedCaptureConversion {
 }
 
 private struct RoutingSignalGeneratorPlan {
+  let nodeID: UUID
   let configuration: RoutingSignalGeneratorConfiguration
   let outputBufferIndex: Int
 }
@@ -632,6 +639,7 @@ private struct RoutingPreparedAudioGraphCompiler {
     operationPlans.append(
       .generator(
         RoutingSignalGeneratorPlan(
+          nodeID: nodeID,
           configuration: configuration,
           outputBufferIndex: outputBufferIndex
         )
@@ -1085,10 +1093,18 @@ private final class RoutingPreparedSignalGenerator {
   private let source: PreparedAudioSignalGeneratorSource
   private let outputs: RoutingPreparedPointerList
 
+  /// A generator is the one source with nothing outside the graph to measure.
+  ///
+  /// Its samples are made as they are played, so the only place that has them is the thread that
+  /// rendered them. Measuring happens there and the drawing is delivered elsewhere, which is the
+  /// whole reason ``AudioRealtimeMeter`` exists.
+  private let meter: AudioRealtimeMeter?
+
   init(
     plan: RoutingSignalGeneratorPlan,
     preparation: AudioRenderPreparation,
-    storage: RoutingPreparedAudioStorage
+    storage: RoutingPreparedAudioStorage,
+    meterHandler: RoutingPreparedAudioGraphSource.MeterHandler? = nil
   ) throws {
     source = try PreparedAudioSignalGeneratorSource(
       preparation: AudioRenderPreparation(
@@ -1108,10 +1124,29 @@ private final class RoutingPreparedSignalGenerator {
       bufferIndices: [plan.outputBufferIndex],
       storage: storage
     )
+    meter = meterHandler.flatMap { handler in
+      AudioChannelIndex(rawValue: 0).map { index in
+        let nodeID = plan.nodeID
+        return AudioRealtimeMeter(
+          sampleRate: preparation.format.sampleRate,
+          channelIDs: [AudioChannelID(ownerID: .source(.stream(nodeID)), index: index)],
+          configuration: AudioRealtimeMeterConfiguration(),
+          snapshotHandler: { _, _, channels in handler(nodeID, channels) }
+        )
+      }
+    }
+  }
+
+  deinit {
+    meter?.stopPublishing()
   }
 
   func render(frameCount: Int) -> AudioRenderResult {
-    source.render(outputChannels: outputs.mutableBuffer, frameCount: frameCount)
+    let result = source.render(outputChannels: outputs.mutableBuffer, frameCount: frameCount)
+    if case .rendered = result {
+      meter?.consume(planar: outputs.mutableBuffer, frameCount: frameCount)
+    }
+    return result
   }
 }
 

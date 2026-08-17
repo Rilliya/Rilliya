@@ -1125,7 +1125,10 @@ struct RoutingCanvasView: View {
     if let snapshot = networkReceiveController.snapshot(for: nodeID) {
       return snapshot
     }
-    return filePlaybackController.snapshot(for: nodeID)
+    if let snapshot = filePlaybackController.snapshot(for: nodeID) {
+      return snapshot
+    }
+    return RoutingSignalGeneratorMeterController.shared.snapshot(for: nodeID)
   }
 
   private var audioSignalResolver: RoutingAudioSignalResolver {

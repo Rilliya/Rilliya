@@ -56,22 +56,35 @@ struct RoutingVisualizerSourceKindTests {
     #expect(Set(signals.map(\.channelIndex)) == [0, 1])
   }
 
-  /// Stated rather than hidden.
+  /// A generator has no producer outside the graph, and is drawn anyway.
   ///
-  /// A signal generator has no producer to meter: it is made inside the graph as that renders, so
-  /// there is nothing running to read when nothing downstream is pulling. A visualizer behind one
-  /// still shows the placeholder. This is what will fail when it gains a way to be drawn and the
-  /// gate is not opened with it.
-  @Test("A source with nothing to meter draws nothing yet")
-  func unmeteredSourcesDrawNothing() throws {
+  /// Its samples are made as they are played, so the graph rendering them measures and reports;
+  /// what arrives is the same per-channel snapshot every other source delivers, which is why the
+  /// visualizer needs to know nothing about where it came from.
+  @Test("A generator measured by the graph draws like any other source")
+  func aGeneratorMeasuredByTheGraphDraws() throws {
     let generator = Self.resolve(source: .signalGenerator(configuration: .initial))
+
+    #expect(!generator.isEmpty, "a generator the graph measured drew nothing")
+  }
+
+  /// A node nothing has measured draws nothing rather than silence: one that has not started is
+  /// not the same as one that started and is quiet.
+  @Test("A source nothing has measured draws nothing")
+  func unmeasuredSourcesDrawNothing() throws {
+    let generator = Self.resolve(
+      source: .signalGenerator(configuration: .initial),
+      snapshotForNode: { _ in nil }
+    )
 
     #expect(generator.isEmpty)
   }
 
   /// Resolves what a visualizer fed by `source` would be given to draw.
-  private static func resolve(source value: RoutingNodeValue) -> [RoutingResolvedAudioChannelSignal]
-  {
+  private static func resolve(
+    source value: RoutingNodeValue,
+    snapshotForNode: ((UUID) -> (any RoutingAudioMeterSnapshot)?)? = nil
+  ) -> [RoutingResolvedAudioChannelSignal] {
     let sourceNode = RoutingWorkspaceNode(id: sourceID, value: value, frame: .zero)
     let visualizer = RoutingWorkspaceNode(
       id: visualizerID,
@@ -93,7 +106,7 @@ struct RoutingVisualizerSourceKindTests {
     let resolver = RoutingAudioSignalResolver(
       nodes: [sourceNode, visualizer],
       activeEdges: [edge],
-      snapshotForNode: { $0 == sourceID ? snapshot : nil }
+      snapshotForNode: snapshotForNode ?? { $0 == sourceID ? snapshot : nil }
     )
     return resolver.resolveOutput(
       RoutingWorkspacePortAddress(
