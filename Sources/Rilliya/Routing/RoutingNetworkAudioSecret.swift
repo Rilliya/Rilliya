@@ -1,55 +1,80 @@
 import Foundation
 import RilliyaNetworkAudio
 
-/// Where a network audio node's shared key lives.
+/// Which source holds a network audio node's shared key, and what that source needs to find it.
 ///
-/// The case is tagged in the saved workflow so a store can be added without rewriting the
-/// documents users already have. `inline` keeps the key in the workflow file itself, which is
-/// convenient but leaves it readable by anything that can read the file; `keychain` keeps only a
-/// reference, so the file can be copied or shared without carrying the key with it.
-enum RoutingNetworkAudioSecret: Codable, Equatable, Hashable, Sendable {
-  case inline(base64: String)
-  case keychain(reference: String)
+/// Open on purpose. The source is named rather than enumerated, so one nobody here wrote works
+/// exactly as the two built in do: a key released after a sign-in, one held by a key management
+/// service, one derived per account. See ``RoutingNetworkAudioKeySource``.
+///
+/// The parameters mean nothing to anything but the source that wrote them. A key itself only
+/// appears in them when the source is the workflow file, which is the one that keeps it there.
+struct RoutingNetworkAudioSecret: Codable, Equatable, Hashable, Sendable {
+  /// Which source this key came from, matching ``RoutingNetworkAudioKeySource/id``.
+  let sourceID: String
 
-  /// Generates a key and puts it where `store` asks for.
-  static func generated(in store: RoutingNetworkAudioSecretStore) throws
-    -> RoutingNetworkAudioSecret
-  {
-    try store.save(NetworkAudioSharedKey.random())
+  /// What that source needs in order to find the key again.
+  let parameters: [String: String]
+
+  init(sourceID: String, parameters: [String: String]) {
+    self.sourceID = sourceID
+    self.parameters = parameters
   }
 
-  /// The key text the document itself carries, which a Keychain-backed secret does not.
+  /// Generates a key and asks `source` to keep it.
+  static func generated(
+    in source: any RoutingNetworkAudioKeySource
+  ) throws -> RoutingNetworkAudioSecret {
+    try stored(NetworkAudioSharedKey.random(), in: source)
+  }
+
+  /// Asks `source` to keep a key the person already has.
+  static func stored(
+    _ key: NetworkAudioSharedKey,
+    in source: any RoutingNetworkAudioKeySource
+  ) throws -> RoutingNetworkAudioSecret {
+    guard source.acceptsProvidedKeys else {
+      throw RoutingNetworkAudioKeySourceError.cannotStoreKeys(sourceID: source.id)
+    }
+    return RoutingNetworkAudioSecret(
+      sourceID: source.id,
+      parameters: try source.store(key)
+    )
+  }
+
+  /// The key text the document itself carries, which only the workflow-file source has.
   var inlineBase64: String? {
-    switch self {
-    case .inline(let base64): base64
-    case .keychain: nil
-    }
+    sourceID == RoutingInlineKeySource.identifier ? parameters["base64"] : nil
   }
 
-  /// Reads the key, or throws when it is not where the document says it is.
-  func resolve() throws -> NetworkAudioSharedKey {
-    switch self {
-    case .inline(let base64): try NetworkAudioSharedKey(base64Encoded: base64)
-    case .keychain(let reference): try RoutingNetworkAudioKeychain.read(reference: reference)
-    }
+  /// What a run asks for its key, built by whichever source this names.
+  @MainActor
+  func provider() throws -> any NetworkAudioKeyProvider {
+    try RoutingNetworkAudioKeySourceRegistry.shared
+      .require(sourceID)
+      .provider(for: parameters)
   }
 
-  /// The text the user copies to the other machine, read from wherever the key lives.
-  func revealBase64() throws -> String {
-    try resolve().base64EncodedString
+  /// The text the person copies to the other machine, or `nil` when there is nothing to copy.
+  @MainActor
+  func revealBase64() throws -> String? {
+    try RoutingNetworkAudioKeySourceRegistry.shared
+      .require(sourceID)
+      .revealBase64(for: parameters)
   }
 
-  /// Whether the key can be read right now.
+  /// Whether the key can be reached right now.
+  @MainActor
   var isValid: Bool {
-    (try? resolve()) != nil
+    (try? provider()) != nil
   }
 
   /// Releases whatever this secret owns outside the document.
+  @MainActor
   func discard() throws {
-    switch self {
-    case .inline: return
-    case .keychain(let reference): try RoutingNetworkAudioKeychain.remove(reference: reference)
-    }
+    try RoutingNetworkAudioKeySourceRegistry.shared
+      .require(sourceID)
+      .discard(for: parameters)
   }
 }
 
@@ -58,36 +83,4 @@ extension RoutingNetworkAudioSecret: CustomStringConvertible, CustomDebugStringC
   var description: String { "RoutingNetworkAudioSecret(redacted)" }
 
   var debugDescription: String { description }
-}
-
-/// Where newly entered keys are put.
-enum RoutingNetworkAudioSecretStore: String, CaseIterable, Codable, Sendable {
-  /// The Keychain, so the workflow file carries only a reference.
-  case keychain
-
-  /// The workflow file, which is readable by anything that can read the file.
-  case inline
-
-  var displayName: String {
-    switch self {
-    case .keychain: "Keychain"
-    case .inline: "Workflow File"
-    }
-  }
-
-  /// Saves a key the user pasted, so a view need not know the library's key type.
-  func save(base64Encoded text: String) throws -> RoutingNetworkAudioSecret {
-    try save(NetworkAudioSharedKey(base64Encoded: text))
-  }
-
-  func save(_ key: NetworkAudioSharedKey) throws -> RoutingNetworkAudioSecret {
-    switch self {
-    case .inline:
-      return .inline(base64: key.base64EncodedString)
-    case .keychain:
-      let reference = RoutingNetworkAudioKeychain.makeReference()
-      try RoutingNetworkAudioKeychain.store(key, reference: reference)
-      return .keychain(reference: reference)
-    }
-  }
 }

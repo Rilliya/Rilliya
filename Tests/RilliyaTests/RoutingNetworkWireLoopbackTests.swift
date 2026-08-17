@@ -146,8 +146,8 @@ struct RoutingNetworkWireLoopbackTests {
     /// Feeds a tone in at the app's render quantum and reads the listener at the same quantum,
     /// paced by a clock, which is what the graph does on both sides.
     func run(seconds: Double) async throws -> Float {
-      if ownsListener { try receiver.start() }
-      try sender.start()
+      if ownsListener { try await receiver.start() }
+      try await sender.start()
 
       let quantum = Fixture.renderQuantum
       let cycles = Int(seconds * Fixture.sampleRate) / quantum

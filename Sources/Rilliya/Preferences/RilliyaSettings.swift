@@ -131,9 +131,9 @@ final class RilliyaSettings {
   /// The Keychain keeps the key out of the workflow file, at the cost of one access prompt per
   /// build whose code signature the Keychain has not seen before. A development build is signed
   /// afresh every time, which is why the workflow file remains an option.
-  var networkAudioSecretStore: RoutingNetworkAudioSecretStore {
+  var networkAudioKeySourceID: String {
     didSet {
-      defaults.set(networkAudioSecretStore.rawValue, forKey: Keys.networkAudioSecretStore)
+      defaults.set(networkAudioKeySourceID, forKey: Keys.networkAudioSecretStore)
     }
   }
 
@@ -182,10 +182,9 @@ final class RilliyaSettings {
         ?? AudioWaveformMeter.defaultUpdatesPerSecond,
       Self.minimumWaveformUpdatesPerSecond
     )
-    networkAudioSecretStore =
+    networkAudioKeySourceID =
       defaults.string(forKey: Keys.networkAudioSecretStore)
-      .flatMap(RoutingNetworkAudioSecretStore.init(rawValue:))
-      ?? .keychain
+      ?? RoutingKeychainKeySource.identifier
     nodeAccentOverrides = Self.decodeNodeAccentOverrides(
       defaults.dictionary(forKey: Keys.nodeAccentOverrides) ?? [:]
     )

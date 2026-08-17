@@ -4,188 +4,207 @@ import Testing
 
 @testable import Rilliya
 
-@Suite("Routing network audio secret")
+/// Where a node's shared key comes from, which is open rather than a choice between two.
+///
+/// The two built in keep a key the person made. Anything else — a key released after a sign-in,
+/// one held by a service — registers itself and works the same way, which is what these check.
+@Suite("Routing network audio secret", .serialized)
+@MainActor
 struct RoutingNetworkAudioSecretTests {
-  @Test("A generated inline secret resolves to a usable key")
-  func generatedSecretResolves() throws {
-    let secret = try RoutingNetworkAudioSecret.generated(in: .inline)
+  private static let inline = RoutingInlineKeySource()
+  private static let keychain = RoutingKeychainKeySource()
 
+  // MARK: Keeping a key
+
+  @Test("A generated secret resolves to a usable key")
+  func generatedSecretResolves() async throws {
+    let secret = try RoutingNetworkAudioSecret.generated(in: Self.inline)
+
+    let key = try await secret.provider().sharedKey()
+    #expect(key.base64EncodedString.count > 0)
     #expect(secret.isValid)
-    #expect(try secret.resolve().base64EncodedString == secret.revealBase64())
   }
 
   @Test("Two generated secrets differ")
-  func generatedSecretsDiffer() throws {
-    #expect(
-      try RoutingNetworkAudioSecret.generated(in: .inline)
-        != RoutingNetworkAudioSecret.generated(in: .inline)
-    )
+  func generatedSecretsDiffer() async throws {
+    let first = try RoutingNetworkAudioSecret.generated(in: Self.inline)
+    let second = try RoutingNetworkAudioSecret.generated(in: Self.inline)
+
+    #expect(try await first.provider().sharedKey() != second.provider().sharedKey())
   }
 
   @Test(
-    "Text that is not a key is refused rather than silently disabling encryption",
-    arguments: ["", "hunter2", "c2hvcnQ="]
+    "Text that is not a whole key is refused",
+    arguments: ["", "not base64!!", "c2hvcnQ="]
   )
   func invalidTextIsRefused(text: String) {
-    let secret = RoutingNetworkAudioSecret.inline(base64: text)
-
-    #expect(!secret.isValid)
-    #expect(throws: (any Error).self) { _ = try secret.resolve() }
-  }
-
-  /// The case is tagged so a store can be added without rewriting saved workflows.
-  @Test("An inline secret round-trips through a saved workflow")
-  func secretSurvivesPersistence() throws {
-    let secret = try RoutingNetworkAudioSecret.generated(in: .inline)
-    let configuration = RoutingNetworkSendConfiguration(
-      host: "10.0.0.2",
-      port: 48_620,
-      sampleRate: 48_000,
-      channelCount: 2,
-      secret: secret
-    )
-
-    let encoded = try JSONEncoder().encode(configuration)
-    let decoded = try JSONDecoder().decode(RoutingNetworkSendConfiguration.self, from: encoded)
-
-    #expect(decoded == configuration)
-    #expect(decoded.secret == secret)
-    #expect(String(data: encoded, encoding: .utf8)?.contains("inline") == true)
-  }
-
-  /// A configuration reaching a log must not carry the key with it.
-  @Test("A secret redacts itself when printed")
-  func secretRedactsItself() throws {
-    let secret = try RoutingNetworkAudioSecret.generated(in: .inline)
-
-    #expect(!"\(secret)".contains(try secret.revealBase64()))
-    #expect("\(secret)".contains("redacted"))
-  }
-
-  /// The point of the Keychain store is that the document stops carrying the key.
-  @Test("A Keychain secret keeps the key out of the workflow file")
-  func keychainSecretIsNotInTheDocument() throws {
-    let secret = RoutingNetworkAudioSecret.keychain(reference: "9F0A-not-a-real-item")
-
-    #expect(secret.inlineBase64 == nil)
-
-    let encoded = try JSONEncoder().encode(secret)
-    let json = try #require(String(data: encoded, encoding: .utf8))
-
-    #expect(json.contains("keychain"))
-    #expect(json.contains("9F0A-not-a-real-item"))
-    #expect(try JSONDecoder().decode(RoutingNetworkAudioSecret.self, from: encoded) == secret)
-  }
-
-  /// A document naming an item that is gone must report it, not decode into a silent plaintext
-  /// stream.
-  @Test("A Keychain secret whose item is missing does not resolve")
-  func missingKeychainItemDoesNotResolve() {
-    let secret = RoutingNetworkAudioSecret.keychain(
-      reference: "absent-\(UUID().uuidString)"
-    )
-
-    #expect(!secret.isValid)
-    #expect(throws: RoutingNetworkAudioKeychainError.notFound) { _ = try secret.resolve() }
-  }
-
-  @Test("Discarding an inline secret leaves nothing to clean up")
-  func discardingInlineSecretSucceeds() throws {
-    #expect(throws: Never.self) {
-      try RoutingNetworkAudioSecret.generated(in: .inline).discard()
+    #expect(throws: (any Error).self) {
+      _ = try RoutingNetworkAudioSecret.stored(
+        try NetworkAudioSharedKey(base64Encoded: text),
+        in: Self.inline
+      )
     }
   }
 
-  @Test("The inline store puts a pasted key in the document")
-  func inlineStoreKeepsTheKeyInTheDocument() throws {
-    let key = NetworkAudioSharedKey.random()
+  // MARK: Where the key ends up
 
-    #expect(
-      try RoutingNetworkAudioSecretStore.inline.save(key)
-        == .inline(base64: key.base64EncodedString))
+  @Test("The workflow-file source keeps the key in the document")
+  func inlineSourceKeepsTheKeyInTheDocument() throws {
+    let secret = try RoutingNetworkAudioSecret.generated(in: Self.inline)
+
+    #expect(secret.sourceID == RoutingInlineKeySource.identifier)
+    #expect(secret.inlineBase64 != nil)
+    // Asked of the decoded document rather than of the encoded text: JSONEncoder escapes a
+    // forward slash, which a base64 key carries about half the time, so a substring search over
+    // the text fails for half of all keys and passes for the other half.
+    let decoded = try JSONDecoder().decode(
+      RoutingNetworkAudioSecret.self,
+      from: try JSONEncoder().encode(secret)
+    )
+    #expect(decoded.parameters["base64"] == secret.inlineBase64)
   }
 
-  @Test(
-    "The Keychain store puts a pasted key outside the document",
-    .enabled(if: KeychainAvailability.isUsable)
-  )
-  func keychainStoreKeepsTheKeyOutOfTheDocument() throws {
-    let key = NetworkAudioSharedKey.random()
-    let stored = try RoutingNetworkAudioSecretStore.keychain.save(key)
-    defer { try? stored.discard() }
-
-    guard case .keychain(let reference) = stored else {
-      Issue.record("the Keychain store produced \(stored)")
+  @Test("The Keychain source keeps the key out of the document")
+  func keychainSourceKeepsTheKeyOutOfTheDocument() async throws {
+    let secret: RoutingNetworkAudioSecret
+    do {
+      secret = try RoutingNetworkAudioSecret.generated(in: Self.keychain)
+    } catch {
+      // A machine without a usable Keychain cannot answer this question either way.
       return
     }
-    #expect(!reference.isEmpty)
-    #expect(stored.inlineBase64 == nil)
-    #expect(try stored.revealBase64() == key.base64EncodedString)
+    defer { try? secret.discard() }
+
+    #expect(secret.sourceID == RoutingKeychainKeySource.identifier)
+    #expect(secret.inlineBase64 == nil, "the key was in the document after all")
+    let key = try await secret.provider().sharedKey()
+    let decoded = try JSONDecoder().decode(
+      RoutingNetworkAudioSecret.self,
+      from: try JSONEncoder().encode(secret)
+    )
+    #expect(!decoded.parameters.values.contains(key.base64EncodedString))
   }
 
-  @Test(
-    "A key stored in the Keychain round-trips and can be removed again",
-    .enabled(if: KeychainAvailability.isUsable)
-  )
-  func keychainRoundTrip() throws {
+  @Test("A Keychain secret whose item is gone does not resolve")
+  func missingKeychainItemDoesNotResolve() {
+    let secret = RoutingNetworkAudioSecret(
+      sourceID: RoutingKeychainKeySource.identifier,
+      parameters: ["reference": "moe.uwucocoa.rilliya.tests.\(UUID().uuidString)"]
+    )
+
+    #expect(!secret.isValid)
+  }
+
+  // MARK: Persistence
+
+  @Test("A secret round-trips through a saved workflow")
+  func secretSurvivesPersistence() async throws {
+    let secret = try RoutingNetworkAudioSecret.generated(in: Self.inline)
+
+    let decoded = try JSONDecoder().decode(
+      RoutingNetworkAudioSecret.self,
+      from: try JSONEncoder().encode(secret)
+    )
+
+    #expect(decoded == secret)
+    #expect(try await decoded.provider().sharedKey() == secret.provider().sharedKey())
+  }
+
+  @Test("A secret redacts itself when printed")
+  func secretRedactsItself() throws {
+    let secret = try RoutingNetworkAudioSecret.generated(in: Self.inline)
+    let key = try #require(secret.inlineBase64)
+
+    #expect(!"\(secret)".contains(key))
+    #expect(!String(reflecting: secret).contains(key))
+  }
+
+  // MARK: A source nobody here wrote
+
+  /// The point of the whole shape: something registered from outside works as the built-in two do.
+  @Test("A registered source supplies a key like any other")
+  func registeredSourceWorks() async throws {
     let key = NetworkAudioSharedKey.random()
-    let reference = RoutingNetworkAudioKeychain.makeReference()
+    let registry = RoutingNetworkAudioKeySourceRegistry(sources: [FetchingSource(key: key)])
+    let source = try registry.require(FetchingSource.identifier)
 
-    try RoutingNetworkAudioKeychain.store(key, reference: reference)
-    #expect(
-      try RoutingNetworkAudioKeychain.read(reference: reference).base64EncodedString
-        == key.base64EncodedString
+    let secret = RoutingNetworkAudioSecret(sourceID: source.id, parameters: ["account": "someone"])
+    let provider = try source.provider(for: secret.parameters)
+
+    #expect(try await provider.sharedKey() == key)
+    #expect(registry.all.map(\.id) == [FetchingSource.identifier])
+  }
+
+  /// A source that fetches its key has nothing to be handed and nothing to copy across.
+  @Test("A fetching source refuses a key and offers nothing to copy")
+  func fetchingSourceHoldsNothing() throws {
+    let source = FetchingSource(key: .random())
+
+    #expect(!source.acceptsProvidedKeys)
+    #expect(try source.revealBase64(for: ["account": "someone"]) == nil)
+    #expect(throws: RoutingNetworkAudioKeySourceError.cannotStoreKeys(sourceID: source.id)) {
+      _ = try RoutingNetworkAudioSecret.stored(.random(), in: source)
+    }
+  }
+
+  /// A document naming a source nothing registered says so rather than losing the reference.
+  @Test("A document naming an unregistered source reports it")
+  func unregisteredSourceIsReported() {
+    let secret = RoutingNetworkAudioSecret(
+      sourceID: "com.example.absent",
+      parameters: [:]
     )
 
-    try RoutingNetworkAudioKeychain.remove(reference: reference)
-    #expect(throws: RoutingNetworkAudioKeychainError.notFound) {
-      _ = try RoutingNetworkAudioKeychain.read(reference: reference)
+    #expect(!secret.isValid)
+    #expect(throws: RoutingNetworkAudioKeySourceError.unknownSource(id: "com.example.absent")) {
+      _ = try secret.provider()
     }
   }
 
-  @Test(
-    "Storing twice under one reference replaces rather than duplicating",
-    .enabled(if: KeychainAvailability.isUsable)
-  )
-  func keychainStoreReplaces() throws {
-    let reference = RoutingNetworkAudioKeychain.makeReference()
-    defer { try? RoutingNetworkAudioKeychain.remove(reference: reference) }
+  @Test("Registering under an identifier already taken replaces it")
+  func registeringReplaces() throws {
+    let registry = RoutingNetworkAudioKeySourceRegistry(sources: [])
+    let first = FetchingSource(key: .random())
+    let second = FetchingSource(key: .random())
 
-    try RoutingNetworkAudioKeychain.store(.random(), reference: reference)
-    let replacement = NetworkAudioSharedKey.random()
-    try RoutingNetworkAudioKeychain.store(replacement, reference: reference)
+    registry.register(first)
+    registry.register(second)
 
-    #expect(
-      try RoutingNetworkAudioKeychain.read(reference: reference).base64EncodedString
-        == replacement.base64EncodedString
-    )
+    #expect(registry.all.count == 1)
+    let resolved = try registry.require(FetchingSource.identifier)
+    #expect(try resolved.provider(for: [:]) is FetchingProvider)
   }
 
-  @Test(
-    "Removing an item that is already gone is not an error",
-    .enabled(if: KeychainAvailability.isUsable)
-  )
-  func keychainRemoveIsIdempotent() throws {
-    #expect(throws: Never.self) {
-      try RoutingNetworkAudioKeychain.remove(reference: "absent-\(UUID().uuidString)")
+  /// Stands in for anything that goes and gets its key — a sign-in, a service, a token.
+  private struct FetchingSource: RoutingNetworkAudioKeySource {
+    static let identifier = "com.example.fetching"
+    let key: NetworkAudioSharedKey
+
+    var id: String { Self.identifier }
+    var displayName: String { "Example Account" }
+    var explanation: String { "Fetches the key for the signed-in account." }
+    var acceptsProvidedKeys: Bool { false }
+
+    func store(_ key: NetworkAudioSharedKey) throws -> [String: String] {
+      throw RoutingNetworkAudioKeySourceError.cannotStoreKeys(sourceID: id)
     }
+
+    func provider(for parameters: [String: String]) throws -> any NetworkAudioKeyProvider {
+      FetchingProvider(key: key)
+    }
+
+    func revealBase64(for parameters: [String: String]) throws -> String? { nil }
+
+    func discard(for parameters: [String: String]) throws {}
   }
 
-}
+  private struct FetchingProvider: NetworkAudioKeyProvider {
+    let key: NetworkAudioSharedKey
 
-/// Whether this machine can exercise the Keychain store.
-///
-/// A locked or absent login Keychain cannot, and leaving those tests unrun there is more honest
-/// than a red build. Probed once, because the probe itself writes.
-enum KeychainAvailability {
-  static let isUsable: Bool = {
-    let probe = RoutingNetworkAudioKeychain.makeReference()
-    do {
-      try RoutingNetworkAudioKeychain.store(.random(), reference: probe)
-      try RoutingNetworkAudioKeychain.remove(reference: probe)
-      return true
-    } catch {
-      return false
+    func sharedKey() async throws -> NetworkAudioSharedKey {
+      // Whatever a real one would do — sign in, call a service — takes time.
+      try await Task.sleep(for: .milliseconds(1))
+      return key
     }
-  }()
+  }
 }

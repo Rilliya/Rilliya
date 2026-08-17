@@ -46,13 +46,14 @@ struct SystemRoutingNetworkReceiveStarter: RoutingNetworkReceiveStarting {
     waveformUpdatesPerSecond: Int,
     failureHandler: @escaping @Sendable (NetworkAudioReceiverError) -> Void
   ) async throws -> any RoutingNetworkReceiveSession {
-    try await Task.detached(priority: .userInitiated) {
-      let sharedKey = try configuration.secret?.resolve()
+    // Built here, on the main actor, because the registry of key sources lives there.
+    let keyProvider = try await MainActor.run { try configuration.secret?.provider() }
+    return try await Task.detached(priority: .userInitiated) {
       let format =
         configuration.adoptsSenderFormat
         ? try await NetworkAudioFormatDiscovery.discover(
           port: configuration.port,
-          sharedKey: sharedKey,
+          keyProvider: keyProvider,
           timeout: SystemRoutingNetworkReceiveStarter.formatDiscoveryTimeout
         )
         : try NetworkAudioStreamFormat(
@@ -65,12 +66,12 @@ struct SystemRoutingNetworkReceiveStarter: RoutingNetworkReceiveStarting {
           format: format,
           jitter: try configuration.jitter.resolve(),
           waveformUpdatesPerSecond: waveformUpdatesPerSecond,
-          sharedKey: sharedKey
+          keyProvider: keyProvider
         ),
         failureHandler: failureHandler
       )
       do {
-        try receiver.start()
+        try await receiver.start()
         return SystemRoutingNetworkReceiveSession(receiver: receiver, format: format)
       } catch {
         receiver.stop()

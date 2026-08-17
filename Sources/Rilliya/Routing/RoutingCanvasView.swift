@@ -7,6 +7,7 @@ import RilliyaCore
 import RilliyaDSP
 import RilliyaFilePlayback
 import RilliyaFileWriting
+import RilliyaNetworkAudio
 import RilliyaVirtualAudio
 import SwiftUI
 import UniformTypeIdentifiers
@@ -1050,7 +1051,7 @@ struct RoutingCanvasView: View {
     case .networkSend(let configuration):
       SelectedNetworkSendInspector(
         configuration: configuration,
-        secretStore: settings.networkAudioSecretStore,
+        keySourceID: settings.networkAudioKeySourceID,
         state: networkSendController.state(for: node.id),
         onRetry: { networkSendController.retry(nodeID: node.id) },
         updateConfiguration: { updated in
@@ -1060,7 +1061,7 @@ struct RoutingCanvasView: View {
     case .networkReceive(let configuration):
       SelectedNetworkReceiveInspector(
         configuration: configuration,
-        secretStore: settings.networkAudioSecretStore,
+        keySourceID: settings.networkAudioKeySourceID,
         state: networkReceiveController.state(for: node.id),
         onRetry: { networkReceiveController.retry(nodeID: node.id) },
         updateConfiguration: { updated in
@@ -6009,7 +6010,7 @@ private func labeledFileOutputControl<Content: View>(
 
 private struct SelectedNetworkSendInspector: View {
   let configuration: RoutingNetworkSendConfiguration
-  let secretStore: RoutingNetworkAudioSecretStore
+  let keySourceID: String
   let state: RoutingNetworkSendState
   let onRetry: () -> Void
   let updateConfiguration: (RoutingNetworkSendConfiguration) -> Void
@@ -6019,13 +6020,13 @@ private struct SelectedNetworkSendInspector: View {
 
   init(
     configuration: RoutingNetworkSendConfiguration,
-    secretStore: RoutingNetworkAudioSecretStore,
+    keySourceID: String,
     state: RoutingNetworkSendState,
     onRetry: @escaping () -> Void,
     updateConfiguration: @escaping (RoutingNetworkSendConfiguration) -> Void
   ) {
     self.configuration = configuration
-    self.secretStore = secretStore
+    self.keySourceID = keySourceID
     self.state = state
     self.onRetry = onRetry
     self.updateConfiguration = updateConfiguration
@@ -6074,7 +6075,7 @@ private struct SelectedNetworkSendInspector: View {
         channelCount: channelCount
       )
 
-      NetworkAudioSecretControls(secret: configuration.secret, store: secretStore) { secret in
+      NetworkAudioSecretControls(secret: configuration.secret, keySourceID: keySourceID) { secret in
         edit { $0.secret = secret }
       }
 
@@ -6179,7 +6180,7 @@ private struct SelectedNetworkSendInspector: View {
 
 private struct SelectedNetworkReceiveInspector: View {
   let configuration: RoutingNetworkReceiveConfiguration
-  let secretStore: RoutingNetworkAudioSecretStore
+  let keySourceID: String
   let state: RoutingNetworkReceiveState
   let onRetry: () -> Void
   let updateConfiguration: (RoutingNetworkReceiveConfiguration) -> Void
@@ -6188,13 +6189,13 @@ private struct SelectedNetworkReceiveInspector: View {
 
   init(
     configuration: RoutingNetworkReceiveConfiguration,
-    secretStore: RoutingNetworkAudioSecretStore,
+    keySourceID: String,
     state: RoutingNetworkReceiveState,
     onRetry: @escaping () -> Void,
     updateConfiguration: @escaping (RoutingNetworkReceiveConfiguration) -> Void
   ) {
     self.configuration = configuration
-    self.secretStore = secretStore
+    self.keySourceID = keySourceID
     self.state = state
     self.onRetry = onRetry
     self.updateConfiguration = updateConfiguration
@@ -6245,7 +6246,7 @@ private struct SelectedNetworkReceiveInspector: View {
         )
       }
 
-      NetworkAudioSecretControls(secret: configuration.secret, store: secretStore) { secret in
+      NetworkAudioSecretControls(secret: configuration.secret, keySourceID: keySourceID) { secret in
         edit { $0.secret = secret }
       }
 
@@ -7167,7 +7168,7 @@ private struct SelectedVisualizerInspector: View {
 /// stated rather than left implied.
 private struct NetworkAudioSecretControls: View {
   let secret: RoutingNetworkAudioSecret?
-  let store: RoutingNetworkAudioSecretStore
+  let keySourceID: String
   let update: (RoutingNetworkAudioSecret?) -> Void
 
   @State private var keyText = ""
@@ -7177,6 +7178,8 @@ private struct NetworkAudioSecretControls: View {
   private enum Availability: Equatable {
     case absent
     case readable(base64: String)
+    /// The source reaches the key itself, so there is nothing to show or carry across.
+    case fetched
     case unreadable(reason: String)
 
     var base64: String? {
@@ -7239,7 +7242,13 @@ private struct NetworkAudioSecretControls: View {
       return
     }
     do {
-      let base64 = try secret.revealBase64()
+      // A source both machines reach on their own has nothing to copy across, which is not a
+      // failure — it is the point of choosing it.
+      guard let base64 = try secret.revealBase64() else {
+        availability = .fetched
+        keyText = ""
+        return
+      }
       availability = .readable(base64: base64)
       keyText = secret.inlineBase64 ?? ""
     } catch {
@@ -7252,14 +7261,21 @@ private struct NetworkAudioSecretControls: View {
     switch availability {
     case .readable where secret?.inlineBase64 == nil:
       "Held in the Keychain"
+    case .fetched:
+      "Fetched for this account"
     case .absent, .readable, .unreadable:
       "Paste the key from the other Mac"
     }
   }
 
+  /// Whether text is a whole key, asked without keeping it anywhere.
+  private static func isWholeKey(_ text: String) -> Bool {
+    (try? NetworkAudioSharedKey(base64Encoded: text)) != nil
+  }
+
   private var validation: FlowingFieldValidation {
     guard !keyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .none }
-    return RoutingNetworkAudioSecret.inline(base64: keyText).isValid
+    return Self.isWholeKey(keyText)
       ? .none
       : .error("Paste the whole key exactly as the other Mac shows it.")
   }
@@ -7267,7 +7283,7 @@ private struct NetworkAudioSecretControls: View {
   private var statusTitle: String {
     switch availability {
     case .absent: "Not encrypted"
-    case .readable: "Encrypted"
+    case .readable, .fetched: "Encrypted"
     case .unreadable: "Key unavailable"
     }
   }
@@ -7275,7 +7291,7 @@ private struct NetworkAudioSecretControls: View {
   private var statusSymbol: String {
     switch availability {
     case .absent: "lock.open"
-    case .readable: "lock.fill"
+    case .readable, .fetched: "lock.fill"
     case .unreadable: "exclamationmark.triangle"
     }
   }
@@ -7283,7 +7299,7 @@ private struct NetworkAudioSecretControls: View {
   private var statusTone: FlowingStatusTone {
     switch availability {
     case .absent: .warning
-    case .readable: .success
+    case .readable, .fetched: .success
     case .unreadable: .warning
     }
   }
@@ -7299,6 +7315,9 @@ private struct NetworkAudioSecretControls: View {
     case .readable:
       "Only a peer holding this key can send or read this audio. The key is in the workflow file, "
         + "so anything that can read the file can read the key."
+    case .fetched:
+      "Only a peer holding this key can send or read this audio. It is fetched when the node "
+        + "starts, so nothing here carries it and there is nothing to copy across."
     case .unreadable(let reason):
       "\(reason) This node cannot start until the key is entered again."
     }
@@ -7306,7 +7325,8 @@ private struct NetworkAudioSecretControls: View {
 
   private func generate() {
     do {
-      let generated = try RoutingNetworkAudioSecret.generated(in: store)
+      let source = try RoutingNetworkAudioKeySourceRegistry.shared.require(keySourceID)
+      let generated = try RoutingNetworkAudioSecret.generated(in: source)
       try secret?.discard()
       update(generated)
     } catch {
@@ -7338,11 +7358,13 @@ private struct NetworkAudioSecretControls: View {
       if secret?.inlineBase64 != nil { update(nil) }
       return
     }
-    guard RoutingNetworkAudioSecret.inline(base64: trimmed).isValid,
-      trimmed != availability.base64
-    else { return }
+    guard Self.isWholeKey(trimmed), trimmed != availability.base64 else { return }
     do {
-      let stored = try store.save(base64Encoded: trimmed)
+      let source = try RoutingNetworkAudioKeySourceRegistry.shared.require(keySourceID)
+      let stored = try RoutingNetworkAudioSecret.stored(
+        try NetworkAudioSharedKey(base64Encoded: trimmed),
+        in: source
+      )
       try secret?.discard()
       update(stored)
     } catch {
@@ -7471,14 +7493,14 @@ private struct NetworkAudioWireControls: View {
         minimumWidth: 164
       )
       .fixedSize(horizontal: false, vertical: true)
-      if let refusal {
-        FlowingCallout(
-          refusal,
-          title: "\(wire.encoding.displayName) cannot carry this format",
-          systemImage: "exclamationmark.triangle",
-          tone: .warning
-        )
-      } else {
+      // TODO: Say that a format cannot be carried, once there is one way of saying it.
+      //
+      // This showed a boxed callout, which looked wrong in a narrow inspector column, and then
+      // plain text, which was no better. Nothing is shown for now. The person is not left without
+      // it: starting the node reports "Format not carried" on the node itself. What is missing is
+      // being told before starting, and the interface plan covers designing one shape for that
+      // rather than a fourth ad-hoc one.
+      if refusal == nil {
         Text(explanation)
           .font(.caption2)
           .foregroundStyle(FlowingPalette.faint)

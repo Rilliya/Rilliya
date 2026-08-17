@@ -219,11 +219,12 @@ private struct RilliyaCanvasPreferencesPane: View {
           title: "Store new keys in",
           caption: "Choose where a generated or pasted shared key is kept.",
           controlWidth: 240,
-          selection: $settings.networkAudioSecretStore,
-          options: [
-            FlowingSegmentOption(.keychain, label: "Keychain"),
-            FlowingSegmentOption(.inline, label: "Workflow File"),
-          ]
+          selection: $settings.networkAudioKeySourceID,
+          // Built from what is registered rather than written down, so a source added by someone
+          // else appears here without this view knowing anything about it.
+          options: RoutingNetworkAudioKeySourceRegistry.shared.all
+            .filter(\.acceptsProvidedKeys)
+            .map { FlowingSegmentOption($0.id, label: $0.displayName) }
         )
       }
 

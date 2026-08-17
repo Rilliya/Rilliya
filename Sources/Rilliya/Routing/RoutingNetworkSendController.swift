@@ -35,7 +35,10 @@ struct SystemRoutingNetworkSendStarter: RoutingNetworkSendStarting {
       RoutingPreparedAudioGraphSource,
     failureHandler: @escaping @Sendable (String) -> Void
   ) async throws -> any RoutingNetworkSendSession {
-    try await Task.detached(priority: .userInitiated) {
+    // Built here, on the main actor, because the registry of key sources lives there. What it
+    // builds is asked for its key later, off this actor, wherever the source needs to go.
+    let keyProvider = try await MainActor.run { try configuration.secret?.provider() }
+    return try await Task.detached(priority: .userInitiated) {
       let format = try NetworkAudioStreamFormat(
         sampleRate: configuration.sampleRate,
         channelCount: configuration.channelCount
@@ -49,7 +52,7 @@ struct SystemRoutingNetworkSendStarter: RoutingNetworkSendStarting {
             ? RoutingRealtimeDestinationDefaults.renderQuantumFrameCount : nil,
           encoding: configuration.wire.encoding.libraryValue,
           opusBitRate: configuration.wire.bitRate,
-          sharedKey: try configuration.secret?.resolve()
+          keyProvider: keyProvider
         )
       ) { error in
         failureHandler(error.localizedDescription)
@@ -72,7 +75,7 @@ struct SystemRoutingNetworkSendStarter: RoutingNetworkSendStarting {
         failureHandler: failureHandler
       )
       do {
-        try sender.start()
+        try await sender.start()
         try driver.start()
         return SystemRoutingNetworkSendSession(
           format: format,
