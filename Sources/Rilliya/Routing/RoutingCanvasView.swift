@@ -4876,8 +4876,16 @@ private struct SelectedAudioMixerInspector: View {
   private var channelCount: Binding<Int> {
     Binding(
       get: { configuration.channelCount },
-      set: { updateConfiguration(RoutingAudioMixerConfiguration(channelCount: $0)) }
+      set: { channelCount in edit { $0.channelCount = channelCount } }
     )
+  }
+
+  /// Edits a copy rather than rebuilding, so a field this control does not know about cannot be
+  /// dropped by editing an unrelated one.
+  private func edit(_ change: (inout RoutingAudioMixerConfiguration) -> Void) {
+    var updated = configuration
+    change(&updated)
+    updateConfiguration(updated)
   }
 }
 
@@ -4943,16 +4951,12 @@ private struct SelectedGainInspector: View {
     Binding(
       get: { configuration.gainDecibels },
       set: { gain in
-        updateConfiguration(
-          RoutingGainConfiguration(
-            gainDecibels: min(
-              max(gain, RoutingGainConfiguration.minimumGainDecibels),
-              RoutingGainConfiguration.maximumGainDecibels
-            ),
-            isMuted: configuration.isMuted,
-            isPolarityInverted: configuration.isPolarityInverted
+        edit {
+          $0.gainDecibels = min(
+            max(gain, RoutingGainConfiguration.minimumGainDecibels),
+            RoutingGainConfiguration.maximumGainDecibels
           )
-        )
+        }
       }
     )
   }
@@ -4960,31 +4964,23 @@ private struct SelectedGainInspector: View {
   private var isMuted: Binding<Bool> {
     Binding(
       get: { configuration.isMuted },
-      set: { isMuted in
-        updateConfiguration(
-          RoutingGainConfiguration(
-            gainDecibels: configuration.gainDecibels,
-            isMuted: isMuted,
-            isPolarityInverted: configuration.isPolarityInverted
-          )
-        )
-      }
+      set: { isMuted in edit { $0.isMuted = isMuted } }
     )
   }
 
   private var isPolarityInverted: Binding<Bool> {
     Binding(
       get: { configuration.isPolarityInverted },
-      set: { isPolarityInverted in
-        updateConfiguration(
-          RoutingGainConfiguration(
-            gainDecibels: configuration.gainDecibels,
-            isMuted: configuration.isMuted,
-            isPolarityInverted: isPolarityInverted
-          )
-        )
-      }
+      set: { isPolarityInverted in edit { $0.isPolarityInverted = isPolarityInverted } }
     )
+  }
+
+  /// Edits a copy rather than rebuilding, so a field this control does not know about cannot be
+  /// dropped by editing an unrelated one.
+  private func edit(_ change: (inout RoutingGainConfiguration) -> Void) {
+    var updated = configuration
+    change(&updated)
+    updateConfiguration(updated)
   }
 }
 
@@ -6060,9 +6056,7 @@ private struct SelectedNetworkSendInspector: View {
       )
 
       NetworkAudioSecretControls(secret: configuration.secret) { secret in
-        var updated = configuration
-        updated.secret = secret
-        updateConfiguration(updated)
+        edit { $0.secret = secret }
       }
 
       FlowingCallout(
@@ -6097,48 +6091,34 @@ private struct SelectedNetworkSendInspector: View {
     return value
   }
 
+  /// Edits a copy rather than rebuilding, so a field this control does not know about — the
+  /// shared key above all — cannot be dropped by editing an unrelated one.
+  private func edit(_ change: (inout RoutingNetworkSendConfiguration) -> Void) {
+    var updated = configuration
+    change(&updated)
+    updateConfiguration(updated)
+  }
+
   private func commitAddress() {
     let host = hostText.trimmingCharacters(in: .whitespacesAndNewlines)
     guard !host.isEmpty, let port = parsedPort else { return }
-    updateConfiguration(
-      RoutingNetworkSendConfiguration(
-        host: host,
-        port: port,
-        sampleRate: configuration.sampleRate,
-        channelCount: configuration.channelCount
-      )
-    )
+    edit {
+      $0.host = host
+      $0.port = port
+    }
   }
 
   private var sampleRate: Binding<Double> {
     Binding(
       get: { configuration.sampleRate },
-      set: { sampleRate in
-        updateConfiguration(
-          RoutingNetworkSendConfiguration(
-            host: configuration.host,
-            port: configuration.port,
-            sampleRate: sampleRate,
-            channelCount: configuration.channelCount
-          )
-        )
-      }
+      set: { sampleRate in edit { $0.sampleRate = sampleRate } }
     )
   }
 
   private var channelCount: Binding<Int> {
     Binding(
       get: { configuration.channelCount },
-      set: { channelCount in
-        updateConfiguration(
-          RoutingNetworkSendConfiguration(
-            host: configuration.host,
-            port: configuration.port,
-            sampleRate: configuration.sampleRate,
-            channelCount: channelCount
-          )
-        )
-      }
+      set: { channelCount in edit { $0.channelCount = channelCount } }
     )
   }
 
@@ -6221,9 +6201,7 @@ private struct SelectedNetworkReceiveInspector: View {
       )
 
       NetworkAudioSecretControls(secret: configuration.secret) { secret in
-        var updated = configuration
-        updated.secret = secret
-        updateConfiguration(updated)
+        edit { $0.secret = secret }
       }
 
       FlowingCallout(
@@ -6253,44 +6231,30 @@ private struct SelectedNetworkReceiveInspector: View {
     return value
   }
 
+  /// Edits a copy rather than rebuilding, so a field this control does not know about — the
+  /// shared key above all — cannot be dropped by editing an unrelated one.
+  private func edit(_ change: (inout RoutingNetworkReceiveConfiguration) -> Void) {
+    var updated = configuration
+    change(&updated)
+    updateConfiguration(updated)
+  }
+
   private func commitPort() {
     guard let port = parsedPort else { return }
-    updateConfiguration(
-      RoutingNetworkReceiveConfiguration(
-        port: port,
-        sampleRate: configuration.sampleRate,
-        channelCount: configuration.channelCount
-      )
-    )
+    edit { $0.port = port }
   }
 
   private var sampleRate: Binding<Double> {
     Binding(
       get: { configuration.sampleRate },
-      set: { sampleRate in
-        updateConfiguration(
-          RoutingNetworkReceiveConfiguration(
-            port: configuration.port,
-            sampleRate: sampleRate,
-            channelCount: configuration.channelCount
-          )
-        )
-      }
+      set: { sampleRate in edit { $0.sampleRate = sampleRate } }
     )
   }
 
   private var channelCount: Binding<Int> {
     Binding(
       get: { configuration.channelCount },
-      set: { channelCount in
-        updateConfiguration(
-          RoutingNetworkReceiveConfiguration(
-            port: configuration.port,
-            sampleRate: configuration.sampleRate,
-            channelCount: channelCount
-          )
-        )
-      }
+      set: { channelCount in edit { $0.channelCount = channelCount } }
     )
   }
 
@@ -7191,3 +7155,4 @@ private struct NetworkAudioSecretControls: View {
     update(candidate)
   }
 }
+

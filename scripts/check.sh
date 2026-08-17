@@ -4,6 +4,7 @@ set -eu
 cd "$(dirname "$0")/.."
 
 ./scripts/check-repository-hygiene.sh
+./scripts/check-configuration-edits.sh
 
 xcrun swift-format lint \
   --configuration .swift-format \
@@ -21,6 +22,7 @@ plutil -lint scripts/release/driver-components.plist
 ./scripts/check-disk-image-assets.sh
 bash -n \
   scripts/check-app-icon-assets.sh \
+  scripts/check-configuration-edits.sh \
   scripts/check-disk-image-assets.sh \
   scripts/generate-app-icon-assets.sh
 
