@@ -79,11 +79,12 @@ struct RoutingAudioSignalResolver {
         return []
       }
       return resolveOutput(edge.source, visited: visited)
-    case .networkReceive:
-      // A stream meters itself, so it draws like any other source. The kinds below still have no
-      // meter of their own, which is why they resolve to nothing rather than to silence.
+    case .networkReceive, .filePlayback:
+      // Both meter themselves, so they draw like any other source. A signal generator has no
+      // producer to meter — it is made inside the graph as it renders — so it still resolves to
+      // nothing rather than to silence.
       return sourceSignals(for: address, node: node)
-    case .peakLevel, .signalGenerator, .filePlayback:
+    case .peakLevel, .signalGenerator:
       return []
     }
   }

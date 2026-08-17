@@ -27,6 +27,12 @@ protocol RoutingFilePlaybackSession: AnyObject, Sendable {
   var sourceDescription: AudioFileDescription { get }
   var frameBuffer: AudioRealtimeFrameBuffer { get }
 
+  /// What the file currently sounds like, per channel.
+  ///
+  /// Reading the queue would take the audio away from whatever is playing it, so what is drawn
+  /// comes from the stream's own meter instead.
+  func meterSnapshot() -> [AudioChannelMeterSnapshot]
+
   func stop() async
 }
 
@@ -81,6 +87,10 @@ private final class SystemRoutingFilePlaybackSession: RoutingFilePlaybackSession
     frameBuffer = stream.frameBuffer
   }
 
+  func meterSnapshot() -> [AudioChannelMeterSnapshot] {
+    stream.meterSnapshot()
+  }
+
   func stop() async {
     await stream.stop()
   }
@@ -109,6 +119,11 @@ final class RoutingFilePlaybackController {
 
   func state(for nodeID: UUID) -> RoutingFilePlaybackState {
     states[nodeID] ?? .idle
+  }
+
+  func snapshot(for nodeID: UUID) -> RoutingFilePlaybackMeterSnapshot? {
+    let channels = runningSessions[nodeID]?.session.meterSnapshot() ?? []
+    return channels.isEmpty ? nil : RoutingFilePlaybackMeterSnapshot(channels: channels)
   }
 
   func frameBuffer(for nodeID: UUID) -> AudioRealtimeFrameBuffer? {
@@ -313,4 +328,9 @@ enum RoutingFilePlaybackRequirementResolver {
     }
     return reachable
   }
+}
+
+/// What a file playback node currently sounds like, in the shape everything that draws audio reads.
+struct RoutingFilePlaybackMeterSnapshot: RoutingAudioMeterSnapshot {
+  let channels: [AudioChannelMeterSnapshot]
 }

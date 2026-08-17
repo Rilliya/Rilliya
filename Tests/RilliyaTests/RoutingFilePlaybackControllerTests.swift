@@ -273,6 +273,10 @@ private actor FakeRoutingFilePlaybackStarter: RoutingFilePlaybackStarting {
 private actor FakeRoutingFilePlaybackSession: RoutingFilePlaybackSession {
   nonisolated let sourceDescription: AudioFileDescription
   nonisolated let frameBuffer: AudioRealtimeFrameBuffer
+  /// What a fake file sounds like, which the tests here do not exercise.
+  nonisolated let meterChannels: [AudioChannelMeterSnapshot] = []
+
+  nonisolated func meterSnapshot() -> [AudioChannelMeterSnapshot] { meterChannels }
 
   private let stopHandler: @Sendable () async -> Void
   private var isStopped = false

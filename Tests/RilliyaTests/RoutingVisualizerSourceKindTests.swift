@@ -47,16 +47,25 @@ struct RoutingVisualizerSourceKindTests {
     #expect(Set(signals.map(\.channelIndex)) == [0, 1])
   }
 
+  /// A file being played meters what it decodes, so a visualizer behind one draws it.
+  @Test("A visualizer draws a file being played")
+  func filePlaybackIsDrawn() throws {
+    let signals = Self.resolve(source: .filePlayback(configuration: .initial))
+
+    #expect(!signals.isEmpty, "the visualizer resolved to nothing")
+    #expect(Set(signals.map(\.channelIndex)) == [0, 1])
+  }
+
   /// Stated rather than hidden.
   ///
-  /// These still have no meter of their own, so a visualizer behind one shows the placeholder.
-  /// This is what will fail when one gains a meter and the gate is not opened with it.
-  @Test("A source with no meter of its own draws nothing yet")
+  /// A signal generator has no producer to meter: it is made inside the graph as that renders, so
+  /// there is nothing running to read when nothing downstream is pulling. A visualizer behind one
+  /// still shows the placeholder. This is what will fail when it gains a way to be drawn and the
+  /// gate is not opened with it.
+  @Test("A source with nothing to meter draws nothing yet")
   func unmeteredSourcesDrawNothing() throws {
-    let playback = Self.resolve(source: .filePlayback(configuration: .initial))
     let generator = Self.resolve(source: .signalGenerator(configuration: .initial))
 
-    #expect(playback.isEmpty)
     #expect(generator.isEmpty)
   }
 
