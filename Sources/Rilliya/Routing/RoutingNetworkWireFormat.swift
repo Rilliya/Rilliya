@@ -1,4 +1,5 @@
 import Foundation
+import RilliyaDSP
 import RilliyaNetworkAudio
 
 /// How a network send node represents its audio on the wire.
@@ -72,6 +73,21 @@ struct RoutingNetworkWireFormat: Codable, Equatable, Hashable, Sendable {
     for encoding: RoutingNetworkWireEncoding
   ) -> [Int]? {
     encoding.codec?.supportedChannelCounts
+  }
+
+  static func resolvedSampleRate(_ sampleRate: Double, for encoding: RoutingNetworkWireEncoding)
+    -> Double
+  {
+    guard let supported = supportedSampleRates(for: encoding) else { return sampleRate }
+    return AudioSampleRateLadder.resolve(input: sampleRate, supported: supported) ?? sampleRate
+  }
+
+  static func resolvedChannelCount(_ channelCount: Int, for encoding: RoutingNetworkWireEncoding)
+    -> Int
+  {
+    guard let supported = supportedChannelCounts(for: encoding), !supported.contains(channelCount)
+    else { return channelCount }
+    return supported.first(where: { $0 >= channelCount }) ?? supported.last ?? channelCount
   }
 
   /// Whether this format can carry audio at `sampleRate` in `channelCount` channels.

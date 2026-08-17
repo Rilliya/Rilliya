@@ -6070,12 +6070,28 @@ private struct SelectedNetworkSendInspector: View {
         sampleRate: configuration.sampleRate,
         channelCount: configuration.channelCount
       ) { wire in
-        edit { $0.wire = wire }
+        edit {
+          $0.wire = wire
+          $0.sampleRate = RoutingNetworkWireFormat.resolvedSampleRate(
+            $0.sampleRate,
+            for: wire.encoding
+          )
+          $0.channelCount = RoutingNetworkWireFormat.resolvedChannelCount(
+            $0.channelCount,
+            for: wire.encoding
+          )
+        }
       }
 
       NetworkAudioFormatControls(
         sampleRate: sampleRate,
-        channelCount: channelCount
+        channelCount: channelCount,
+        sampleRates: RoutingNetworkWireFormat.supportedSampleRates(
+          for: configuration.wire.encoding
+        ),
+        channelCounts: RoutingNetworkWireFormat.supportedChannelCounts(
+          for: configuration.wire.encoding
+        )
       )
 
       NetworkAudioSecretControls(secret: configuration.secret, keySourceID: keySourceID) { secret in
@@ -6370,6 +6386,8 @@ private struct SelectedNetworkReceiveInspector: View {
 private struct NetworkAudioFormatControls: View {
   @Binding var sampleRate: Double
   @Binding var channelCount: Int
+  var sampleRates: [Double]? = nil
+  var channelCounts: [Int]? = nil
 
   var body: some View {
     HStack(alignment: .top, spacing: 12) {
@@ -6377,8 +6395,8 @@ private struct NetworkAudioFormatControls: View {
         FlowingSelect(
           label: "Network sample rate",
           selection: $sampleRate,
-          options: [44_100.0, 48_000.0, 96_000.0].map { rate in
-            FlowingSelectOption(rate, label: "\(Int(rate / 1_000)) kHz")
+          options: (sampleRates ?? [44_100.0, 48_000.0, 96_000.0]).map { rate in
+            FlowingSelectOption(rate, label: Self.sampleRateLabel(rate))
           },
           minimumWidth: 116
         )
@@ -6388,7 +6406,7 @@ private struct NetworkAudioFormatControls: View {
         FlowingSelect(
           label: "Network channel count",
           selection: $channelCount,
-          options: [1, 2, 4, 6, 8].map { count in
+          options: (channelCounts ?? [1, 2, 4, 6, 8]).map { count in
             FlowingSelectOption(count, label: count == 1 ? "Mono" : "\(count) ch")
           },
           minimumWidth: 104
@@ -6396,6 +6414,12 @@ private struct NetworkAudioFormatControls: View {
         .fixedSize(horizontal: false, vertical: true)
       }
     }
+  }
+
+  private static func sampleRateLabel(_ rate: Double) -> String {
+    rate.truncatingRemainder(dividingBy: 1_000) == 0
+      ? "\(Int(rate / 1_000)) kHz"
+      : String(format: "%.2g kHz", rate / 1_000)
   }
 }
 
@@ -7496,19 +7520,21 @@ private struct NetworkAudioWireControls: View {
         minimumWidth: 164
       )
       .fixedSize(horizontal: false, vertical: true)
-      // TODO: Say that a format cannot be carried, once there is one way of saying it.
-      //
-      // This showed a boxed callout, which looked wrong in a narrow inspector column, and then
-      // plain text, which was no better. Nothing is shown for now. The person is not left without
-      // it: starting the node reports "Format not carried" on the node itself. What is missing is
-      // being told before starting, and the interface plan covers designing one shape for that
-      // rather than a fourth ad-hoc one.
-      if refusal == nil {
-        Text(explanation)
-          .font(.caption2)
-          .foregroundStyle(FlowingPalette.faint)
-          .fixedSize(horizontal: false, vertical: true)
+      if usesBitRate {
+        FlowingSelect(
+          label: "Bit rate",
+          selection: bitRate,
+          options: RoutingNetworkWireFormat.bitRates.map {
+            FlowingSelectOption($0, label: "\($0 / 1_000) kbit/s")
+          },
+          minimumWidth: 164
+        )
+        .fixedSize(horizontal: false, vertical: true)
       }
+      Text(explanation)
+        .font(.caption2)
+        .foregroundStyle(FlowingPalette.faint)
+        .fixedSize(horizontal: false, vertical: true)
     }
   }
 
@@ -7523,6 +7549,22 @@ private struct NetworkAudioWireControls: View {
     )
   }
 
+  private var bitRate: Binding<Int> {
+    Binding(
+      get: { wire.bitRate },
+      set: { bitRate in
+        var updated = wire
+        updated.bitRate = bitRate
+        update(updated)
+      }
+    )
+  }
+
+  private var usesBitRate: Bool {
+    guard let codec = wire.encoding.codec else { return false }
+    return !codec.isLossless
+  }
+
   /// What one second of this audio costs on the wire, shown so the choice has a visible price.
   private var bandwidth: String {
     let bits = wire.bitsPerSecond(sampleRate: sampleRate, channelCount: channelCount)
@@ -7531,29 +7573,13 @@ private struct NetworkAudioWireControls: View {
       : "\(bits / 1_000) kbit/s"
   }
 
-  /// What has to change before this format can carry what the node is set to send.
-  private var refusal: String? {
-    guard !wire.carries(sampleRate: sampleRate, channelCount: channelCount) else { return nil }
-    let name = wire.encoding.displayName
-    if let rates = RoutingNetworkWireFormat.supportedSampleRates(for: wire.encoding),
-      !rates.contains(sampleRate)
-    {
-      let readable = rates.map { "\(Int($0 / 1_000)) kHz" }.joined(separator: ", ")
-      return "\(name) carries \(readable). Choose one of those below, or send uncompressed."
-    }
-    let counts = RoutingNetworkWireFormat.supportedChannelCounts(for: wire.encoding) ?? []
-    let readable = counts.map(String.init).joined(separator: ", ")
-    return "\(name) carries \(readable) channels. Choose one of those below, or send "
-      + "uncompressed."
-  }
-
   private var explanation: String {
     switch wire.encoding {
     case .uncompressed:
       "The samples cross exactly as they are, which costs the most and decodes to what was sent."
     case .opus:
       "Compressed by the system's own encoder, in the shortest blocks anything here offers. "
-        + "Measured between two Macs this carried the same audio in a fifteenth of the bytes."
+        + "At 64 kbit/s, more than half of the traffic is packet framing, so lower rates save little."
     case .aacEnhancedLowDelay, .aacLowDelay:
       "Compressed by the system's own encoder. Carries 44.1 kHz as it is, where Opus would need "
         + "it converted first, at the cost of a slightly longer block."

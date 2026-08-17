@@ -1,4 +1,5 @@
 import Foundation
+import RilliyaDSP
 import RilliyaNetworkAudio
 import Testing
 
@@ -165,5 +166,21 @@ struct RoutingNetworkWireFormatTests {
         )
       }
     }
+  }
+
+  @Test("Changing formats resolves unsupported audio options")
+  func formatChangesResolveAudioOptions() throws {
+    let opusRates = try #require(RoutingNetworkWireFormat.supportedSampleRates(for: .opus))
+    let opusChannels = try #require(RoutingNetworkWireFormat.supportedChannelCounts(for: .opus))
+
+    #expect(
+      RoutingNetworkWireFormat.resolvedSampleRate(44_100, for: .opus)
+        == AudioSampleRateLadder.resolve(input: 44_100, supported: opusRates)
+    )
+    #expect(RoutingNetworkWireFormat.resolvedChannelCount(6, for: .opus) == 4)
+    #expect(
+      RoutingNetworkWireFormat.resolvedChannelCount(opusChannels[0], for: .opus) == opusChannels[0])
+    #expect(RoutingNetworkWireFormat.resolvedSampleRate(44_100, for: .uncompressed) == 44_100)
+    #expect(RoutingNetworkWireFormat.resolvedChannelCount(6, for: .uncompressed) == 6)
   }
 }
