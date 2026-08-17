@@ -76,7 +76,8 @@ enum RoutingNodeFailureSummary {
   private static func summary(for error: NetworkAudioReceiverError) -> String? {
     switch error {
     case .invalidPort: "Invalid port"
-    case .invalidDatagramBound, .invalidBufferCapacity, .invalidTakeoverInterval:
+    case .invalidDatagramBound, .invalidBufferCapacity, .invalidTakeoverInterval,
+      .invalidReorderDepth:
       "Invalid settings"
     case .alreadyStopped: nil
     case .transport(let failure): summary(for: failure)
