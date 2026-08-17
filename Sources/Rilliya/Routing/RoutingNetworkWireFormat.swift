@@ -15,12 +15,16 @@ enum RoutingNetworkWireEncoding: String, Codable, CaseIterable, Sendable {
   /// AAC Low Delay, the plainer of the two low-delay AAC profiles.
   case aacLowDelay
 
+  /// Apple Lossless, which returns the audio rather than an approximation of it.
+  case appleLossless
+
   var displayName: String {
     switch self {
     case .uncompressed: "Uncompressed"
     case .opus: "Opus"
     case .aacEnhancedLowDelay: "AAC ELD"
     case .aacLowDelay: "AAC LD"
+    case .appleLossless: "Lossless"
     }
   }
 
@@ -30,6 +34,7 @@ enum RoutingNetworkWireEncoding: String, Codable, CaseIterable, Sendable {
     case .opus: .opus
     case .aacEnhancedLowDelay: .aacEnhancedLowDelay
     case .aacLowDelay: .aacLowDelay
+    case .appleLossless: .appleLossless
     }
   }
 
@@ -84,6 +89,12 @@ struct RoutingNetworkWireFormat: Codable, Equatable, Hashable, Sendable {
     guard let codec = encoding.codec else {
       let payload = Int(sampleRate) * channelCount * MemoryLayout<Float>.stride * 8
       return payload + payload / 12
+    }
+    // A lossless codec spends what the audio needs rather than a bit rate, so the figure comes
+    // from what it was measured to leave rather than from a setting.
+    if codec.isLossless {
+      let samples = Int(sampleRate) * channelCount * MemoryLayout<Float>.stride * 8
+      return samples * 62 / 100
     }
     let frames =
       codec.frameCount(

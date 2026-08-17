@@ -7493,6 +7493,10 @@ private struct NetworkAudioWireControls: View {
     case .aacEnhancedLowDelay, .aacLowDelay:
       "Compressed by the system's own encoder. Carries 44.1 kHz as it is, where Opus would need "
         + "it converted first, at the cost of a slightly longer block."
+    case .appleLossless:
+      "Returns the audio rather than an approximation of it, in about two thirds of the bytes. "
+        + "One block crosses as some twenty datagrams and is lost entirely if any of them is, so "
+        + "this suits a network you trust and listening rather than monitoring."
     }
   }
 }
