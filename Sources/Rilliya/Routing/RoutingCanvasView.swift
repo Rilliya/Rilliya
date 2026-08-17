@@ -76,8 +76,8 @@ private enum RoutingPaletteItem: String, CaseIterable, Codable, Identifiable, Tr
     case .signalGenerator: "Create tones and colored noise"
     case .filePlayback: "Stream a local audio file"
     case .fileOutput: "Record routed audio to a file"
-    case .networkSend: "Send PCM to a trusted LAN peer"
-    case .networkReceive: "Receive PCM from a trusted LAN peer"
+    case .networkSend: "Send audio to a local-network peer"
+    case .networkReceive: "Receive audio from a local-network peer"
     case .delay: "Add time and feedback"
     case .noiseGate: "Attenuate quiet passages"
     case .compressor: "Control dynamics and peaks"
@@ -6030,7 +6030,7 @@ private struct SelectedNetworkSendInspector: View {
   var body: some View {
     NetworkAudioInspectorCard(
       title: "Network Send",
-      subtitle: "Send realtime PCM audio to one trusted LAN peer."
+      subtitle: "Send realtime audio to one local-network peer."
     ) {
       VStack(alignment: .leading, spacing: 12) {
         labeledField("Host") {
@@ -6198,7 +6198,7 @@ private struct SelectedNetworkReceiveInspector: View {
   var body: some View {
     NetworkAudioInspectorCard(
       title: "Network Receive",
-      subtitle: "Receive realtime PCM audio from one trusted LAN peer."
+      subtitle: "Receive realtime audio from one local-network peer."
     ) {
       labeledField("UDP Port") {
         FlowingTextField(
