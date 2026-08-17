@@ -414,7 +414,7 @@ final class RoutingFileOutputController {
             }
           case .filePlayback:
             source = filePlaybackController.frameBuffer(for: node.id).map {
-              .frameBuffer($0)
+              .throttledFrameBuffer($0)
             }
             if case .failed(let sourceFailure) = filePlaybackController.state(for: node.id) {
               failure = sourceFailure

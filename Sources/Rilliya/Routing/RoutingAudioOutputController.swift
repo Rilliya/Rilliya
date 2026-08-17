@@ -450,7 +450,7 @@ final class RoutingAudioOutputController {
             }
           case .filePlayback:
             source = filePlaybackController.frameBuffer(for: node.id).map {
-              .frameBuffer($0)
+              .throttledFrameBuffer($0)
             }
             if case .failed(let upstreamFailure) = filePlaybackController.state(for: node.id) {
               sourceFailure = upstreamFailure

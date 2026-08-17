@@ -14,16 +14,28 @@ enum RoutingCaptureCapacity {
 
 /// One prepared realtime input cursor owned by exactly one destination clock.
 ///
-/// Native captures use independent subscriptions. The frame-buffer case remains for sources that
-/// already own a destination-local queue, such as file playback and network receive.
+/// Native captures use independent subscriptions. The frame-buffer cases remain for sources that
+/// already own a destination-local queue.
 enum RoutingRealtimeCaptureSource: @unchecked Sendable {
+  /// A queue filled by a producer running on wall-clock time, which cannot be slowed down.
+  ///
+  /// Audio older than the destination's bound is stale, so dropping it is what keeps latency
+  /// bounded rather than letting it grow without limit.
   case frameBuffer(AudioRealtimeFrameBuffer)
+
+  /// A queue whose producer waits for this consumer, such as file playback.
+  ///
+  /// Every frame belongs to a fixed sequence, so dropping the oldest skips audio rather than
+  /// bounding anything. The producer stopping when the queue is full is the bound.
+  case throttledFrameBuffer(AudioRealtimeFrameBuffer)
+
   case subscription(AudioRealtimeFrameSubscription)
   case jitterBuffer(AudioJitterBuffer)
 
   var format: AudioProcessingFormat {
     switch self {
-    case .frameBuffer(let frameBuffer): frameBuffer.format
+    case .frameBuffer(let frameBuffer), .throttledFrameBuffer(let frameBuffer):
+      frameBuffer.format
     case .subscription(let subscription): subscription.format
     case .jitterBuffer(let jitterBuffer): jitterBuffer.frameBuffer.format
     }
@@ -31,7 +43,8 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
 
   var capacityFrameCount: Int {
     switch self {
-    case .frameBuffer(let frameBuffer): frameBuffer.capacityFrameCount
+    case .frameBuffer(let frameBuffer), .throttledFrameBuffer(let frameBuffer):
+      frameBuffer.capacityFrameCount
     case .subscription(let subscription): subscription.capacityFrameCount
     case .jitterBuffer(let jitterBuffer): jitterBuffer.frameBuffer.capacityFrameCount
     }
@@ -39,7 +52,8 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
 
   var identity: ObjectIdentifier {
     switch self {
-    case .frameBuffer(let frameBuffer): ObjectIdentifier(frameBuffer)
+    case .frameBuffer(let frameBuffer), .throttledFrameBuffer(let frameBuffer):
+      ObjectIdentifier(frameBuffer)
     case .subscription(let subscription): ObjectIdentifier(subscription)
     case .jitterBuffer(let jitterBuffer): ObjectIdentifier(jitterBuffer.frameBuffer)
     }
@@ -47,7 +61,7 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
 
   var isActive: Bool {
     switch self {
-    case .frameBuffer, .jitterBuffer:
+    case .frameBuffer, .throttledFrameBuffer, .jitterBuffer:
       true
     case .subscription(let subscription):
       subscription.statistics().isActive
@@ -61,6 +75,9 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
       frameBuffer.discardOldestFrames(keepingLatest: retainedFrameCount)
     case .subscription(let subscription):
       subscription.discardOldestFrames(keepingLatest: retainedFrameCount)
+    case .throttledFrameBuffer:
+      // The producer waits for this consumer, so a backlog is audio still owed, not lag.
+      0
     case .jitterBuffer:
       // The jitter buffer holds a measured target; a second bound here would fight it.
       0
@@ -74,7 +91,7 @@ enum RoutingRealtimeCaptureSource: @unchecked Sendable {
     guard frameCount >= 0 else { return .invalidFrameCount }
     guard outputChannels.count >= format.channelCount else { return .insufficientChannels }
     switch self {
-    case .frameBuffer(let frameBuffer):
+    case .frameBuffer(let frameBuffer), .throttledFrameBuffer(let frameBuffer):
       switch frameBuffer.read(into: outputChannels, frameCount: frameCount) {
       case .read: return .rendered
       case .invalidFrameCount: return .invalidFrameCount
