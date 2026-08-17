@@ -90,12 +90,14 @@ struct RoutingNetworkReceiveControllerTests {
     controller.reconcile(requirements: [nodeID: Fixture.configuration])
     #expect(await eventually { controller.state(for: nodeID).isRunning })
     #expect(await starter.startCount == 1)
-    #expect(controller.captureSource(for: nodeID) != nil)
+    let whileRunning = try controller.captureSource(for: nodeID)
+    #expect(whileRunning != nil)
 
     controller.reconcile(requirements: [:])
     #expect(await eventually { await starter.stopCount == 1 })
     #expect(controller.state(for: nodeID) == .idle)
-    #expect(controller.captureSource(for: nodeID) == nil)
+    let afterStop = try controller.captureSource(for: nodeID)
+    #expect(afterStop == nil)
   }
 
   @Test @MainActor
@@ -111,7 +113,7 @@ struct RoutingNetworkReceiveControllerTests {
 
     #expect(await eventually { controller.state(for: second).isRunning })
     #expect(await starter.startCount == 1)
-    #expect(controller.sourceIdentity(for: first) == controller.sourceIdentity(for: second))
+    #expect(controller.captureSessionIdentity(for: first) == controller.captureSessionIdentity(for: second))
   }
 
   /// The shape the canvas depends on: one stream, several destinations, each reading its own.
@@ -129,14 +131,62 @@ struct RoutingNetworkReceiveControllerTests {
     )
     #expect(await eventually { controller.state(for: second).isRunning })
 
-    let one = try #require(controller.captureSource(for: first))
-    let other = try #require(controller.captureSource(for: second))
+    let one = try #require(try controller.captureSource(for: first))
+    let other = try #require(try controller.captureSource(for: second))
     #expect(one.identity != other.identity, "two destinations were handed the same queue")
 
     // Asking twice for one node is two destinations too: a node feeds an output and a recording
     // from the same stream, and each of those reads on its own clock.
-    let again = try #require(controller.captureSource(for: first))
+    let again = try #require(try controller.captureSource(for: first))
     #expect(again.identity != one.identity, "one node's second destination reused the first's queue")
+  }
+
+  /// A graph rebuild must not spend a destination, or a running stream stops after a few of them.
+  ///
+  /// Rebuilds happen whenever anything observed changes, which includes the meter many times a
+  /// second. Claiming a fresh destination each time exhausts the stream in under a second and every
+  /// output falls back to waiting for a source it will never be handed.
+  @Test @MainActor
+  func repeatedRebuildsDoNotSpendDestinations() async throws {
+    let sourceNode = UUID()
+    let consumer = UUID()
+    let controller = RoutingNetworkReceiveController(starter: NetworkReceiveTestStarter())
+    controller.reconcile(requirements: [sourceNode: Fixture.configuration])
+    #expect(await eventually { controller.state(for: sourceNode).isRunning })
+
+    var cache = RoutingCaptureCursorCache()
+    var identities: Set<ObjectIdentifier> = []
+    for _ in 0..<50 {
+      var activeKeys = Set<RoutingCaptureCursorKey>()
+      var failure: RoutingNodeFailure?
+      let source = cache.resolvedSource(
+        for: sourceNode,
+        consumerID: consumer,
+        provider: controller,
+        activeKeys: &activeKeys,
+        failure: &failure
+      )
+      #expect(failure == nil, "a rebuild ran out of destinations: \(failure as Any)")
+      identities.insert(try #require(source).identity)
+      cache.retain(activeKeys)
+    }
+
+    #expect(identities.count == 1, "one consumer was handed \(identities.count) destinations")
+
+    // And the resource really is finite, so reusing it is what makes the loop above possible
+    // rather than the stream simply having no limit worth respecting.
+    var claims: [RoutingRealtimeCaptureSource] = []
+    var ranOut = false
+    for _ in 0..<50 {
+      do {
+        guard let claim = try controller.captureSource(for: sourceNode) else { break }
+        claims.append(claim)
+      } catch {
+        ranOut = true
+        break
+      }
+    }
+    #expect(ranOut, "claiming a destination per rebuild never ran out, so nothing was proven")
   }
 
   /// Reconciliation reruns whenever any observed audio state changes, so a failure that reopens

@@ -153,21 +153,24 @@ final class RoutingNetworkReceiveController {
   /// A fresh one per call, because the caller is a destination and every destination reads on its
   /// own clock. Whoever asked keeps what it was given for as long as it is playing it; letting go
   /// of it returns the slot.
-  func captureSource(for nodeID: UUID) -> RoutingRealtimeCaptureSource? {
+  func captureSource(for nodeID: UUID) throws -> RoutingRealtimeCaptureSource? {
     guard let configuration = configurationsByNode[nodeID],
       let source = sources[configuration],
-      case .running(let session) = source.phase,
-      let jitterBuffer = try? session.subscribeWithJitterBuffer()
+      case .running(let session) = source.phase
     else { return nil }
-    return .jitterBuffer(jitterBuffer)
+    return .jitterBuffer(try session.subscribeWithJitterBuffer())
   }
 
   /// Identifies the stream behind this node without claiming a destination.
   ///
+  /// Named for the cursor cache, which keys one consumer's claim on the session it was made
+  /// against: a claim survives a graph rebuild only if the session it belongs to is still the
+  /// same one.
+  ///
   /// Handing out a queue to answer a question about identity would claim a destination slot and
   /// release it again the moment the answer was read, leaving whoever kept the queue reading one
   /// that had already been given to somebody else.
-  func sourceIdentity(for nodeID: UUID) -> ObjectIdentifier? {
+  func captureSessionIdentity(for nodeID: UUID) -> ObjectIdentifier? {
     guard let configuration = configurationsByNode[nodeID],
       let source = sources[configuration],
       case .running(let session) = source.phase

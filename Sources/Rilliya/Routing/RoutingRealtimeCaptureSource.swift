@@ -162,6 +162,7 @@ protocol RoutingCaptureSourceProviding: AnyObject {
 extension RoutingCaptureController: RoutingCaptureSourceProviding {}
 extension RoutingInputCaptureController: RoutingCaptureSourceProviding {}
 extension RoutingOutputCaptureController: RoutingCaptureSourceProviding {}
+extension RoutingNetworkReceiveController: RoutingCaptureSourceProviding {}
 
 extension RoutingCaptureCursorCache {
   @MainActor

@@ -416,7 +416,13 @@ final class RoutingNetworkSendController {
               failure = sourceFailure
             }
           case .networkReceive:
-            source = networkReceiveController.captureSource(for: node.id)
+            source = captureCursorCache.resolvedSource(
+              for: node.id,
+              consumerID: sendNode.id,
+              provider: networkReceiveController,
+              activeKeys: &candidateCaptureCursorKeys,
+              failure: &failure
+            )
             if case .failed(let sourceFailure) = networkReceiveController.state(for: node.id) {
               failure = sourceFailure
             }
@@ -521,7 +527,7 @@ final class RoutingNetworkSendController {
             // Answered from the session rather than a queue: asking for a queue would claim one of
             // this stream's destinations and give it straight back.
             buffer = nil
-            if let identity = networkReceiveController.sourceIdentity(for: node.id) {
+            if let identity = networkReceiveController.captureSessionIdentity(for: node.id) {
               result.insert(identity)
             }
           default:

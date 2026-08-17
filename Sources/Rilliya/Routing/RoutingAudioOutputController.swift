@@ -456,7 +456,13 @@ final class RoutingAudioOutputController {
               sourceFailure = upstreamFailure
             }
           case .networkReceive:
-            source = networkReceiveController.captureSource(for: node.id)
+            source = captureCursorCache.resolvedSource(
+              for: node.id,
+              consumerID: outputNode.id,
+              provider: networkReceiveController,
+              activeKeys: &candidateCaptureCursorKeys,
+              failure: &sourceFailure
+            )
             if case .failed(let upstreamFailure) = networkReceiveController.state(for: node.id) {
               sourceFailure = upstreamFailure
             }
