@@ -474,12 +474,14 @@ struct RoutingNetworkReceiveConfiguration: Codable, Equatable, Hashable, Sendabl
   var sampleRate: Double
   var channelCount: Int
   var secret: RoutingNetworkAudioSecret?
+  var jitter: RoutingNetworkJitterControls
 
   init(
     port: UInt16,
     sampleRate: Double,
     channelCount: Int,
-    secret: RoutingNetworkAudioSecret? = nil
+    secret: RoutingNetworkAudioSecret? = nil,
+    jitter: RoutingNetworkJitterControls = .initial
   ) {
     precondition(port > 0)
     precondition(sampleRate.isFinite && sampleRate >= 1 && sampleRate <= 768_000)
@@ -488,6 +490,18 @@ struct RoutingNetworkReceiveConfiguration: Codable, Equatable, Hashable, Sendabl
     self.sampleRate = sampleRate
     self.channelCount = channelCount
     self.secret = secret
+    self.jitter = jitter
+  }
+
+  /// Documents saved before the jitter controls existed restore the defaults rather than failing.
+  init(from decoder: any Decoder) throws {
+    let container = try decoder.container(keyedBy: CodingKeys.self)
+    port = try container.decode(UInt16.self, forKey: .port)
+    sampleRate = try container.decode(Double.self, forKey: .sampleRate)
+    channelCount = try container.decode(Int.self, forKey: .channelCount)
+    secret = try container.decodeIfPresent(RoutingNetworkAudioSecret.self, forKey: .secret)
+    jitter =
+      try container.decodeIfPresent(RoutingNetworkJitterControls.self, forKey: .jitter) ?? .initial
   }
 }
 

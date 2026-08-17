@@ -6204,6 +6204,10 @@ private struct SelectedNetworkReceiveInspector: View {
         edit { $0.secret = secret }
       }
 
+      NetworkAudioJitterControls(jitter: configuration.jitter) { jitter in
+        edit { $0.jitter = jitter }
+      }
+
       FlowingCallout(
         stateDescription,
         title: stateTitle,
@@ -7156,3 +7160,96 @@ private struct NetworkAudioSecretControls: View {
   }
 }
 
+private struct NetworkAudioJitterControls: View {
+  let jitter: RoutingNetworkJitterControls
+  let update: (RoutingNetworkJitterControls) -> Void
+
+  @State private var isExpanded = false
+
+  var body: some View {
+    FlowingCard(
+      spacing: 0,
+      contentInsets: EdgeInsets(top: 4, leading: 4, bottom: 4, trailing: 4)
+    ) {
+      FlowingDisclosure(
+        isExpanded: $isExpanded,
+        minimumHeaderHeight: 38,
+        contentInsets: EdgeInsets(top: 6, leading: 10, bottom: 10, trailing: 10)
+      ) {
+        HStack(spacing: 8) {
+          Image(systemName: "timer")
+            .font(.caption)
+            .foregroundStyle(FlowingPalette.muted)
+          Text("Buffering")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(FlowingPalette.ink)
+          Spacer(minLength: 8)
+          Text("\(jitter.targetMilliseconds) ms · \(jitter.correction.displayName)")
+            .font(.caption.monospacedDigit())
+            .foregroundStyle(FlowingPalette.faint)
+        }
+      } content: {
+        VStack(alignment: .leading, spacing: 12) {
+          HStack {
+            Text("Target Delay")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(FlowingPalette.muted)
+            Spacer(minLength: 8)
+            FlowingStepper(
+              "Jitter buffer target delay",
+              value: targetMilliseconds,
+              in: RoutingNetworkJitterControls
+                .minimumTargetMilliseconds...RoutingNetworkJitterControls
+                .maximumTargetMilliseconds,
+              step: 1,
+              formatValue: { "\($0) ms" }
+            )
+          }
+          Text(
+            "Audio waits this long before it plays, which is what absorbs an uneven network. A wired network settles at a few milliseconds; Wi-Fi or a tunnel needs more. The receiver raises this on its own after a dropout."
+          )
+          .font(.caption2)
+          .foregroundStyle(FlowingPalette.faint)
+
+          VStack(alignment: .leading, spacing: 7) {
+            Text("Catching Up")
+              .font(.caption.weight(.semibold))
+              .foregroundStyle(FlowingPalette.muted)
+            FlowingSegmentedControl(
+              label: "Jitter correction",
+              selection: correction,
+              options: RoutingNetworkJitterCorrection.allCases.map {
+                FlowingSegmentOption($0, label: $0.displayName)
+              }
+            )
+            Text(jitter.correction.explanation)
+              .font(.caption2)
+              .foregroundStyle(FlowingPalette.faint)
+          }
+        }
+      }
+    }
+  }
+
+  private var targetMilliseconds: Binding<Int> {
+    Binding(
+      get: { jitter.targetMilliseconds },
+      set: { target in
+        var updated = jitter
+        updated.targetMilliseconds = target
+        update(updated)
+      }
+    )
+  }
+
+  private var correction: Binding<RoutingNetworkJitterCorrection> {
+    Binding(
+      get: { jitter.correction },
+      set: { correction in
+        var updated = jitter
+        updated.correction = correction
+        update(updated)
+      }
+    )
+  }
+}

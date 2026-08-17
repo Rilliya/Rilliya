@@ -38,6 +38,7 @@ struct SystemRoutingNetworkReceiveStarter: RoutingNetworkReceiveStarting {
         configuration: NetworkAudioReceiverConfiguration(
           port: configuration.port,
           format: format,
+          jitter: try configuration.jitter.resolve(),
           sharedKey: try configuration.secret?.resolve()
         ),
         failureHandler: failureHandler
