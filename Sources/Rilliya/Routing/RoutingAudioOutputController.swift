@@ -496,7 +496,7 @@ final class RoutingAudioOutputController {
             RoutingNodeFailure(
               summary: "Source already in use",
               message:
-                "This source is already feeding another output clock. Add an explicit clocked fan-out before using multiple destinations."
+                "This source hands out one independently paced queue per destination and has no more left. Remove a destination, or raise the source's destination limit."
             )
           )
           continue

@@ -340,7 +340,7 @@ enum RoutingFilePlaybackRequirementResolver {
             blocked[node.id] = RoutingNodeFailure(
               summary: "Clock conflict",
               message:
-                "One file source cannot feed output devices with different clocks. Add a clocked fan-out or sample-rate converter."
+                "One file source cannot feed output devices with different clocks yet."
             )
           } else {
             requests[node.id] = request

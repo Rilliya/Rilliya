@@ -90,12 +90,12 @@ struct RoutingNetworkReceiveControllerTests {
     controller.reconcile(requirements: [nodeID: Fixture.configuration])
     #expect(await eventually { controller.state(for: nodeID).isRunning })
     #expect(await starter.startCount == 1)
-    #expect(controller.frameBuffer(for: nodeID) != nil)
+    #expect(controller.captureSource(for: nodeID) != nil)
 
     controller.reconcile(requirements: [:])
     #expect(await eventually { await starter.stopCount == 1 })
     #expect(controller.state(for: nodeID) == .idle)
-    #expect(controller.frameBuffer(for: nodeID) == nil)
+    #expect(controller.captureSource(for: nodeID) == nil)
   }
 
   @Test @MainActor
@@ -111,7 +111,32 @@ struct RoutingNetworkReceiveControllerTests {
 
     #expect(await eventually { controller.state(for: second).isRunning })
     #expect(await starter.startCount == 1)
-    #expect(controller.frameBuffer(for: first) === controller.frameBuffer(for: second))
+    #expect(controller.sourceIdentity(for: first) == controller.sourceIdentity(for: second))
+  }
+
+  /// The shape the canvas depends on: one stream, several destinations, each reading its own.
+  ///
+  /// Two nodes sharing one listener used to share one queue as well, so whichever destination read
+  /// first took the audio away and the second could only be refused.
+  @Test @MainActor
+  func destinationsOfOneStreamEachGetTheirOwnQueue() async throws {
+    let first = UUID()
+    let second = UUID()
+    let controller = RoutingNetworkReceiveController(starter: NetworkReceiveTestStarter())
+
+    controller.reconcile(
+      requirements: [first: Fixture.configuration, second: Fixture.configuration]
+    )
+    #expect(await eventually { controller.state(for: second).isRunning })
+
+    let one = try #require(controller.captureSource(for: first))
+    let other = try #require(controller.captureSource(for: second))
+    #expect(one.identity != other.identity, "two destinations were handed the same queue")
+
+    // Asking twice for one node is two destinations too: a node feeds an output and a recording
+    // from the same stream, and each of those reads on its own clock.
+    let again = try #require(controller.captureSource(for: first))
+    #expect(again.identity != one.identity, "one node's second destination reused the first's queue")
   }
 
   /// Reconciliation reruns whenever any observed audio state changes, so a failure that reopens
@@ -205,16 +230,15 @@ private actor NetworkReceiveTestStarter: RoutingNetworkReceiveStarting {
       sampleRate: configuration.sampleRate,
       channelCount: configuration.channelCount
     )
-    let jitterBuffer = try AudioJitterBuffer(
-      frameBuffer: AudioRealtimeFrameBuffer(
-        format: AudioProcessingFormat(
-          sampleRate: configuration.sampleRate,
-          channelCount: configuration.channelCount
-        ),
-        capacityFrameCount: receiverCapacityFrameCount
-      )
+    let distributor = try AudioRealtimeFrameDistributor(
+      format: AudioProcessingFormat(
+        sampleRate: configuration.sampleRate,
+        channelCount: configuration.channelCount
+      ),
+      capacityFrameCount: receiverCapacityFrameCount,
+      maximumSubscriberCount: 4
     )
-    let session = NetworkReceiveTestSession(format: format, jitterBuffer: jitterBuffer) { [self] in
+    let session = NetworkReceiveTestSession(format: format, distributor: distributor) { [self] in
       await recordStop()
     }
     lastSession = session
@@ -228,7 +252,7 @@ private actor NetworkReceiveTestStarter: RoutingNetworkReceiveStarting {
 
 private actor NetworkReceiveTestSession: RoutingNetworkReceiveSession {
   nonisolated let format: NetworkAudioStreamFormat
-  nonisolated let jitterBuffer: AudioJitterBuffer
+  nonisolated let distributor: AudioRealtimeFrameDistributor
   /// What a fake stream sounds like, which the tests here do not exercise.
   nonisolated let meterChannels: [AudioChannelMeterSnapshot]
   private let handler = OSAllocatedUnfairLock<
@@ -240,14 +264,18 @@ private actor NetworkReceiveTestSession: RoutingNetworkReceiveSession {
 
   init(
     format: NetworkAudioStreamFormat,
-    jitterBuffer: AudioJitterBuffer,
+    distributor: AudioRealtimeFrameDistributor,
     meterChannels: [AudioChannelMeterSnapshot] = [],
     stopHandler: @escaping @Sendable () async -> Void
   ) {
     self.format = format
-    self.jitterBuffer = jitterBuffer
+    self.distributor = distributor
     self.meterChannels = meterChannels
     self.stopHandler = stopHandler
+  }
+
+  nonisolated func subscribeWithJitterBuffer() throws -> AudioJitterBuffer {
+    try distributor.subscribeWithJitterBuffer()
   }
 
   nonisolated func meterSnapshot() -> [AudioChannelMeterSnapshot] { meterChannels }

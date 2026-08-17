@@ -12,7 +12,12 @@ enum RoutingNetworkReceiveState: Equatable {
 
 protocol RoutingNetworkReceiveSession: AnyObject, Sendable {
   var format: NetworkAudioStreamFormat { get }
-  var jitterBuffer: AudioJitterBuffer { get }
+
+  /// Claims one destination's paced view of this stream.
+  ///
+  /// Every destination gets its own, because each reads on its own clock: sharing one would let
+  /// whichever destination read first take the audio away from the rest.
+  func subscribeWithJitterBuffer() throws -> AudioJitterBuffer
 
   /// What the stream currently sounds like, per channel.
   ///
@@ -85,14 +90,16 @@ private final class SystemRoutingNetworkReceiveSession: RoutingNetworkReceiveSes
   @unchecked Sendable
 {
   let format: NetworkAudioStreamFormat
-  let jitterBuffer: AudioJitterBuffer
 
   private let receiver: NetworkAudioReceiver
 
   init(receiver: NetworkAudioReceiver, format: NetworkAudioStreamFormat) {
     self.receiver = receiver
     self.format = format
-    jitterBuffer = receiver.jitterBuffer
+  }
+
+  func subscribeWithJitterBuffer() throws -> AudioJitterBuffer {
+    try receiver.subscribeWithJitterBuffer()
   }
 
   func meterSnapshot() -> [AudioChannelMeterSnapshot] {
@@ -141,17 +148,31 @@ final class RoutingNetworkReceiveController {
     states[nodeID] ?? .idle
   }
 
+  /// Claims one destination's view of this node's stream.
+  ///
+  /// A fresh one per call, because the caller is a destination and every destination reads on its
+  /// own clock. Whoever asked keeps what it was given for as long as it is playing it; letting go
+  /// of it returns the slot.
   func captureSource(for nodeID: UUID) -> RoutingRealtimeCaptureSource? {
+    guard let configuration = configurationsByNode[nodeID],
+      let source = sources[configuration],
+      case .running(let session) = source.phase,
+      let jitterBuffer = try? session.subscribeWithJitterBuffer()
+    else { return nil }
+    return .jitterBuffer(jitterBuffer)
+  }
+
+  /// Identifies the stream behind this node without claiming a destination.
+  ///
+  /// Handing out a queue to answer a question about identity would claim a destination slot and
+  /// release it again the moment the answer was read, leaving whoever kept the queue reading one
+  /// that had already been given to somebody else.
+  func sourceIdentity(for nodeID: UUID) -> ObjectIdentifier? {
     guard let configuration = configurationsByNode[nodeID],
       let source = sources[configuration],
       case .running(let session) = source.phase
     else { return nil }
-    return .jitterBuffer(session.jitterBuffer)
-  }
-
-  func frameBuffer(for nodeID: UUID) -> AudioRealtimeFrameBuffer? {
-    guard case .jitterBuffer(let jitterBuffer) = captureSource(for: nodeID) else { return nil }
-    return jitterBuffer.frameBuffer
+    return ObjectIdentifier(session)
   }
 
   /// What each running node currently sounds like.

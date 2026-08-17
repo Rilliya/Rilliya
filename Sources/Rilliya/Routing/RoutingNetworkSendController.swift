@@ -443,7 +443,7 @@ final class RoutingNetworkSendController {
             RoutingNodeFailure(
               summary: "Source already in use",
               message:
-                "A captured or streamed source can feed only one independent output clock. Add an explicit clocked fan-out before sending it to multiple destinations."
+                "This source hands out one independently paced queue per destination and has no more left. Remove a destination, or raise the source's destination limit."
             )
           )
           continue
@@ -518,7 +518,12 @@ final class RoutingNetworkSendController {
           case .filePlayback:
             buffer = filePlaybackController.frameBuffer(for: node.id)
           case .networkReceive:
-            buffer = networkReceiveController.frameBuffer(for: node.id)
+            // Answered from the session rather than a queue: asking for a queue would claim one of
+            // this stream's destinations and give it straight back.
+            buffer = nil
+            if let identity = networkReceiveController.sourceIdentity(for: node.id) {
+              result.insert(identity)
+            }
           default:
             buffer = nil
           }

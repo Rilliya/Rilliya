@@ -79,7 +79,7 @@ enum RoutingNodeFailureSummary {
     switch error {
     case .invalidPort: "Invalid port"
     case .invalidDatagramBound, .invalidBufferCapacity, .invalidTakeoverInterval,
-      .invalidReorderDepth:
+      .invalidReorderDepth, .invalidDestinationCount:
       "Invalid settings"
     case .alreadyStopped: nil
     case .transport(let failure): summary(for: failure)

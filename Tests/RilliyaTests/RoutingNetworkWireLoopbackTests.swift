@@ -94,6 +94,9 @@ struct RoutingNetworkWireLoopbackTests {
   private final class Harness {
     let sender: NetworkAudioSender
     let receiver: NetworkAudioReceiver
+
+    /// This harness's own paced view of the stream, as a destination in the graph would hold.
+    let destination: AudioJitterBuffer
     private let ownsListener: Bool
     private let port: UInt16
     private var phase = 0.0
@@ -137,6 +140,7 @@ struct RoutingNetworkWireLoopbackTests {
           )
         )
       }
+      destination = try receiver.subscribeWithJitterBuffer()
     }
 
     func replacingSender(encoding: RoutingNetworkWireEncoding) throws -> Harness {
@@ -191,7 +195,7 @@ struct RoutingNetworkWireLoopbackTests {
           }
         }
         readChannels.withUnsafeBufferPointer {
-          _ = receiver.jitterBuffer.read(into: $0, frameCount: quantum)
+          _ = destination.read(into: $0, frameCount: quantum)
         }
         if cycle >= settled {
           for channel in readChannels {
