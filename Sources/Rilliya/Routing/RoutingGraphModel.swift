@@ -442,8 +442,15 @@ struct RoutingNetworkSendConfiguration: Codable, Equatable, Hashable, Sendable {
   var port: UInt16
   var sampleRate: Double
   var channelCount: Int
+  var secret: RoutingNetworkAudioSecret?
 
-  init(host: String, port: UInt16, sampleRate: Double, channelCount: Int) {
+  init(
+    host: String,
+    port: UInt16,
+    sampleRate: Double,
+    channelCount: Int,
+    secret: RoutingNetworkAudioSecret? = nil
+  ) {
     precondition(!host.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty)
     precondition(port > 0)
     precondition(sampleRate.isFinite && sampleRate >= 1 && sampleRate <= 768_000)
@@ -452,6 +459,7 @@ struct RoutingNetworkSendConfiguration: Codable, Equatable, Hashable, Sendable {
     self.port = port
     self.sampleRate = sampleRate
     self.channelCount = channelCount
+    self.secret = secret
   }
 }
 
@@ -465,14 +473,21 @@ struct RoutingNetworkReceiveConfiguration: Codable, Equatable, Hashable, Sendabl
   var port: UInt16
   var sampleRate: Double
   var channelCount: Int
+  var secret: RoutingNetworkAudioSecret?
 
-  init(port: UInt16, sampleRate: Double, channelCount: Int) {
+  init(
+    port: UInt16,
+    sampleRate: Double,
+    channelCount: Int,
+    secret: RoutingNetworkAudioSecret? = nil
+  ) {
     precondition(port > 0)
     precondition(sampleRate.isFinite && sampleRate >= 1 && sampleRate <= 768_000)
     precondition((1...AudioProcessingFormat.maximumChannelCount).contains(channelCount))
     self.port = port
     self.sampleRate = sampleRate
     self.channelCount = channelCount
+    self.secret = secret
   }
 }
 

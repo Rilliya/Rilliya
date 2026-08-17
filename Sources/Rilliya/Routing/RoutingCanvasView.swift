@@ -6056,6 +6056,12 @@ private struct SelectedNetworkSendInspector: View {
         channelCount: channelCount
       )
 
+      NetworkAudioSecretControls(secret: configuration.secret) { secret in
+        var updated = configuration
+        updated.secret = secret
+        updateConfiguration(updated)
+      }
+
       FlowingCallout(
         stateDescription,
         title: stateTitle,
@@ -6068,7 +6074,7 @@ private struct SelectedNetworkSendInspector: View {
       }
 
       Text(
-        "Audio is unencrypted UDP intended for a trusted local network. It is never sent while the workflow is paused or the node has no connected source."
+        "Audio travels over UDP on a network you trust. It is never sent while the workflow is paused or the node has no connected source."
       )
       .font(.caption2)
       .foregroundStyle(FlowingPalette.faint)
@@ -6211,6 +6217,12 @@ private struct SelectedNetworkReceiveInspector: View {
         channelCount: channelCount
       )
 
+      NetworkAudioSecretControls(secret: configuration.secret) { secret in
+        var updated = configuration
+        updated.secret = secret
+        updateConfiguration(updated)
+      }
+
       FlowingCallout(
         stateDescription,
         title: stateTitle,
@@ -6223,7 +6235,7 @@ private struct SelectedNetworkReceiveInspector: View {
       }
 
       Text(
-        "Packets with an unexpected version, format, size, or active session are rejected before they reach the audio graph. Missing packets become silence."
+        "Packets with an unexpected version, format, size, key, or active session are rejected before they reach the audio graph. Missing packets become silence."
       )
       .font(.caption2)
       .foregroundStyle(FlowingPalette.faint)
@@ -7074,5 +7086,105 @@ private struct SelectedVisualizerInspector: View {
     case .surround51: "5.1 · 6 ch"
     case .surround71: "7.1 · 8 ch"
     }
+  }
+}
+
+/// Pairing controls shared by both network audio inspectors.
+///
+/// A key both ends hold turns an open UDP port into one that only the paired machine can feed or
+/// read. Without one the audio is readable by anything on the path, which is why the absence is
+/// stated rather than left implied.
+private struct NetworkAudioSecretControls: View {
+  let secret: RoutingNetworkAudioSecret?
+  let update: (RoutingNetworkAudioSecret?) -> Void
+
+  @State private var keyText: String
+  @State private var didCopy = false
+
+  init(
+    secret: RoutingNetworkAudioSecret?,
+    update: @escaping (RoutingNetworkAudioSecret?) -> Void
+  ) {
+    self.secret = secret
+    self.update = update
+    _keyText = State(initialValue: secret?.base64EncodedString ?? "")
+  }
+
+  var body: some View {
+    labeledField("Shared Key") {
+      VStack(alignment: .leading, spacing: 8) {
+        FlowingTextField(
+          "Shared key",
+          text: $keyText,
+          placeholder: "Paste the key from the other Mac",
+          systemImage: "key",
+          validation: validation,
+          onSubmit: commit
+        )
+        HStack(spacing: 6) {
+          FlowingIconButton("Generate Key", systemImage: "sparkles", emphasis: .standard) {
+            let generated = RoutingNetworkAudioSecret.generated()
+            keyText = generated.base64EncodedString
+            update(generated)
+          }
+          if secret?.isValid == true {
+            FlowingIconButton(
+              didCopy ? "Copied" : "Copy Key",
+              systemImage: didCopy ? "checkmark" : "doc.on.doc",
+              emphasis: .standard
+            ) {
+              NSPasteboard.general.clearContents()
+              NSPasteboard.general.setString(keyText, forType: .string)
+              didCopy = true
+            }
+          }
+          if secret != nil {
+            FlowingIconButton("Remove", systemImage: "xmark", emphasis: .standard) {
+              keyText = ""
+              didCopy = false
+              update(nil)
+            }
+          }
+        }
+        FlowingCallout(
+          statusDescription,
+          title: statusTitle,
+          systemImage: secret?.isValid == true ? "lock.fill" : "lock.open",
+          tone: secret?.isValid == true ? .success : .warning
+        )
+      }
+    }
+    .onChange(of: keyText) { _, _ in
+      didCopy = false
+      commit()
+    }
+  }
+
+  private var validation: FlowingFieldValidation {
+    guard !keyText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return .none }
+    return RoutingNetworkAudioSecret.inline(base64: keyText).isValid
+      ? .none
+      : .error("Paste the whole key exactly as the other Mac shows it.")
+  }
+
+  private var statusTitle: String {
+    secret?.isValid == true ? "Encrypted" : "Not encrypted"
+  }
+
+  private var statusDescription: String {
+    secret?.isValid == true
+      ? "Only a peer holding this key can send or read this audio."
+      : "Anyone who can reach this port can send or read this audio. Generate a key here and paste it on the other Mac to change that."
+  }
+
+  private func commit() {
+    let trimmed = keyText.trimmingCharacters(in: .whitespacesAndNewlines)
+    guard !trimmed.isEmpty else {
+      if secret != nil { update(nil) }
+      return
+    }
+    let candidate = RoutingNetworkAudioSecret.inline(base64: trimmed)
+    guard candidate.isValid, candidate != secret else { return }
+    update(candidate)
   }
 }

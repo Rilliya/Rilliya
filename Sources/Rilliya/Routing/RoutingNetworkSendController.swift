@@ -45,7 +45,8 @@ struct SystemRoutingNetworkSendStarter: RoutingNetworkSendStarting {
           host: configuration.host,
           port: configuration.port,
           format: format,
-          framesPerPacket: RoutingRealtimeDestinationDefaults.renderQuantumFrameCount
+          framesPerPacket: RoutingRealtimeDestinationDefaults.renderQuantumFrameCount,
+          sharedKey: try configuration.secret?.resolve()
         )
       ) { error in
         failureHandler(error.localizedDescription)

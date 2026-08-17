@@ -37,7 +37,8 @@ struct SystemRoutingNetworkReceiveStarter: RoutingNetworkReceiveStarting {
       let receiver = try NetworkAudioReceiver(
         configuration: NetworkAudioReceiverConfiguration(
           port: configuration.port,
-          format: format
+          format: format,
+          sharedKey: try configuration.secret?.resolve()
         ),
         failureHandler: failureHandler
       )
