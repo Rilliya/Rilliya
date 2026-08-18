@@ -2,6 +2,7 @@ import FlowingDayCanvas
 import FlowingDayControls
 import FlowingDayGraphCanvas
 import SwiftUI
+import os
 
 struct RoutingMetalViewport: View {
   let context: FlowingGraphCanvasBackendContext<RoutingCanvasSchema>
@@ -356,9 +357,29 @@ struct RoutingMetalViewport: View {
     if RoutingViewportPersistencePolicy.shouldPersist(phase: phase),
       context.session.wrappedValue.viewport != viewport
     {
+      ViewportDiagnostics.report(
+        "persisting \(phase) viewport \(viewport) over \(context.session.wrappedValue.viewport)")
       context.session.wrappedValue.viewport = viewport
     }
     context.viewportDidChange(viewport, phase: phase)
+  }
+}
+
+/// What the viewport is being changed to and by what, and only while building for debugging.
+///
+/// A viewport written back from a layout pass and one written back from a gesture are the same
+/// call from here, and only the numbers say which happened.
+private enum ViewportDiagnostics {
+  #if DEBUG
+    private static let log = Logger(subsystem: "moe.uwucocoa.rilliya", category: "viewport")
+  #endif
+
+  /// Reports one persisted viewport change.
+  static func report(_ message: @autoclosure () -> String) {
+    #if DEBUG
+      let text = message()
+      log.debug("\(text, privacy: .public)")
+    #endif
   }
 }
 
