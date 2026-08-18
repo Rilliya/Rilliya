@@ -2817,13 +2817,18 @@ private struct FilePlaybackNodeView: View {
           Text("File Playback")
             .font(.callout.weight(.semibold))
             .foregroundStyle(FlowingPalette.ink)
-          Text(configuration.selection?.displayName ?? "Choose an audio file")
-            .font(.caption)
-            .foregroundStyle(FlowingPalette.muted)
-            .lineLimit(1)
+          RoutingHoverMarqueeText(
+            text: configuration.selection?.displayName ?? "Choose an audio file",
+            font: .caption,
+            color: FlowingPalette.muted,
+            lineHeight: 16
+          )
+          .frame(maxWidth: .infinity, alignment: .leading)
         }
-        Spacer(minLength: 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .clipped()
 
       Text(fileDetail)
         .font(.caption.monospacedDigit())
@@ -5344,6 +5349,7 @@ private struct SelectedFilePlaybackInspector: View {
 
   @State private var isInspectingFile = false
   @State private var fileIssue: String?
+  @Environment(\.flowingAccent) private var accent
 
   var body: some View {
     FlowingCard(
@@ -5360,40 +5366,7 @@ private struct SelectedFilePlaybackInspector: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
 
-      HStack(spacing: 10) {
-        VStack(alignment: .leading, spacing: 2) {
-          Text(configuration.selection?.displayName ?? "No audio file selected")
-            .font(.callout.weight(.medium))
-            .foregroundStyle(FlowingPalette.ink)
-            .lineLimit(1)
-          if let selection = configuration.selection {
-            Text(
-              "\(selection.channelCount) ch · "
-                + "\(selection.nativeSampleRate.formatted(.number.precision(.fractionLength(0)))) Hz"
-            )
-            .font(.caption.monospacedDigit())
-            .foregroundStyle(FlowingPalette.muted)
-          }
-        }
-        Spacer(minLength: 8)
-        if isInspectingFile {
-          ProgressView()
-            .controlSize(.small)
-            .accessibilityLabel("Inspecting audio file")
-        }
-        Button {
-          chooseFile()
-        } label: {
-          Label("Choose File", systemImage: "folder")
-        }
-        .buttonStyle(FlowingSoftButtonStyle())
-        .disabled(isInspectingFile)
-      }
-      .padding(12)
-      .background(
-        FlowingPalette.field,
-        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-      )
+      fileSelectionControl
 
       if let fileIssue {
         FlowingCallout(
@@ -5404,17 +5377,19 @@ private struct SelectedFilePlaybackInspector: View {
         )
       }
 
-      VStack(alignment: .leading, spacing: 7) {
+      HStack(spacing: 12) {
         Text("Playback")
           .font(.caption.weight(.semibold))
           .foregroundStyle(FlowingPalette.muted)
+        Spacer(minLength: 12)
         FlowingSelect(
           label: "File playback mode",
           selection: loopChoice,
           options: LoopChoice.allCases.map { FlowingSelectOption($0, label: $0.title) },
           minimumWidth: 164
         )
-        .fixedSize(horizontal: false, vertical: true)
+        .frame(width: 180)
+        .fixedSize(horizontal: true, vertical: true)
       }
 
       if loopChoice.wrappedValue == .finite {
@@ -5449,7 +5424,19 @@ private struct SelectedFilePlaybackInspector: View {
           in: volumeRange,
           formatValue: { "\(Int($0.rounded())) decibels" }
         )
-        FlowingSwitch("Mute file playback", isOn: muted)
+        .padding(.horizontal, -6.5)
+        HStack(spacing: 12) {
+          Text("Mute file playback")
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(FlowingPalette.muted)
+          Spacer(minLength: 12)
+          Toggle("Mute file playback", isOn: muted)
+            .labelsHidden()
+            .toggleStyle(.switch)
+            .controlSize(.small)
+            .tint(accent.fill)
+            .accessibilityLabel("Mute file playback")
+        }
       }
       .disabled(configuration.selection == nil)
 
@@ -5465,6 +5452,58 @@ private struct SelectedFilePlaybackInspector: View {
       }
     }
     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  private var fileSelectionControl: some View {
+    VStack(alignment: .leading, spacing: 9) {
+      HStack(spacing: 10) {
+        Text("Audio File")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+        Spacer(minLength: 8)
+        if isInspectingFile {
+          ProgressView()
+            .controlSize(.small)
+            .accessibilityLabel("Inspecting audio file")
+        }
+        Button {
+          chooseFile()
+        } label: {
+          Label(
+            configuration.selection == nil ? "Choose File" : "Replace File",
+            systemImage: "folder"
+          )
+        }
+        .buttonStyle(FlowingSoftButtonStyle())
+        .disabled(isInspectingFile)
+      }
+
+      RoutingHoverMarqueeText(
+        text: configuration.selection?.displayName ?? "No audio file selected",
+        font: .callout.weight(.medium),
+        color: FlowingPalette.ink,
+        lineHeight: 19
+      )
+      .frame(maxWidth: .infinity, alignment: .leading)
+
+      if let selection = configuration.selection {
+        HStack(spacing: 7) {
+          Text(selection.channelCount == 1 ? "Mono" : "\(selection.channelCount) channels")
+          Text("·")
+            .foregroundStyle(FlowingPalette.faint)
+          Text(sampleRateDescription(selection.nativeSampleRate))
+        }
+        .font(.caption.monospacedDigit())
+        .foregroundStyle(FlowingPalette.muted)
+      }
+    }
+  }
+
+  private func sampleRateDescription(_ sampleRate: Double) -> String {
+    let kilohertz = sampleRate / 1_000
+    return kilohertz.formatted(
+      .number.precision(.fractionLength(kilohertz == kilohertz.rounded() ? 0 : 1)))
+      + " kHz"
   }
 
   private var loopChoice: Binding<LoopChoice> {

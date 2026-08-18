@@ -100,4 +100,48 @@ struct RoutingMetalRouteGeometryTests {
         == 0.75
     )
   }
+
+  @Test
+  func hoverMarqueeMatchesPortaTiming() {
+    #expect(RoutingHoverMarquee.startDelay == 1)
+    #expect(RoutingHoverMarquee.offset(contentWidth: 160, viewportWidth: 96, elapsed: 0) == 0)
+    #expect(RoutingHoverMarquee.offset(contentWidth: 160, viewportWidth: 96, elapsed: 1) == 32)
+    #expect(RoutingHoverMarquee.offset(contentWidth: 160, viewportWidth: 96, elapsed: 2) == 64)
+    #expect(RoutingHoverMarquee.offset(contentWidth: 160, viewportWidth: 96, elapsed: 2.5) == 64)
+    #expect(
+      abs(RoutingHoverMarquee.offset(contentWidth: 160, viewportWidth: 96, elapsed: 3.7) - 32)
+        < 0.001
+    )
+    #expect(
+      abs(RoutingHoverMarquee.offset(contentWidth: 160, viewportWidth: 96, elapsed: 4.7))
+        < 0.001
+    )
+  }
+
+  @Test
+  func horizontalTextureClipKeepsTextInsideItsViewport() {
+    let slice = RoutingHorizontalTextureClip.slice(
+      originX: 20,
+      width: 200,
+      textureOriginX: 0.1,
+      textureWidth: 0.4,
+      lowerBound: 40,
+      upperBound: 140
+    )
+
+    #expect(slice?.originX == 40)
+    #expect(slice?.width == 100)
+    #expect(abs((slice?.textureOriginX ?? 0) - 0.14) < 0.0001)
+    #expect(abs((slice?.textureWidth ?? 0) - 0.2) < 0.0001)
+    #expect(
+      RoutingHorizontalTextureClip.slice(
+        originX: 20,
+        width: 10,
+        textureOriginX: 0.1,
+        textureWidth: 0.4,
+        lowerBound: 40,
+        upperBound: 140
+      ) == nil
+    )
+  }
 }

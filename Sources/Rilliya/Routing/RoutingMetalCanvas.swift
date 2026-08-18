@@ -166,7 +166,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     static let badgeBorderWidth: CGFloat = 2
     static let statusLineOrigin = CGPoint(x: 63, y: 14)
     static let subtitleOrigin = CGPoint(x: 63, y: 31)
-    static let subtitleCharacterLimit = 27
+    static let nodeTextTrailing: CGFloat = 42
     static let statusLineCharacterLimit = 24
   }
 
@@ -186,9 +186,17 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   private var selection: Set<RoutingCanvasElementID>
   private var graphConfiguration: FlowingGraphCanvasConfiguration
   private var trackingArea: NSTrackingArea?
-  private var hoveredNodeID: RoutingCanvasElementID?
+  private var hoveredNodeID: RoutingCanvasElementID? {
+    didSet {
+      guard oldValue != hoveredNodeID else { return }
+      scheduleSubtitleMarquee()
+    }
+  }
   private var hoveredPortID: RoutingCanvasElementID?
   private var hoveredEdgeID: RoutingCanvasElementID?
+  private var subtitleMarqueeStartWorkItem: DispatchWorkItem?
+  private var subtitleMarqueeFrameWorkItem: DispatchWorkItem?
+  private var subtitleMarqueeStartedAt: TimeInterval?
   private var mouseDownViewportPoint: CGPoint?
   private var mouseDownWorldPoint: CGPoint?
   private var mouseDownCameraOffset: CGSize?
@@ -610,6 +618,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     if let hoveredNodeID, !scene.nodes.contains(where: { $0.id == hoveredNodeID }) {
       self.hoveredNodeID = nil
     }
+    reconcileSubtitleMarquee()
     if let hoveredPortID, scene.port(id: hoveredPortID) == nil {
       self.hoveredPortID = nil
     }
@@ -1068,16 +1077,28 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       color: statusLine.isFailure ? palette.poppy : palette.muted,
       to: &geometry
     )
+    let subtitleEntry = textAtlas.text(node.subtitle, size: 13, weight: .semibold)
+    let subtitleViewport = subtitleViewport(for: frame)
+    let subtitleElapsed: TimeInterval
+    if node.id == hoveredNodeID, let subtitleMarqueeStartedAt,
+      case .filePlayback = node.value
+    {
+      subtitleElapsed = max(ProcessInfo.processInfo.systemUptime - subtitleMarqueeStartedAt, 0)
+    } else {
+      subtitleElapsed = 0
+    }
+    let subtitleOffset =
+      subtitleEntry.map {
+        RoutingHoverMarquee.offset(
+          contentWidth: $0.size.width,
+          viewportWidth: subtitleViewport.width,
+          elapsed: subtitleElapsed
+        )
+      } ?? 0
     append(
-      atlas: textAtlas.text(
-        truncated(node.subtitle, limit: Constants.subtitleCharacterLimit),
-        size: 13,
-        weight: .semibold
-      ),
-      origin: CGPoint(
-        x: frame.minX + Constants.subtitleOrigin.x,
-        y: frame.minY + Constants.subtitleOrigin.y
-      ),
+      atlas: subtitleEntry,
+      origin: CGPoint(x: subtitleViewport.minX - subtitleOffset, y: subtitleViewport.minY),
+      horizontalClip: subtitleViewport.minX...subtitleViewport.maxX,
       color: palette.ink,
       to: &geometry
     )
@@ -2138,16 +2159,28 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   private func append(
     atlas entry: RoutingMetalAtlasEntry?,
     origin: CGPoint,
+    horizontalClip: ClosedRange<CGFloat>? = nil,
     color: SIMD4<Float>,
     to geometry: inout RoutingMetalFrameGeometry
   ) {
     guard let entry else { return }
+    let slice = horizontalClip.flatMap {
+      RoutingHorizontalTextureClip.slice(
+        originX: origin.x,
+        width: entry.size.width,
+        textureOriginX: entry.textureOrigin.x,
+        textureWidth: entry.textureSize.x,
+        lowerBound: $0.lowerBound,
+        upperBound: $0.upperBound
+      )
+    }
+    if horizontalClip != nil, slice == nil { return }
     geometry.atlasItems.append(
       RoutingMetalAtlasInstance(
-        origin: SIMD2(Float(origin.x), Float(origin.y)),
-        size: SIMD2(Float(entry.size.width), Float(entry.size.height)),
-        textureOrigin: entry.textureOrigin,
-        textureSize: entry.textureSize,
+        origin: SIMD2(Float(slice?.originX ?? origin.x), Float(origin.y)),
+        size: SIMD2(Float(slice?.width ?? entry.size.width), Float(entry.size.height)),
+        textureOrigin: SIMD2(slice?.textureOriginX ?? entry.textureOrigin.x, entry.textureOrigin.y),
+        textureSize: SIMD2(slice?.textureWidth ?? entry.textureSize.x, entry.textureSize.y),
         color: color,
         opacity: 1,
         textureKind: entry.textureKind.rawValue
@@ -2356,6 +2389,74 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
 
   private func requestDisplay() {
     needsDisplay = true
+  }
+
+  private func subtitleViewport(for frame: CGRect) -> CGRect {
+    let origin = CGPoint(
+      x: frame.minX + Constants.subtitleOrigin.x,
+      y: frame.minY + Constants.subtitleOrigin.y
+    )
+    return CGRect(
+      origin: origin,
+      size: CGSize(
+        width: max(frame.maxX - Constants.nodeTextTrailing - origin.x, 0),
+        height: 16
+      )
+    )
+  }
+
+  private var subtitleMarqueeOverflows: Bool {
+    guard let hoveredNodeID,
+      let node = scene.nodes.first(where: { $0.id == hoveredNodeID }),
+      case .filePlayback = node.value,
+      let subtitle = textAtlas.text(node.subtitle, size: 13, weight: .semibold)
+    else { return false }
+    return subtitle.size.width > subtitleViewport(for: translatedFrame(of: node)).width
+  }
+
+  private func scheduleSubtitleMarquee() {
+    resetSubtitleMarquee()
+    guard subtitleMarqueeOverflows, let hoveredNodeID else { return }
+    let workItem = DispatchWorkItem { [weak self] in
+      guard let self, self.hoveredNodeID == hoveredNodeID else { return }
+      self.subtitleMarqueeStartWorkItem = nil
+      self.subtitleMarqueeStartedAt = ProcessInfo.processInfo.systemUptime
+      self.enqueueSubtitleMarqueeFrame()
+    }
+    subtitleMarqueeStartWorkItem = workItem
+    DispatchQueue.main.asyncAfter(
+      deadline: .now() + RoutingHoverMarquee.startDelay,
+      execute: workItem
+    )
+  }
+
+  private func reconcileSubtitleMarquee() {
+    guard subtitleMarqueeOverflows else {
+      resetSubtitleMarquee()
+      return
+    }
+    if subtitleMarqueeStartWorkItem == nil, subtitleMarqueeStartedAt == nil {
+      scheduleSubtitleMarquee()
+    }
+  }
+
+  private func enqueueSubtitleMarqueeFrame() {
+    guard subtitleMarqueeStartedAt != nil else { return }
+    requestDisplay()
+    let workItem = DispatchWorkItem { [weak self] in
+      guard let self, self.subtitleMarqueeStartedAt != nil else { return }
+      self.enqueueSubtitleMarqueeFrame()
+    }
+    subtitleMarqueeFrameWorkItem = workItem
+    DispatchQueue.main.asyncAfter(deadline: .now() + 1 / 60, execute: workItem)
+  }
+
+  private func resetSubtitleMarquee() {
+    subtitleMarqueeStartWorkItem?.cancel()
+    subtitleMarqueeStartWorkItem = nil
+    subtitleMarqueeFrameWorkItem?.cancel()
+    subtitleMarqueeFrameWorkItem = nil
+    subtitleMarqueeStartedAt = nil
   }
 
   private func updateClearColor() {
