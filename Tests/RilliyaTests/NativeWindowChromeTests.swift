@@ -13,6 +13,10 @@ struct NativeWindowChromeTests {
       backing: .buffered,
       defer: false
     )
+    let nativeCloseButton = window.standardWindowButton(.closeButton)
+    let nativeMiniaturizeButton = window.standardWindowButton(.miniaturizeButton)
+    let nativeTrafficLightSpacing =
+      (nativeMiniaturizeButton?.frame.minX ?? 0) - (nativeCloseButton?.frame.maxX ?? 0)
 
     NativeWindowChrome.configure(window)
 
@@ -32,8 +36,18 @@ struct NativeWindowChromeTests {
     let closeButton = window.standardWindowButton(.closeButton)
     let miniaturizeButton = window.standardWindowButton(.miniaturizeButton)
     let zoomButton = window.standardWindowButton(.zoomButton)
+    let closeButtonArtworkInset =
+      max(((closeButton?.frame.height ?? 0) - (closeButton?.frame.width ?? 0)) / 2, 0)
+    let closeButtonVisualTopInset =
+      (closeButton?.superview?.bounds.maxY ?? 0) - (closeButton?.frame.maxY ?? 0)
+      + closeButtonArtworkInset
     #expect(closeButton?.frame.origin.x == NativeWindowChrome.trafficLightLeadingOrigin)
-    #expect(closeButton?.frame.origin.y == NativeWindowChrome.trafficLightBottomOrigin)
+    #expect(NativeWindowChrome.trafficLightSpacing == nativeTrafficLightSpacing)
+    #expect(closeButtonVisualTopInset == NativeWindowChrome.trafficLightLeadingOrigin)
+    #expect(
+      closeButtonVisualTopInset - NativeWindowChrome.contentEdgeInset
+        == NativeWindowChrome.trafficLightLeadingInset
+    )
     #expect(
       miniaturizeButton?.frame.origin.x
         == NativeWindowChrome.trafficLightLeadingOrigin

@@ -7,8 +7,7 @@ enum NativeWindowChrome {
   static let visualWindowCornerRadius: CGFloat = 12
   static let trafficLightLeadingInset: CGFloat = 12
   static let trafficLightLeadingOrigin = contentEdgeInset + trafficLightLeadingInset
-  static let trafficLightBottomOrigin: CGFloat = 1
-  static let trafficLightSpacing: CGFloat = 9
+  static let trafficLightSpacing: CGFloat = 6
 
   @MainActor
   static func configure(_ window: NSWindow) {
@@ -40,8 +39,13 @@ enum NativeWindowChrome {
     ]
     var nextX = trafficLightLeadingOrigin
     for type in buttonTypes {
-      guard let button = window.standardWindowButton(type) else { continue }
-      button.setFrameOrigin(NSPoint(x: nextX, y: trafficLightBottomOrigin))
+      guard let button = window.standardWindowButton(type), let titlebar = button.superview else {
+        continue
+      }
+      let artworkInset = max((button.frame.height - button.frame.width) / 2, 0)
+      let frameTopInset = trafficLightLeadingOrigin - artworkInset
+      let originY = titlebar.bounds.maxY - button.frame.height - frameTopInset
+      button.setFrameOrigin(NSPoint(x: nextX, y: originY))
       nextX += button.frame.width + trafficLightSpacing
     }
   }
