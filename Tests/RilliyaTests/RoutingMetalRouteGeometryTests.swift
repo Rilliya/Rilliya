@@ -119,6 +119,17 @@ struct RoutingMetalRouteGeometryTests {
   }
 
   @Test
+  func fileNodeSubtitlesSupportHoverMarquee() {
+    #expect(
+      RoutingHoverMarquee.supports(.filePlayback(configuration: .initial))
+    )
+    #expect(
+      RoutingHoverMarquee.supports(.fileOutput(configuration: .initial))
+    )
+    #expect(!RoutingHoverMarquee.supports(.gain(configuration: .initial)))
+  }
+
+  @Test
   func horizontalTextureClipKeepsTextInsideItsViewport() {
     let slice = RoutingHorizontalTextureClip.slice(
       originX: 20,

@@ -1081,7 +1081,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     let subtitleViewport = subtitleViewport(for: frame)
     let subtitleElapsed: TimeInterval
     if node.id == hoveredNodeID, let subtitleMarqueeStartedAt,
-      case .filePlayback = node.value
+      RoutingHoverMarquee.supports(node.value)
     {
       subtitleElapsed = max(ProcessInfo.processInfo.systemUptime - subtitleMarqueeStartedAt, 0)
     } else {
@@ -2408,7 +2408,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   private var subtitleMarqueeOverflows: Bool {
     guard let hoveredNodeID,
       let node = scene.nodes.first(where: { $0.id == hoveredNodeID }),
-      case .filePlayback = node.value,
+      RoutingHoverMarquee.supports(node.value),
       let subtitle = textAtlas.text(node.subtitle, size: 13, weight: .semibold)
     else { return false }
     return subtitle.size.width > subtitleViewport(for: translatedFrame(of: node)).width

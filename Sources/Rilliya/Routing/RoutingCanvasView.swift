@@ -2886,13 +2886,18 @@ private struct FileOutputNodeView: View {
           Text("File Output")
             .font(.callout.weight(.semibold))
             .foregroundStyle(FlowingPalette.ink)
-          Text(configuration.destination?.displayName ?? "Choose a destination")
-            .font(.caption)
-            .foregroundStyle(FlowingPalette.muted)
-            .lineLimit(1)
+          RoutingHoverMarqueeText(
+            text: configuration.destination?.displayName ?? "Choose a destination",
+            font: .caption,
+            color: FlowingPalette.muted,
+            lineHeight: 16
+          )
+          .frame(maxWidth: .infinity, alignment: .leading)
         }
-        Spacer(minLength: 0)
+        .frame(maxWidth: .infinity, alignment: .leading)
       }
+      .frame(maxWidth: .infinity, alignment: .leading)
+      .clipped()
 
       Text(configuration.formatDescription)
         .font(.caption.monospacedDigit())
@@ -5675,6 +5680,25 @@ private struct SelectedFileOutputInspector: View {
 
   private let capabilities = AudioFileWritingCapabilities.current()
 
+  @State private var channelCountChoice: RoutingChannelCountChoice
+  @State private var customChannelCountText: String
+
+  init(
+    configuration: RoutingFileOutputConfiguration,
+    state: RoutingFileOutputState,
+    onRetry: @escaping () -> Void,
+    updateConfiguration: @escaping (RoutingFileOutputConfiguration) -> Void
+  ) {
+    self.configuration = configuration
+    self.state = state
+    self.onRetry = onRetry
+    self.updateConfiguration = updateConfiguration
+    _channelCountChoice = State(
+      initialValue: RoutingChannelCountSelection.choice(for: configuration.channelCount)
+    )
+    _customChannelCountText = State(initialValue: String(configuration.channelCount))
+  }
+
   var body: some View {
     FlowingCard(
       spacing: 14,
@@ -5690,109 +5714,104 @@ private struct SelectedFileOutputInspector: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
 
-      HStack(spacing: 10) {
-        VStack(alignment: .leading, spacing: 2) {
-          Text(configuration.destination?.displayName ?? "No destination selected")
-            .font(.callout.weight(.medium))
-            .foregroundStyle(FlowingPalette.ink)
-            .lineLimit(1)
-          Text("Existing recordings receive an unused numeric suffix.")
-            .font(.caption2)
-            .foregroundStyle(FlowingPalette.muted)
-        }
-        Spacer(minLength: 8)
-        Button {
-          chooseDestination()
-        } label: {
-          Label("Choose File", systemImage: "folder")
-        }
-        .buttonStyle(FlowingSoftButtonStyle())
-      }
-      .padding(12)
-      .background(
-        FlowingPalette.field,
-        in: RoundedRectangle(cornerRadius: 10, style: .continuous)
-      )
+      destinationSelectionControl
 
-      VStack(alignment: .leading, spacing: 10) {
-        labeledFileOutputControl("Container") {
-          FlowingSelect(
-            label: "File container",
-            selection: container,
-            options: availableContainers.map {
-              FlowingSelectOption($0, label: $0.displayName)
-            },
-            minimumWidth: 150
-          )
-          .fixedSize(horizontal: false, vertical: true)
+      VStack(alignment: .leading, spacing: 12) {
+        HStack(alignment: .top, spacing: 12) {
+          labeledField("Container") {
+            FlowingSelect(
+              label: "File container",
+              selection: container,
+              options: availableContainers.map {
+                FlowingSelectOption($0, label: $0.displayName)
+              },
+              minimumWidth: 120
+            )
+            .fixedSize(horizontal: false, vertical: true)
+          }
+
+          labeledField("Encoding") {
+            FlowingSelect(
+              label: "File encoding",
+              selection: encodingChoice,
+              options: availableEncodingChoices.map {
+                FlowingSelectOption($0, label: $0.title)
+              },
+              minimumWidth: 120
+            )
+            .fixedSize(horizontal: false, vertical: true)
+          }
         }
 
-        labeledFileOutputControl("Encoding") {
-          FlowingSelect(
-            label: "File encoding",
-            selection: encodingChoice,
-            options: availableEncodingChoices.map {
-              FlowingSelectOption($0, label: $0.title)
-            },
-            minimumWidth: 150
-          )
-          .fixedSize(horizontal: false, vertical: true)
+        HStack(alignment: .top, spacing: 12) {
+          labeledField("Sample Rate") {
+            FlowingSelect(
+              label: "File sample rate",
+              selection: sampleRate,
+              options: RoutingFileOutputConfiguration.commonSampleRates.map {
+                FlowingSelectOption(
+                  $0,
+                  label: sampleRateLabel($0)
+                )
+              },
+              minimumWidth: 120
+            )
+            .fixedSize(horizontal: false, vertical: true)
+          }
+
+          labeledField("Channels") {
+            VStack(alignment: .leading, spacing: 7) {
+              FlowingSelect(
+                label: "File channel count",
+                selection: channelCountSelection,
+                options: channelCountOptions,
+                minimumWidth: 120
+              )
+              .fixedSize(horizontal: false, vertical: true)
+
+              if channelCountChoice == .custom {
+                FlowingTextField(
+                  "Custom channel count",
+                  text: $customChannelCountText,
+                  placeholder: "1–64",
+                  systemImage: "number",
+                  validation: customChannelCountValidation,
+                  onSubmit: commitCustomChannelCount
+                )
+                .onChange(of: customChannelCountText) { _, _ in
+                  commitCustomChannelCount()
+                }
+              }
+            }
+          }
         }
 
         if case .aac = configuration.encoding {
-          labeledFileOutputControl("Target Bitrate") {
+          labeledField("Target Bitrate") {
             FlowingSelect(
               label: "AAC target bitrate",
               selection: aacBitRate,
               options: availableAACBitRates.map {
                 FlowingSelectOption($0, label: "\($0 / 1_000) kbps")
               },
-              minimumWidth: 150
+              minimumWidth: 120
             )
             .fixedSize(horizontal: false, vertical: true)
           }
         }
 
         if case .appleLossless = configuration.encoding {
-          labeledFileOutputControl("Bit Depth") {
+          labeledField("Bit Depth") {
             FlowingSelect(
               label: "Apple Lossless bit depth",
               selection: losslessBitDepth,
               options: RoutingFileOutputConfiguration.losslessBitDepths.map {
                 FlowingSelectOption($0, label: "\($0)-bit")
               },
-              minimumWidth: 150
+              minimumWidth: 120
             )
             .fixedSize(horizontal: false, vertical: true)
           }
-        }
-
-        labeledFileOutputControl("Sample Rate") {
-          FlowingSelect(
-            label: "File sample rate",
-            selection: sampleRate,
-            options: RoutingFileOutputConfiguration.commonSampleRates.map {
-              FlowingSelectOption(
-                $0,
-                label: sampleRateLabel($0)
-              )
-            },
-            minimumWidth: 150
-          )
-          .fixedSize(horizontal: false, vertical: true)
-        }
-
-        HStack {
-          Text("Channels")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(FlowingPalette.muted)
-          Spacer(minLength: 8)
-          FlowingStepper(
-            "File channel count",
-            value: channelCount,
-            in: 1...RoutingFileOutputConfiguration.maximumEditableChannelCount,
-            step: 1
-          )
         }
       }
 
@@ -5808,6 +5827,34 @@ private struct SelectedFileOutputInspector: View {
       }
     }
     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
+  }
+
+  private var destinationSelectionControl: some View {
+    VStack(alignment: .leading, spacing: 9) {
+      HStack(spacing: 10) {
+        Text("Output File")
+          .font(.caption.weight(.semibold))
+          .foregroundStyle(FlowingPalette.muted)
+        Spacer(minLength: 8)
+        Button {
+          chooseDestination()
+        } label: {
+          Label(
+            configuration.destination == nil ? "Choose File" : "Replace File",
+            systemImage: "folder"
+          )
+        }
+        .buttonStyle(FlowingSoftButtonStyle())
+      }
+
+      RoutingHoverMarqueeText(
+        text: configuration.destination?.displayName ?? "No destination selected",
+        font: .callout.weight(.medium),
+        color: FlowingPalette.ink,
+        lineHeight: 19
+      )
+      .frame(maxWidth: .infinity, alignment: .leading)
+    }
   }
 
   private var availableEncodingChoices: [EncodingChoice] {
@@ -5929,18 +5976,54 @@ private struct SelectedFileOutputInspector: View {
     )
   }
 
-  private var channelCount: Binding<Int> {
+  private var channelCountSelection: Binding<RoutingChannelCountChoice> {
     Binding(
-      get: { configuration.channelCount },
-      set: { count in
-        var updated = configuration
-        updated.channelCount = min(
-          max(count, 1),
-          RoutingFileOutputConfiguration.maximumEditableChannelCount
-        )
-        updateConfiguration(updated)
+      get: { channelCountChoice },
+      set: { choice in
+        channelCountChoice = choice
+        switch choice {
+        case .preset(let count):
+          customChannelCountText = String(count)
+          updateChannelCount(count)
+        case .custom:
+          customChannelCountText = String(configuration.channelCount)
+        }
       }
     )
+  }
+
+  private var channelCountOptions: [FlowingSelectOption<RoutingChannelCountChoice>] {
+    RoutingChannelCountSelection.commonPresets.map { count in
+      FlowingSelectOption(
+        .preset(count),
+        label: RoutingChannelCountSelection.label(for: count)
+      )
+    } + [FlowingSelectOption(.custom, label: "Custom…")]
+  }
+
+  private var customChannelCountValidation: FlowingFieldValidation {
+    parsedCustomChannelCount == nil
+      ? .error("Enter a whole number from 1 through 64.")
+      : .none
+  }
+
+  private var parsedCustomChannelCount: Int? {
+    RoutingChannelCountSelection.validatedCustomCount(
+      customChannelCountText,
+      in: 1...RoutingFileOutputConfiguration.maximumEditableChannelCount
+    )
+  }
+
+  private func commitCustomChannelCount() {
+    guard channelCountChoice == .custom, let count = parsedCustomChannelCount else { return }
+    updateChannelCount(count)
+  }
+
+  private func updateChannelCount(_ count: Int) {
+    guard count != configuration.channelCount else { return }
+    var updated = configuration
+    updated.channelCount = count
+    updateConfiguration(updated)
   }
 
   private func defaultEncoding(for container: AudioFileContainer) -> AudioFileEncoding {
@@ -6036,20 +6119,6 @@ private struct SelectedFileOutputInspector: View {
       displayName: url.lastPathComponent
     )
     updateConfiguration(updated)
-  }
-}
-
-@ViewBuilder
-private func labeledFileOutputControl<Content: View>(
-  _ label: String,
-  @ViewBuilder content: () -> Content
-) -> some View {
-  HStack(spacing: 10) {
-    Text(label)
-      .font(.caption.weight(.semibold))
-      .foregroundStyle(FlowingPalette.muted)
-    Spacer(minLength: 8)
-    content()
   }
 }
 

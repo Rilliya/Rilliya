@@ -6,6 +6,15 @@ enum RoutingHoverMarquee {
   static let endpointPause: TimeInterval = 0.7
   static let pointsPerSecond: CGFloat = 32
 
+  static func supports(_ nodeValue: RoutingNodeValue) -> Bool {
+    switch nodeValue {
+    case .filePlayback, .fileOutput:
+      true
+    default:
+      false
+    }
+  }
+
   static func offset(
     contentWidth: CGFloat,
     viewportWidth: CGFloat,
