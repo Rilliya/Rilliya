@@ -119,6 +119,23 @@ struct RoutingMetalCanvas: NSViewRepresentable {
     controller.attach(nsView)
   }
 
+  /// Takes whatever it is offered, in both directions.
+  ///
+  /// An `NSView` has no size of its own to report, so without this the canvas contributes nothing
+  /// when the stack around it works out how tall it wants to be. The tallest thing floating over
+  /// the canvas decides instead, and the canvas resizes whenever that changes — which looked like
+  /// every node jumping the moment a taller inspector appeared.
+  func sizeThatFits(
+    _ proposal: ProposedViewSize,
+    nsView: RoutingMetalCanvasView,
+    context: Context
+  ) -> CGSize? {
+    CGSize(
+      width: proposal.width ?? nsView.bounds.width,
+      height: proposal.height ?? nsView.bounds.height
+    )
+  }
+
   private func configure(_ view: RoutingMetalCanvasView) {
     view.onSelectionChange = onSelectionChange
     view.onMoveNodes = onMoveNodes

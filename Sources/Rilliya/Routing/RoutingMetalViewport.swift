@@ -89,39 +89,45 @@ struct RoutingMetalViewport: View {
           onViewportChange: updateViewport
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-        FlowingCanvasViewportOverlay(
-          alignment: .topTrailing,
-          insets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
-        ) {
-          VStack(alignment: .trailing, spacing: 12) {
-            if isMiniMapVisible, !scene.nodes.isEmpty {
-              miniMap
-                .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topTrailing)))
-            }
-            ZStack(alignment: .topTrailing) {
-              if let inspectorID {
-                inspector
-                  .id(inspectorID)
-                  .compositingGroup()
-                  .transition(inspectorTransition)
+        // Laid over the canvas rather than stacked beside it. As siblings these decide how tall
+        // the stack wants to be, so the canvas grew and shrank with whichever inspector was
+        // showing and every node appeared to jump. An overlay is measured against the canvas and
+        // can never resize it.
+        .overlay {
+          FlowingCanvasViewportOverlay(
+            alignment: .topTrailing,
+            insets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+          ) {
+            VStack(alignment: .trailing, spacing: 12) {
+              if isMiniMapVisible, !scene.nodes.isEmpty {
+                miniMap
+                  .transition(.opacity.combined(with: .scale(scale: 0.96, anchor: .topTrailing)))
+              }
+              ZStack(alignment: .topTrailing) {
+                if let inspectorID {
+                  inspector
+                    .id(inspectorID)
+                    .compositingGroup()
+                    .transition(inspectorTransition)
+                }
               }
             }
           }
+          .animation(inspectorAnimation, value: inspectorID)
+          .animation(inspectorAnimation, value: isMiniMapVisible)
         }
-        .animation(inspectorAnimation, value: inspectorID)
-        .animation(inspectorAnimation, value: isMiniMapVisible)
-
-        FlowingCanvasViewportOverlay(
-          alignment: .bottomTrailing,
-          insets: EdgeInsets(
-            top: RoutingViewportControlMetrics.inset,
-            leading: RoutingViewportControlMetrics.inset,
-            bottom: RoutingViewportControlMetrics.inset,
-            trailing: RoutingViewportControlMetrics.inset
-          )
-        ) {
-          viewportControls
+        .overlay {
+          FlowingCanvasViewportOverlay(
+            alignment: .bottomTrailing,
+            insets: EdgeInsets(
+              top: RoutingViewportControlMetrics.inset,
+              leading: RoutingViewportControlMetrics.inset,
+              bottom: RoutingViewportControlMetrics.inset,
+              trailing: RoutingViewportControlMetrics.inset
+            )
+          ) {
+            viewportControls
+          }
         }
 
         if let contextMenuRequest {
