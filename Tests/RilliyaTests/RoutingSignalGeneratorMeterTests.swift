@@ -59,7 +59,9 @@ struct RoutingSignalGeneratorMeterTests {
     controller.meterHandler()(nodeID, Self.channels(rootMeanSquare: 0.9))
 
     #expect(
-      await Self.settles { controller.snapshot(for: nodeID)?.channels.first?.rootMeanSquare == 0.9 },
+      await Self.settles {
+        controller.snapshot(for: nodeID)?.channels.first?.rootMeanSquare == 0.9
+      },
       "the node kept the first report")
   }
 

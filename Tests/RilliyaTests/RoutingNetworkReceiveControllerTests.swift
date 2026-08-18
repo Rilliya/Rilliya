@@ -4,6 +4,7 @@ import RilliyaNetworkAudio
 import RilliyaRealtime
 import Testing
 import os.lock
+
 @testable import Rilliya
 
 struct RoutingNetworkReceiveControllerTests {
@@ -113,7 +114,9 @@ struct RoutingNetworkReceiveControllerTests {
 
     #expect(await eventually { controller.state(for: second).isRunning })
     #expect(await starter.startCount == 1)
-    #expect(controller.captureSessionIdentity(for: first) == controller.captureSessionIdentity(for: second))
+    #expect(
+      controller.captureSessionIdentity(for: first)
+        == controller.captureSessionIdentity(for: second))
   }
 
   /// The shape the canvas depends on: one stream, several destinations, each reading its own.
@@ -138,7 +141,8 @@ struct RoutingNetworkReceiveControllerTests {
     // Asking twice for one node is two destinations too: a node feeds an output and a recording
     // from the same stream, and each of those reads on its own clock.
     let again = try #require(try controller.captureSource(for: first))
-    #expect(again.identity != one.identity, "one node's second destination reused the first's queue")
+    #expect(
+      again.identity != one.identity, "one node's second destination reused the first's queue")
   }
 
   /// A graph rebuild must not spend a destination, or a running stream stops after a few of them.
