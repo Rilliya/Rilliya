@@ -4914,6 +4914,58 @@ private struct SelectedAudioMixerInspector: View {
   }
 }
 
+private enum RoutingInspectorSwitchLabelStyle {
+  case row
+  case parameter
+
+  var font: Font {
+    switch self {
+    case .row: .body
+    case .parameter: .caption.weight(.semibold)
+    }
+  }
+
+  var color: Color {
+    switch self {
+    case .row: FlowingPalette.ink
+    case .parameter: FlowingPalette.muted
+    }
+  }
+}
+
+private struct RoutingInspectorSwitchRow: View {
+  let title: String
+  @Binding var isOn: Bool
+  let labelStyle: RoutingInspectorSwitchLabelStyle
+
+  @Environment(\.flowingAccent) private var accent
+
+  init(
+    _ title: String,
+    isOn: Binding<Bool>,
+    labelStyle: RoutingInspectorSwitchLabelStyle = .row
+  ) {
+    self.title = title
+    _isOn = isOn
+    self.labelStyle = labelStyle
+  }
+
+  var body: some View {
+    HStack(spacing: 12) {
+      Text(title)
+        .font(labelStyle.font)
+        .foregroundStyle(labelStyle.color)
+      Spacer(minLength: 12)
+      Toggle(title, isOn: $isOn)
+        .labelsHidden()
+        .toggleStyle(.switch)
+        .controlSize(.small)
+        .tint(accent.fill)
+        .accessibilityLabel(title)
+    }
+  }
+}
+
 private struct SelectedGainInspector: View {
   let configuration: RoutingGainConfiguration
   let updateConfiguration: (RoutingGainConfiguration) -> Void
@@ -4956,11 +5008,12 @@ private struct SelectedGainInspector: View {
         )
       }
 
-      Divider()
-        .overlay(FlowingPalette.hairline)
-
-      FlowingSwitch("Mute output", isOn: isMuted)
-      FlowingSwitch("Invert polarity", isOn: isPolarityInverted)
+      RoutingInspectorSwitchRow("Mute output", isOn: isMuted, labelStyle: .parameter)
+      RoutingInspectorSwitchRow(
+        "Invert polarity",
+        isOn: isPolarityInverted,
+        labelStyle: .parameter
+      )
 
       FlowingCallout(
         "Level and mute changes use a short realtime ramp to avoid clicks. Polarity inversion changes sample sign and adds no extra render pass.",
@@ -5354,7 +5407,6 @@ private struct SelectedFilePlaybackInspector: View {
 
   @State private var isInspectingFile = false
   @State private var fileIssue: String?
-  @Environment(\.flowingAccent) private var accent
 
   var body: some View {
     FlowingCard(
@@ -5430,18 +5482,11 @@ private struct SelectedFilePlaybackInspector: View {
           formatValue: { "\(Int($0.rounded())) decibels" }
         )
         .padding(.horizontal, -6.5)
-        HStack(spacing: 12) {
-          Text("Mute file playback")
-            .font(.caption.weight(.semibold))
-            .foregroundStyle(FlowingPalette.muted)
-          Spacer(minLength: 12)
-          Toggle("Mute file playback", isOn: muted)
-            .labelsHidden()
-            .toggleStyle(.switch)
-            .controlSize(.small)
-            .tint(accent.fill)
-            .accessibilityLabel("Mute file playback")
-        }
+        RoutingInspectorSwitchRow(
+          "Mute file playback",
+          isOn: muted,
+          labelStyle: .parameter
+        )
       }
       .disabled(configuration.selection == nil)
 
