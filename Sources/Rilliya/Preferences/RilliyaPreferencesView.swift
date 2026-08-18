@@ -7,7 +7,7 @@ private enum RilliyaPreferencesPage: Hashable {
   case general
   case canvas
   case customization
-  case nodeDefaults
+  case nodeDefaults(RilliyaNodeDefaultsCategory)
   case virtualAudio
   case about
 }
@@ -28,17 +28,55 @@ private struct RilliyaPreferencesRoot: View {
       ),
       groups: [
         PreferencesPageGroup(
+          id: "node-defaults",
+          title: "Node Defaults",
+          pages: [
+            PreferencesPage(
+              id: .nodeDefaults(.sources),
+              title: "Sources",
+              subtitle: "Capture, playback, and generators",
+              icon: .system("waveform.badge.plus")
+            ) {
+              RilliyaNodeDefaultsPreferencesPane(settings: settings, category: .sources)
+            },
+            PreferencesPage(
+              id: .nodeDefaults(.destinations),
+              title: "Destinations",
+              subtitle: "Playback, files, and network sends",
+              icon: .system("speaker.wave.2")
+            ) {
+              RilliyaNodeDefaultsPreferencesPane(settings: settings, category: .destinations)
+            },
+            PreferencesPage(
+              id: .nodeDefaults(.routing),
+              title: "Routing & Level",
+              subtitle: "Mix, gain, and channel maps",
+              icon: .system("point.3.connected.trianglepath.dotted")
+            ) {
+              RilliyaNodeDefaultsPreferencesPane(settings: settings, category: .routing)
+            },
+            PreferencesPage(
+              id: .nodeDefaults(.measurement),
+              title: "Measurement",
+              subtitle: "Visualizer presentation",
+              icon: .system("waveform")
+            ) {
+              RilliyaNodeDefaultsPreferencesPane(settings: settings, category: .measurement)
+            },
+            PreferencesPage(
+              id: .nodeDefaults(.processing),
+              title: "Dynamics & Effects",
+              subtitle: "Delay, gating, and compression",
+              icon: .system("slider.horizontal.3")
+            ) {
+              RilliyaNodeDefaultsPreferencesPane(settings: settings, category: .processing)
+            },
+          ]
+        ),
+        PreferencesPageGroup(
           id: "workspace",
           title: "Workspace",
           pages: [
-            PreferencesPage(
-              id: .nodeDefaults,
-              title: "Node Defaults",
-              subtitle: "Starting values for new audio nodes",
-              icon: .system("slider.horizontal.3")
-            ) {
-              RilliyaNodeDefaultsPreferencesPane(settings: settings)
-            },
             PreferencesPage(
               id: .general,
               title: "General",
@@ -107,32 +145,47 @@ private struct RilliyaPreferencesRoot: View {
 
 private struct RilliyaNodeDefaultsPreferencesPane: View {
   @Bindable var settings: RilliyaSettings
+  let category: RilliyaNodeDefaultsCategory
   @State private var expandedKind: RoutingNodeKind?
+  @State private var searchText = ""
 
   var body: some View {
     PreferencesPaneStack {
       PreferencesSection(
-        "Node Parameters",
+        "Search",
+        footer: "Search by node name or parameter in this group."
+      ) {
+        PreferencesRow(
+          symbol: "magnifyingglass",
+          title: "Find defaults",
+          caption: "Filter \(category.title.lowercased()) nodes and their parameters."
+        ) {
+          FlowingTextField(
+            "Search node defaults",
+            text: $searchText,
+            placeholder: "Search nodes and parameters",
+            systemImage: "magnifyingglass"
+          )
+          .frame(width: 250)
+        }
+      }
+
+      PreferencesSection(
+        category.title,
         footer:
           "Only enabled values replace Rilliya's starting values. Existing nodes are never changed."
       ) {
-        RilliyaNetworkSendDefaultsRow(
+        RilliyaNodeDefaultsRows(
           settings: settings,
-          isExpanded: Binding(
-            get: { expandedKind == .networkSend },
-            set: { expandedKind = $0 ? .networkSend : nil }
-          )
-        )
-        RilliyaAdditionalNodeDefaultsRows(
-          settings: settings,
-          expandedKind: $expandedKind
+          expandedKind: $expandedKind,
+          kinds: category.kinds(matching: searchText)
         )
       }
     }
   }
 }
 
-private struct RilliyaNetworkSendDefaultsRow: View {
+struct RilliyaNetworkSendDefaultsRow: View {
   @Bindable var settings: RilliyaSettings
   @Binding var isExpanded: Bool
 

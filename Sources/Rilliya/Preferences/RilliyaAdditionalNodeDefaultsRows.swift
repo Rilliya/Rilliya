@@ -4,41 +4,131 @@ import RilliyaDSP
 import RilliyaFileWriting
 import SwiftUI
 
-struct RilliyaAdditionalNodeDefaultsRows: View {
+enum RilliyaNodeDefaultsCategory: String, CaseIterable, Hashable {
+  case sources
+  case destinations
+  case routing
+  case measurement
+  case processing
+
+  var title: String {
+    switch self {
+    case .sources: "Sources"
+    case .destinations: "Destinations"
+    case .routing: "Routing & Level"
+    case .measurement: "Measurement"
+    case .processing: "Dynamics & Effects"
+    }
+  }
+
+  private var kinds: [RoutingNodeKind] {
+    switch self {
+    case .sources:
+      [
+        .applicationAudio,
+        .inputAudio,
+        .systemOutput,
+        .virtualOutput,
+        .signalGenerator,
+        .filePlayback,
+        .networkReceive,
+      ]
+    case .destinations:
+      [.outputAudio, .virtualInput, .fileOutput, .networkSend]
+    case .routing:
+      [.audioMixer, .gain, .channelRouter]
+    case .measurement:
+      [.visualizer]
+    case .processing:
+      [.delay, .noiseGate, .compressor]
+    }
+  }
+
+  func kinds(matching searchText: String) -> [RoutingNodeKind] {
+    let terms =
+      searchText
+      .split(whereSeparator: \Character.isWhitespace)
+      .map { $0.lowercased() }
+    guard !terms.isEmpty else { return kinds }
+    return kinds.filter { kind in
+      let searchableText = ([kind.title] + kind.parameterSearchTerms)
+        .joined(separator: " ")
+        .lowercased()
+      return terms.allSatisfy(searchableText.contains)
+    }
+  }
+}
+
+extension RoutingNodeKind {
+  fileprivate var parameterSearchTerms: [String] {
+    switch self {
+    case .applicationAudio, .inputAudio, .systemOutput, .virtualOutput, .outputAudio,
+      .virtualInput:
+      ["port presentation channels aggregate separate"]
+    case .visualizer:
+      ["input display output mode waveform channel set mixed output"]
+    case .audioMixer:
+      ["channel layout mixer"]
+    case .gain:
+      ["level decibels mute polarity invert"]
+    case .channelRouter:
+      ["routing map inputs outputs channels silence"]
+    case .signalGenerator:
+      ["waveform frequency amplitude tone noise"]
+    case .filePlayback:
+      ["loop repeat playback count"]
+    case .fileOutput:
+      ["file format container encoding sample rate channels"]
+    case .networkSend:
+      ["wire format bit rate sample rate channels opus aac"]
+    case .networkReceive:
+      ["sender format sample rate channels buffer jitter delay catch-up correction"]
+    case .delay:
+      ["delay time feedback dry wet mix"]
+    case .noiseGate:
+      ["threshold hysteresis attack hold release reduction"]
+    case .compressor:
+      ["threshold ratio knee attack release makeup gain"]
+    case .peakLevel:
+      []
+    }
+  }
+}
+
+struct RilliyaNodeDefaultsRows: View {
   @Bindable var settings: RilliyaSettings
   @Binding var expandedKind: RoutingNodeKind?
-
-  private let kinds: [RoutingNodeKind] = [
-    .applicationAudio,
-    .inputAudio,
-    .systemOutput,
-    .virtualOutput,
-    .outputAudio,
-    .virtualInput,
-    .visualizer,
-    .audioMixer,
-    .gain,
-    .channelRouter,
-    .signalGenerator,
-    .filePlayback,
-    .fileOutput,
-    .networkReceive,
-    .delay,
-    .noiseGate,
-    .compressor,
-  ]
+  let kinds: [RoutingNodeKind]
 
   var body: some View {
-    ForEach(kinds, id: \.self) { kind in
-      RilliyaNodeDefaultsRow(
-        kind: kind,
-        settings: settings,
-        isExpanded: Binding(
-          get: { expandedKind == kind },
-          set: { expandedKind = $0 ? kind : nil }
-        )
+    if kinds.isEmpty {
+      PreferencesEmptyRow(
+        "No nodes or parameters match this search.",
+        symbol: "magnifyingglass"
       )
+    } else {
+      ForEach(kinds, id: \.self) { kind in
+        if kind == .networkSend {
+          RilliyaNetworkSendDefaultsRow(
+            settings: settings,
+            isExpanded: expansion(for: kind)
+          )
+        } else {
+          RilliyaNodeDefaultsRow(
+            kind: kind,
+            settings: settings,
+            isExpanded: expansion(for: kind)
+          )
+        }
+      }
     }
+  }
+
+  private func expansion(for kind: RoutingNodeKind) -> Binding<Bool> {
+    Binding(
+      get: { expandedKind == kind },
+      set: { expandedKind = $0 ? kind : nil }
+    )
   }
 }
 

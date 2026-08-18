@@ -172,6 +172,48 @@ struct RilliyaSettingsTests {
     }
   }
 
+  @Test
+  func nodeDefaultCategoriesGroupAndSearchEveryConfigurableKind() {
+    let categorizedKinds = Set(
+      RilliyaNodeDefaultsCategory.allCases.flatMap { $0.kinds(matching: "") }
+    )
+    #expect(categorizedKinds == Set(RoutingNodeKind.allCases).subtracting([.peakLevel]))
+    #expect(
+      RilliyaNodeDefaultsCategory.sources.kinds(matching: "")
+        == [
+          .applicationAudio,
+          .inputAudio,
+          .systemOutput,
+          .virtualOutput,
+          .signalGenerator,
+          .filePlayback,
+          .networkReceive,
+        ]
+    )
+    #expect(
+      RilliyaNodeDefaultsCategory.destinations.kinds(matching: "")
+        == [.outputAudio, .virtualInput, .fileOutput, .networkSend]
+    )
+    #expect(
+      RilliyaNodeDefaultsCategory.processing.kinds(matching: "threshold")
+        == [.noiseGate, .compressor]
+    )
+    #expect(
+      RilliyaNodeDefaultsCategory.sources.kinds(matching: "buffer correction")
+        == [.networkReceive]
+    )
+    #expect(
+      RilliyaNodeDefaultsCategory.destinations.kinds(matching: "opus rate")
+        == [.networkSend]
+    )
+    #expect(RilliyaNodeDefaultsCategory.routing.kinds(matching: "polarity") == [.gain])
+    #expect(
+      RilliyaNodeDefaultsCategory.measurement.kinds(matching: "waveform output")
+        == [.visualizer]
+    )
+    #expect(RilliyaNodeDefaultsCategory.sources.kinds(matching: "not-a-parameter").isEmpty)
+  }
+
   @Test @MainActor
   func applicationAlwaysKeepsOnePresentationSurfaceReachable() throws {
     let suiteName = "moe.uwucocoa.rilliya.tests.\(UUID().uuidString)"
