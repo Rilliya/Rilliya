@@ -10,7 +10,8 @@ options:
 
 packages:
   RilliyaKit:
-    path: ../RilliyaKit
+    url: https://github.com/Rilliya/RilliyaKit.git
+    exactVersion: 0.2.0-alpha.1
   FlowingDayUI:
     url: https://github.com/cocoa-xu/flowing-day-ui.git
     exactVersion: 2.5.1
@@ -61,7 +62,7 @@ targets:
         ENABLE_APP_SANDBOX: NO
         ENABLE_HARDENED_RUNTIME: YES
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: 0.1.0
+        MARKETING_VERSION: 0.2.0-alpha.1
         PRODUCT_BUNDLE_IDENTIFIER: moe.uwucocoa.rilliya
         PRODUCT_NAME: Rilliya
       configs:

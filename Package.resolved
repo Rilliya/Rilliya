@@ -15,8 +15,8 @@
       "kind" : "remoteSourceControl",
       "location" : "https://github.com/Rilliya/RilliyaKit.git",
       "state" : {
-        "revision" : "6e498528d061a5f83a87dcb87b5d7e3768f23d45",
-        "version" : "0.1.0-prealpha.1"
+        "revision" : "8ca8b0bb07ef5dc9db6271d6b90b433f16bd3adc",
+        "version" : "0.2.0-alpha.1"
       }
     },
     {
