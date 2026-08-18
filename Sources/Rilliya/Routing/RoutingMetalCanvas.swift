@@ -6,6 +6,18 @@ import FlowingDayGraphLayout
 import MetalKit
 import SwiftUI
 
+enum RoutingMetalEdgeStrokeMetrics {
+  static let preferredSampleCount = 4
+  static let minimumPixelWidth: CGFloat = 0.75
+  static let normalWidth: CGFloat = 1.35
+  static let emphasizedWidth: CGFloat = 2.2
+
+  static func worldWidth(isEmphasized: Bool, zoom: CGFloat) -> CGFloat {
+    let requestedWidth = isEmphasized ? emphasizedWidth : normalWidth
+    return max(requestedWidth, minimumPixelWidth / zoom)
+  }
+}
+
 @MainActor
 final class RoutingMetalCanvasController: FlowingGraphCanvasMetalBackendController {
   @Published private(set) var mouseTool: RoutingCanvasMouseTool = .select
@@ -140,12 +152,10 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
 
   private enum Constants {
     static let maximumFramesInFlight = 2
-    static let preferredSampleCount = 1
     static let nodeCornerRadius: CGFloat = 16
     static let iconFrame = CGRect(x: 14, y: 14, width: 38, height: 38)
     static let portDiameter: CGFloat = 11
     static let portHitRadius: CGFloat = 13
-    static let edgeWidth: CGFloat = 1.6
     static let connectionPreviewWidth: CGFloat = 1.8
     static let edgeLabelMinimumZoom: CGFloat = 0.58
     static let waveformWidth: CGFloat = 2
@@ -230,8 +240,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     self.showsDisabledPortCrosses = showsDisabledPortCrosses
     textAtlas = RoutingMetalTextAtlas(device: device)
     let sampleCount =
-      device.supportsTextureSampleCount(Constants.preferredSampleCount)
-      ? Constants.preferredSampleCount
+      device.supportsTextureSampleCount(RoutingMetalEdgeStrokeMetrics.preferredSampleCount)
+      ? RoutingMetalEdgeStrokeMetrics.preferredSampleCount
       : 1
     do {
       let library = try RoutingMetalShaderLibrary.load(device: device)
@@ -1962,7 +1972,10 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     let routePoints = RoutingMetalRouteGeometry.points(for: route, scale: camera.zoom)
     appendStroke(
       points: routePoints,
-      width: edgeStrokeWidth(edge) / camera.zoom,
+      width: RoutingMetalEdgeStrokeMetrics.worldWidth(
+        isEmphasized: selection.contains(edge.id) || hoveredEdgeID == edge.id,
+        zoom: camera.zoom
+      ),
       color: edgeStrokeColor(edge, palette: palette),
       to: &geometry
     )
@@ -1997,12 +2010,6 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     )
   }
 
-  private func edgeStrokeWidth(_ edge: RoutingMetalScene.Edge) -> CGFloat {
-    if selection.contains(edge.id) { return 2.8 }
-    if hoveredEdgeID == edge.id { return 2.2 }
-    return Constants.edgeWidth
-  }
-
   private func edgeStrokeColor(
     _ edge: RoutingMetalScene.Edge,
     palette: RoutingMetalPalette
@@ -2010,7 +2017,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     if !edge.isActive {
       return palette.muted.withAlpha(selection.contains(edge.id) ? 0.58 : 0.28)
     }
-    return palette.fern.withAlpha(selection.contains(edge.id) ? 0.92 : 0.58)
+    return palette.fern.withAlpha(selection.contains(edge.id) ? 0.92 : 0.68)
   }
 
   private func midpoint(of points: [CGPoint]) -> CGPoint {

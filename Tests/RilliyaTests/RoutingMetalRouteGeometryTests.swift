@@ -82,4 +82,22 @@ struct RoutingMetalRouteGeometryTests {
     #expect(triangles[0].point2 == triangles[2].point0)
     #expect(triangles[1].point1 == triangles[2].point1)
   }
+
+  @Test
+  func edgeStrokeMatchesPortaWidthAndScaling() {
+    #expect(RoutingMetalEdgeStrokeMetrics.preferredSampleCount == 4)
+    #expect(
+      RoutingMetalEdgeStrokeMetrics.worldWidth(isEmphasized: false, zoom: 1) == 1.35
+    )
+    #expect(
+      RoutingMetalEdgeStrokeMetrics.worldWidth(isEmphasized: true, zoom: 1) == 2.2
+    )
+    #expect(
+      RoutingMetalEdgeStrokeMetrics.worldWidth(isEmphasized: false, zoom: 2) * 2 == 2.7
+    )
+    #expect(
+      RoutingMetalEdgeStrokeMetrics.worldWidth(isEmphasized: false, zoom: 0.25) * 0.25
+        == 0.75
+    )
+  }
 }
