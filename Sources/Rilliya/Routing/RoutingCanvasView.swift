@@ -7160,32 +7160,38 @@ private struct SelectedVisualizerInspector: View {
       }
       .frame(maxWidth: .infinity, alignment: .leading)
 
-      FlowingSegmentedControl(
-        label: "Input",
-        selection: inputMode,
-        options: [
-          FlowingSegmentOption(.mixed, label: "One cable"),
-          FlowingSegmentOption(.separate, label: "Per channel"),
-        ]
-      )
+      labeledField(RoutingVisualizerModeRole.input.title) {
+        FlowingSegmentedControl(
+          label: RoutingVisualizerModeRole.input.accessibilityLabel,
+          selection: inputMode,
+          options: [
+            FlowingSegmentOption(.mixed, label: "One cable"),
+            FlowingSegmentOption(.separate, label: "Per channel"),
+          ]
+        )
+      }
 
-      FlowingSegmentedControl(
-        label: "Waveform presentation",
-        selection: displayMode,
-        options: [
-          FlowingSegmentOption(.mixed, label: "Mixed"),
-          FlowingSegmentOption(.separate, label: "Separate"),
-        ]
-      )
+      labeledField(RoutingVisualizerModeRole.display.title) {
+        FlowingSegmentedControl(
+          label: RoutingVisualizerModeRole.display.accessibilityLabel,
+          selection: displayMode,
+          options: [
+            FlowingSegmentOption(.mixed, label: "Mixed"),
+            FlowingSegmentOption(.separate, label: "Separate"),
+          ]
+        )
+      }
 
-      FlowingSegmentedControl(
-        label: "Output",
-        selection: outputMode,
-        options: [
-          FlowingSegmentOption(.mixed, label: "One cable"),
-          FlowingSegmentOption(.separate, label: "Per channel"),
-        ]
-      )
+      labeledField(RoutingVisualizerModeRole.output.title) {
+        FlowingSegmentedControl(
+          label: RoutingVisualizerModeRole.output.accessibilityLabel,
+          selection: outputMode,
+          options: [
+            FlowingSegmentOption(.mixed, label: "One cable"),
+            FlowingSegmentOption(.separate, label: "Per channel"),
+          ]
+        )
+      }
 
       if configuration.usesChannelSelection {
         VStack(alignment: .leading, spacing: 9) {
