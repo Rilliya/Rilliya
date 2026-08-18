@@ -13,7 +13,7 @@ packages:
     path: ../RilliyaKit
   FlowingDayUI:
     url: https://github.com/cocoa-xu/flowing-day-ui.git
-    exactVersion: 2.5.0
+    exactVersion: 2.5.1
 
 settings:
   base:

@@ -105,10 +105,21 @@ struct RoutingMetalViewport: View {
               }
               ZStack(alignment: .topTrailing) {
                 if let inspectorID {
-                  inspector
-                    .id(inspectorID)
-                    .compositingGroup()
-                    .transition(inspectorTransition)
+                  // Scrolls rather than squashes.
+                  //
+                  // The panel floats over the canvas, so its height is whatever the window leaves;
+                  // a small window is an ordinary thing and the panel has to cope with it. Without
+                  // somewhere to scroll, a panel taller than that got compressed instead, and the
+                  // text allowed to shrink did: a segmented control rendered smaller inside a long
+                  // inspector than inside a short one while everything around it stayed put.
+                  ScrollView(.vertical, showsIndicators: false) {
+                    inspector
+                      .id(inspectorID)
+                      .compositingGroup()
+                      .transition(inspectorTransition)
+                  }
+                  .scrollBounceBehavior(.basedOnSize)
+                  .scrollClipDisabled()
                 }
               }
             }
