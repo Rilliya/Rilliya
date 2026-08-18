@@ -175,10 +175,29 @@ extension RoutingAudioOutputPlan {
   }
 }
 
+/// Which device an output settled on, and only while building for debugging.
+///
+/// A node reads as running whether it is playing to the device the reader expects or not, which is
+/// the one thing that cannot be seen from outside while diagnosing why nothing is audible. It is
+/// not something a shipped build should spend anything on, so outside a debug build this is
+/// nothing.
+private enum OutputDiagnostics {
+  #if DEBUG
+    private static let log = Logger(subsystem: "moe.uwucocoa.rilliya", category: "audio-output")
+  #endif
+
+  /// Reports one output starting or refusing to.
+  static func report(_ message: @autoclosure () -> String) {
+    #if DEBUG
+      let text = message()
+      log.debug("\(text, privacy: .public)")
+    #endif
+  }
+}
+
 @MainActor
 @Observable
 final class RoutingAudioOutputController {
-  private static let log = Logger(subsystem: "moe.uwucocoa.rilliya", category: "audio-output")
 
   private struct RunningSession {
     let signature: RoutingAudioOutputRequestSignature
@@ -367,20 +386,16 @@ final class RoutingAudioOutputController {
         states[nodeID] = .running(session.format)
         // Which device an output actually settled on, and at what rate, is otherwise invisible:
         // a node reads as running whether it is playing to the device the reader expects or not.
-        Self.log.debug(
+        OutputDiagnostics.report(
           """
-          output \(nodeID.uuidString, privacy: .public) running on \
-          \(request.signature.deviceID.rawValue, privacy: .public) at \
-          \(session.format.sampleRate) Hz, \(session.format.channelIDs.count) channels
+          output \(nodeID.uuidString) running on \(request.signature.deviceID.rawValue) \
+          at \(session.format.sampleRate) Hz, \(session.format.channelIDs.count) channels
           """)
       } catch {
         guard generations[nodeID] == generation else { return }
         // Clearing the desired state here restarts the failed plan on every reconciliation.
-        Self.log.error(
-          """
-          output \(nodeID.uuidString, privacy: .public) failed to start: \
-          \(String(describing: error), privacy: .public)
-          """)
+        OutputDiagnostics.report(
+          "output \(nodeID.uuidString) failed to start: \(String(describing: error))")
         states[nodeID] = .failed(RoutingNodeFailure(error))
       }
     }
