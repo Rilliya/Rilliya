@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import os
 import RilliyaCapture
 import RilliyaCore
 import RilliyaPlayback
@@ -177,6 +178,8 @@ extension RoutingAudioOutputPlan {
 @MainActor
 @Observable
 final class RoutingAudioOutputController {
+  private static let log = Logger(subsystem: "moe.uwucocoa.rilliya", category: "audio-output")
+
   private struct RunningSession {
     let signature: RoutingAudioOutputRequestSignature
     let session: any RoutingOutputPlaybackSession
@@ -362,9 +365,22 @@ final class RoutingAudioOutputController {
           renderer: renderer
         )
         states[nodeID] = .running(session.format)
+        // Which device an output actually settled on, and at what rate, is otherwise invisible:
+        // a node reads as running whether it is playing to the device the reader expects or not.
+        Self.log.debug(
+          """
+          output \(nodeID.uuidString, privacy: .public) running on \
+          \(request.signature.deviceID.rawValue, privacy: .public) at \
+          \(session.format.sampleRate) Hz, \(session.format.channelIDs.count) channels
+          """)
       } catch {
         guard generations[nodeID] == generation else { return }
         // Clearing the desired state here restarts the failed plan on every reconciliation.
+        Self.log.error(
+          """
+          output \(nodeID.uuidString, privacy: .public) failed to start: \
+          \(String(describing: error), privacy: .public)
+          """)
         states[nodeID] = .failed(RoutingNodeFailure(error))
       }
     }

@@ -864,6 +864,124 @@ struct RoutingPreparedAudioGraphTests {
     }
   }
 
+  /// A destination whose clock runs at a different rate still gets audio.
+  ///
+  /// Every device on the machine this was written on runs at 48 kHz except one pair of wired
+  /// earphones at 44.1 kHz, and that is the pair that was silent. Nothing covered a graph whose
+  /// source and destination disagree, so the whole conversion path was only ever exercised by the
+  /// converter's own tests, never through a rendered graph.
+  @Test
+  func aDestinationAtADifferentRateStillReceivesAudio() throws {
+    let sourceID = UUID()
+    let outputID = UUID()
+    let buffer = try makeFrameBuffer(
+      channelCount: 1,
+      sampleRate: 48_000,
+      capacityFrameCount: 4_096
+    )
+    // Long enough to fill the converter's filter and still leave a whole quantum behind it.
+    let tone = (0..<2_048).map { Float(sin(Double($0) * 0.05)) * 0.5 }
+    try write([tone], to: buffer)
+    let renderer = try makeRenderer(
+      nodes: [sourceNode(id: sourceID, channelCount: 1), outputNode(id: outputID)],
+      edges: [edge(from: sourceID, .all, to: outputID, .all)],
+      outputNodeID: outputID,
+      frameBuffers: [sourceID: buffer],
+      sampleRate: 44_100
+    )
+
+    var loudest: Float = 0
+    for _ in 0..<8 {
+      let rendered = render(renderer, channelCount: 2, frameCount: 32)
+      #expect(rendered.result == .rendered)
+      loudest = max(loudest, rendered.channels[0].map(abs).max() ?? 0)
+    }
+
+    #expect(loudest > 0.01, "a 48 kHz source rendered into a 44.1 kHz destination was silent")
+  }
+
+  /// A file's audio reaches the destination through the queue it was handed.
+  ///
+  /// File playback hands each destination its own subscription rather than one shared queue, and
+  /// nothing built a graph over one: every test here feeds a plain frame buffer, so the whole
+  /// throttled-subscription path was only ever exercised by the application at runtime.
+  @Test
+  func aThrottledSubscriptionSourceReachesTheDestination() throws {
+    let sourceID = UUID()
+    let outputID = UUID()
+    let distributor = try AudioRealtimeFrameDistributor(
+      format: AudioProcessingFormat(sampleRate: 48_000, channelCount: 1),
+      capacityFrameCount: 4_096,
+      maximumSubscriberCount: 2
+    )
+    let subscription = try distributor.subscribe()
+    var tone = (0..<1_024).map { Float(sin(Double($0) * 0.05)) * 0.5 }
+    tone.withUnsafeMutableBufferPointer { samples in
+      guard let base = samples.baseAddress else { return }
+      [UnsafePointer(base)].withUnsafeBufferPointer { channels in
+        _ = distributor.writePlanar(channels, frameCount: samples.count)
+      }
+    }
+
+    let renderer = try RoutingPreparedAudioGraphSource(
+      preparation: AudioRenderPreparation(
+        format: AudioProcessingFormat(sampleRate: 48_000, channelCount: 2),
+        maximumFrameCount: 32
+      ),
+      nodes: [sourceNode(id: sourceID, channelCount: 1), outputNode(id: outputID)],
+      edges: [edge(from: sourceID, .all, to: outputID, .all)],
+      outputNodeID: outputID,
+      captureSources: [sourceID: .throttledSubscription(subscription)]
+    )
+
+    let rendered = render(renderer, channelCount: 2, frameCount: 32)
+
+    #expect(rendered.result == .rendered)
+    #expect(
+      (rendered.channels[0].map(abs).max() ?? 0) > 0.01,
+      "a destination reading its own subscription heard silence")
+  }
+
+  /// The same, into a destination whose clock disagrees, which is what a 44.1 kHz device is.
+  @Test
+  func aThrottledSubscriptionReachesADestinationAtADifferentRate() throws {
+    let sourceID = UUID()
+    let outputID = UUID()
+    let distributor = try AudioRealtimeFrameDistributor(
+      format: AudioProcessingFormat(sampleRate: 48_000, channelCount: 1),
+      capacityFrameCount: 4_096,
+      maximumSubscriberCount: 2
+    )
+    let subscription = try distributor.subscribe()
+    var tone = (0..<4_096).map { Float(sin(Double($0) * 0.05)) * 0.5 }
+    tone.withUnsafeMutableBufferPointer { samples in
+      guard let base = samples.baseAddress else { return }
+      [UnsafePointer(base)].withUnsafeBufferPointer { channels in
+        _ = distributor.writePlanar(channels, frameCount: samples.count)
+      }
+    }
+
+    let renderer = try RoutingPreparedAudioGraphSource(
+      preparation: AudioRenderPreparation(
+        format: AudioProcessingFormat(sampleRate: 44_100, channelCount: 2),
+        maximumFrameCount: 32
+      ),
+      nodes: [sourceNode(id: sourceID, channelCount: 1), outputNode(id: outputID)],
+      edges: [edge(from: sourceID, .all, to: outputID, .all)],
+      outputNodeID: outputID,
+      captureSources: [sourceID: .throttledSubscription(subscription)]
+    )
+
+    var loudest: Float = 0
+    for _ in 0..<8 {
+      let rendered = render(renderer, channelCount: 2, frameCount: 32)
+      #expect(rendered.result == .rendered)
+      loudest = max(loudest, rendered.channels[0].map(abs).max() ?? 0)
+    }
+
+    #expect(loudest > 0.01, "a file playing into a 44.1 kHz destination was silent")
+  }
+
   private func makeRenderer(
     nodes: [RoutingWorkspaceNode],
     edges: [RoutingWorkspaceEdge],
