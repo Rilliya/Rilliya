@@ -93,7 +93,7 @@ final class RoutingWorkspaceModel {
     of kind: RoutingNodeKind,
     centeredAt worldPoint: CGPoint
   ) async -> UUID {
-    let value: RoutingNodeValue =
+    let initialValue: RoutingNodeValue =
       switch kind {
       case .applicationAudio:
         .applicationAudio(selection: nil, channelPresentation: .aggregate)
@@ -124,9 +124,7 @@ final class RoutingWorkspaceModel {
       case .fileOutput:
         .fileOutput(configuration: .initial)
       case .networkSend:
-        .networkSend(
-          configuration: settings.networkSendParameterDefaults.applying(to: .initial)
-        )
+        .networkSend(configuration: .initial)
       case .networkReceive:
         .networkReceive(configuration: .initial)
       case .delay:
@@ -136,6 +134,7 @@ final class RoutingWorkspaceModel {
       case .compressor:
         .compressor(configuration: .initial)
       }
+    let value = settings.applyingParameterDefaults(to: initialValue)
     let nodeID = UUID()
     appendNode(id: nodeID, value: value, centeredAt: worldPoint)
     await rebuildCanvasInBackground()
@@ -149,9 +148,11 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    let value = RoutingNodeValue.applicationAudio(
-      selection: nil,
-      channelPresentation: .aggregate
+    let value = settings.applyingParameterDefaults(
+      to: RoutingNodeValue.applicationAudio(
+        selection: nil,
+        channelPresentation: .aggregate
+      )
     )
     let size = RoutingCanvasMetrics.nodeSize(for: value)
     nodes.append(
@@ -177,9 +178,11 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    let value = RoutingNodeValue.inputAudio(
-      selection: nil,
-      channelPresentation: .aggregate
+    let value = settings.applyingParameterDefaults(
+      to: RoutingNodeValue.inputAudio(
+        selection: nil,
+        channelPresentation: .aggregate
+      )
     )
     let size = RoutingCanvasMetrics.nodeSize(for: value)
     nodes.append(
@@ -205,9 +208,11 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    let value = RoutingNodeValue.systemOutput(
-      selection: nil,
-      channelPresentation: .aggregate
+    let value = settings.applyingParameterDefaults(
+      to: RoutingNodeValue.systemOutput(
+        selection: nil,
+        channelPresentation: .aggregate
+      )
     )
     let size = RoutingCanvasMetrics.nodeSize(for: value)
     nodes.append(
@@ -233,9 +238,11 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    let value = RoutingNodeValue.outputAudio(
-      selection: nil,
-      channelPresentation: .aggregate
+    let value = settings.applyingParameterDefaults(
+      to: RoutingNodeValue.outputAudio(
+        selection: nil,
+        channelPresentation: .aggregate
+      )
     )
     let size = RoutingCanvasMetrics.nodeSize(for: value)
     nodes.append(
@@ -261,9 +268,11 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    let value = RoutingNodeValue.virtualOutput(
-      selection: nil,
-      channelPresentation: .aggregate
+    let value = settings.applyingParameterDefaults(
+      to: RoutingNodeValue.virtualOutput(
+        selection: nil,
+        channelPresentation: .aggregate
+      )
     )
     appendNode(id: id, value: value, centeredAt: worldPoint)
     rebuildCanvas()
@@ -277,9 +286,11 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    let value = RoutingNodeValue.virtualInput(
-      selection: nil,
-      channelPresentation: .aggregate
+    let value = settings.applyingParameterDefaults(
+      to: RoutingNodeValue.virtualInput(
+        selection: nil,
+        channelPresentation: .aggregate
+      )
     )
     appendNode(id: id, value: value, centeredAt: worldPoint)
     rebuildCanvas()
@@ -293,7 +304,9 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    let value = RoutingNodeValue.visualizer(configuration: .initial)
+    let value = settings.applyingParameterDefaults(
+      to: RoutingNodeValue.visualizer(configuration: .initial)
+    )
     let size = RoutingCanvasMetrics.nodeSize(for: value)
     nodes.append(
       RoutingWorkspaceNode(
@@ -318,7 +331,9 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    let value = RoutingNodeValue.audioMixer(configuration: .initial)
+    let value = settings.applyingParameterDefaults(
+      to: RoutingNodeValue.audioMixer(configuration: .initial)
+    )
     let size = RoutingCanvasMetrics.nodeSize(for: value)
     nodes.append(
       RoutingWorkspaceNode(
@@ -368,7 +383,11 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    appendNode(id: id, value: .gain(configuration: .initial), centeredAt: worldPoint)
+    appendNode(
+      id: id,
+      value: settings.applyingParameterDefaults(to: .gain(configuration: .initial)),
+      centeredAt: worldPoint
+    )
     rebuildCanvas()
     return id
   }
@@ -380,7 +399,11 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    appendNode(id: id, value: .channelRouter(configuration: .initial), centeredAt: worldPoint)
+    appendNode(
+      id: id,
+      value: settings.applyingParameterDefaults(to: .channelRouter(configuration: .initial)),
+      centeredAt: worldPoint
+    )
     rebuildCanvas()
     return id
   }
@@ -392,7 +415,9 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    let value = RoutingNodeValue.signalGenerator(configuration: .initial)
+    let value = settings.applyingParameterDefaults(
+      to: RoutingNodeValue.signalGenerator(configuration: .initial)
+    )
     let size = RoutingCanvasMetrics.nodeSize(for: value)
     nodes.append(
       RoutingWorkspaceNode(
@@ -419,7 +444,7 @@ final class RoutingWorkspaceModel {
     precondition(!nodes.contains { $0.id == id })
     appendNode(
       id: id,
-      value: .filePlayback(configuration: .initial),
+      value: settings.applyingParameterDefaults(to: .filePlayback(configuration: .initial)),
       centeredAt: worldPoint
     )
     rebuildCanvas()
@@ -435,7 +460,7 @@ final class RoutingWorkspaceModel {
     precondition(!nodes.contains { $0.id == id })
     appendNode(
       id: id,
-      value: .fileOutput(configuration: .initial),
+      value: settings.applyingParameterDefaults(to: .fileOutput(configuration: .initial)),
       centeredAt: worldPoint
     )
     rebuildCanvas()
@@ -451,9 +476,7 @@ final class RoutingWorkspaceModel {
     precondition(!nodes.contains { $0.id == id })
     appendNode(
       id: id,
-      value: .networkSend(
-        configuration: settings.networkSendParameterDefaults.applying(to: .initial)
-      ),
+      value: settings.applyingParameterDefaults(to: .networkSend(configuration: .initial)),
       centeredAt: worldPoint
     )
     rebuildCanvas()
@@ -467,7 +490,11 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    appendNode(id: id, value: .networkReceive(configuration: .initial), centeredAt: worldPoint)
+    appendNode(
+      id: id,
+      value: settings.applyingParameterDefaults(to: .networkReceive(configuration: .initial)),
+      centeredAt: worldPoint
+    )
     rebuildCanvas()
     return id
   }
@@ -479,7 +506,9 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    let value = RoutingNodeValue.delay(configuration: .initial)
+    let value = settings.applyingParameterDefaults(
+      to: RoutingNodeValue.delay(configuration: .initial)
+    )
     let size = RoutingCanvasMetrics.nodeSize(for: value)
     nodes.append(
       RoutingWorkspaceNode(
@@ -504,7 +533,9 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    let value = RoutingNodeValue.noiseGate(configuration: .initial)
+    let value = settings.applyingParameterDefaults(
+      to: RoutingNodeValue.noiseGate(configuration: .initial)
+    )
     let size = RoutingCanvasMetrics.nodeSize(for: value)
     nodes.append(
       RoutingWorkspaceNode(
@@ -529,7 +560,9 @@ final class RoutingWorkspaceModel {
   ) -> UUID {
     precondition(worldPoint.x.isFinite && worldPoint.y.isFinite)
     precondition(!nodes.contains { $0.id == id })
-    let value = RoutingNodeValue.compressor(configuration: .initial)
+    let value = settings.applyingParameterDefaults(
+      to: RoutingNodeValue.compressor(configuration: .initial)
+    )
     let size = RoutingCanvasMetrics.nodeSize(for: value)
     nodes.append(
       RoutingWorkspaceNode(

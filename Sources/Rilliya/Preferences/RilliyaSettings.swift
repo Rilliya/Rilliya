@@ -45,8 +45,17 @@ struct RoutingNetworkSendParameterDefaults: Codable, Equatable, Sendable {
 
   static let empty = RoutingNetworkSendParameterDefaults()
 
+  var enabledCount: Int {
+    [
+      wireEncoding != nil,
+      bitRate != nil,
+      sampleRate != nil,
+      channelCount != nil,
+    ].filter { $0 }.count
+  }
+
   var isEmpty: Bool {
-    wireEncoding == nil && bitRate == nil && sampleRate == nil && channelCount == nil
+    enabledCount == 0
   }
 
   func applying(to configuration: RoutingNetworkSendConfiguration)
@@ -163,7 +172,14 @@ final class RilliyaSettings {
   }
 
   private(set) var nodeAccentOverrides: [RoutingNodeKind: RoutingAccentID]
-  private(set) var networkSendParameterDefaults: RoutingNetworkSendParameterDefaults
+  private(set) var nodeParameterDefaults: [RoutingNodeKind: RoutingNodeParameterDefaults]
+
+  var networkSendParameterDefaults: RoutingNetworkSendParameterDefaults {
+    guard case .networkSend(let defaults) = nodeParameterDefaults[.networkSend] else {
+      return .empty
+    }
+    return defaults
+  }
 
   @ObservationIgnored private let defaults: UserDefaults
 
@@ -214,10 +230,9 @@ final class RilliyaSettings {
     nodeAccentOverrides = Self.decodeNodeAccentOverrides(
       defaults.dictionary(forKey: Keys.nodeAccentOverrides) ?? [:]
     )
-    networkSendParameterDefaults =
-      Self.decodeNodeParameterDefaults(
-        defaults.dictionary(forKey: Keys.nodeParameterDefaults) ?? [:]
-      )[.networkSend] ?? .empty
+    nodeParameterDefaults = Self.decodeNodeParameterDefaults(
+      defaults.dictionary(forKey: Keys.nodeParameterDefaults) ?? [:]
+    )
   }
 
   func setShowsInDock(_ isVisible: Bool) {
@@ -260,15 +275,34 @@ final class RilliyaSettings {
   }
 
   func setNetworkSendParameterDefaults(_ parameterDefaults: RoutingNetworkSendParameterDefaults) {
-    guard networkSendParameterDefaults != parameterDefaults else { return }
-    networkSendParameterDefaults = parameterDefaults
+    setNodeParameterDefaults(.networkSend(parameterDefaults))
+  }
+
+  func parameterDefaults(for kind: RoutingNodeKind) -> RoutingNodeParameterDefaults? {
+    nodeParameterDefaults[kind]
+  }
+
+  func setNodeParameterDefaults(_ parameterDefaults: RoutingNodeParameterDefaults) {
+    let kind = parameterDefaults.kind
+    let storedValue = parameterDefaults.isEmpty ? nil : parameterDefaults
+    guard nodeParameterDefaults[kind] != storedValue else { return }
+    var updated = nodeParameterDefaults
+    updated[kind] = storedValue
+    nodeParameterDefaults = updated
+
     var stored = defaults.dictionary(forKey: Keys.nodeParameterDefaults) ?? [:]
     if parameterDefaults.isEmpty {
-      stored[RoutingNodeKind.networkSend.rawValue] = nil
-    } else if let encoded = try? JSONEncoder().encode(parameterDefaults) {
-      stored[RoutingNodeKind.networkSend.rawValue] = encoded
+      stored[kind.rawValue] = nil
+    } else if let storedValue, let encoded = try? JSONEncoder().encode(storedValue) {
+      stored[kind.rawValue] = encoded
+    } else {
+      stored[kind.rawValue] = nil
     }
     defaults.set(stored, forKey: Keys.nodeParameterDefaults)
+  }
+
+  func applyingParameterDefaults(to value: RoutingNodeValue) -> RoutingNodeValue {
+    nodeParameterDefaults[value.kind]?.applying(to: value) ?? value
   }
 
   nonisolated private static func decodeNodeAccentOverrides(
@@ -285,14 +319,22 @@ final class RilliyaSettings {
 
   nonisolated private static func decodeNodeParameterDefaults(
     _ dictionary: [String: Any]
-  ) -> [RoutingNodeKind: RoutingNetworkSendParameterDefaults] {
+  ) -> [RoutingNodeKind: RoutingNodeParameterDefaults] {
     dictionary.reduce(into: [:]) { result, entry in
-      guard let kind = RoutingNodeKind(rawValue: entry.key), kind == .networkSend,
-        let data = entry.value as? Data,
-        let decoded = try? JSONDecoder().decode(
-          RoutingNetworkSendParameterDefaults.self, from: data)
-      else { return }
-      result[kind] = decoded
+      guard let kind = RoutingNodeKind(rawValue: entry.key), let data = entry.value as? Data else {
+        return
+      }
+      if let decoded = try? JSONDecoder().decode(RoutingNodeParameterDefaults.self, from: data),
+        decoded.kind == kind, !decoded.isEmpty
+      {
+        result[kind] = decoded
+      } else if kind == .networkSend,
+        let legacy = try? JSONDecoder().decode(
+          RoutingNetworkSendParameterDefaults.self, from: data),
+        !legacy.isEmpty
+      {
+        result[kind] = .networkSend(legacy)
+      }
     }
   }
 

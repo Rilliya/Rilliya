@@ -123,6 +123,10 @@ private struct RilliyaNodeDefaultsPreferencesPane: View {
             set: { expandedKind = $0 ? .networkSend : nil }
           )
         )
+        RilliyaAdditionalNodeDefaultsRows(
+          settings: settings,
+          expandedKind: $expandedKind
+        )
       }
     }
   }
