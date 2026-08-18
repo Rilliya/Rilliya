@@ -28,6 +28,50 @@ private struct RilliyaPreferencesRoot: View {
       ),
       groups: [
         PreferencesPageGroup(
+          id: "workspace",
+          title: "Workspace",
+          pages: [
+            PreferencesPage(
+              id: .general,
+              title: "General",
+              subtitle: "Appearance and application behavior",
+              icon: .system("gearshape")
+            ) {
+              RilliyaGeneralPreferencesPane(settings: settings)
+            },
+            PreferencesPage(
+              id: .canvas,
+              title: "Canvas",
+              subtitle: "Overview, insertion, and connections",
+              icon: .system("point.3.connected.trianglepath.dotted")
+            ) {
+              RilliyaCanvasPreferencesPane(settings: settings)
+            },
+            PreferencesPage(
+              id: .customization,
+              title: "Customization",
+              subtitle: "Default colors for every audio node",
+              icon: .system("paintpalette")
+            ) {
+              RilliyaCustomizationPreferencesPane(settings: settings)
+            },
+          ]
+        ),
+        PreferencesPageGroup(
+          id: "audio",
+          title: "Audio",
+          pages: [
+            PreferencesPage(
+              id: .virtualAudio,
+              title: "Virtual Devices",
+              subtitle: "Install the driver and manage shared endpoints",
+              icon: .system("waveform.badge.plus")
+            ) {
+              RilliyaVirtualAudioPreferencesPane(controller: virtualAudioController)
+            }
+          ]
+        ),
+        PreferencesPageGroup(
           id: "node-defaults",
           title: "Node Defaults",
           pages: [
@@ -71,50 +115,6 @@ private struct RilliyaPreferencesRoot: View {
             ) {
               RilliyaNodeDefaultsPreferencesPane(settings: settings, category: .processing)
             },
-          ]
-        ),
-        PreferencesPageGroup(
-          id: "workspace",
-          title: "Workspace",
-          pages: [
-            PreferencesPage(
-              id: .general,
-              title: "General",
-              subtitle: "Appearance and application behavior",
-              icon: .system("gearshape")
-            ) {
-              RilliyaGeneralPreferencesPane(settings: settings)
-            },
-            PreferencesPage(
-              id: .canvas,
-              title: "Canvas",
-              subtitle: "Overview, insertion, and connections",
-              icon: .system("point.3.connected.trianglepath.dotted")
-            ) {
-              RilliyaCanvasPreferencesPane(settings: settings)
-            },
-            PreferencesPage(
-              id: .customization,
-              title: "Customization",
-              subtitle: "Default colors for every audio node",
-              icon: .system("paintpalette")
-            ) {
-              RilliyaCustomizationPreferencesPane(settings: settings)
-            },
-          ]
-        ),
-        PreferencesPageGroup(
-          id: "audio",
-          title: "Audio",
-          pages: [
-            PreferencesPage(
-              id: .virtualAudio,
-              title: "Virtual Devices",
-              subtitle: "Install the driver and manage shared endpoints",
-              icon: .system("waveform.badge.plus")
-            ) {
-              RilliyaVirtualAudioPreferencesPane(controller: virtualAudioController)
-            }
           ]
         ),
         PreferencesPageGroup(
