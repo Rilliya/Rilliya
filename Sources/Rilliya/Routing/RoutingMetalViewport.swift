@@ -96,7 +96,14 @@ struct RoutingMetalViewport: View {
         .overlay {
           FlowingCanvasViewportOverlay(
             alignment: .topTrailing,
-            insets: EdgeInsets(top: 14, leading: 14, bottom: 14, trailing: 14)
+            // Stops above the control strip rather than behind it: this column and the strip share
+            // the trailing edge, and the strip is the only way to reach a failing node.
+            insets: EdgeInsets(
+              top: 14,
+              leading: 14,
+              bottom: RoutingViewportControlMetrics.clearance,
+              trailing: 14
+            )
           ) {
             VStack(alignment: .trailing, spacing: 12) {
               if isMiniMapVisible, !scene.nodes.isEmpty {
@@ -119,10 +126,13 @@ struct RoutingMetalViewport: View {
                       .transition(inspectorTransition)
                   }
                   .scrollBounceBehavior(.basedOnSize)
-                  .scrollClipDisabled()
                 }
               }
+              // Takes what the mini map leaves, so the scroll view has a height to scroll within.
+              // Without this the column is as tall as its content and scrolling never engages.
+              .frame(maxHeight: .infinity, alignment: .top)
             }
+            .frame(maxHeight: .infinity, alignment: .top)
           }
           .animation(inspectorAnimation, value: inspectorID)
           .animation(inspectorAnimation, value: isMiniMapVisible)
