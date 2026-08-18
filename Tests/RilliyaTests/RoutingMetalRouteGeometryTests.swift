@@ -41,12 +41,45 @@ struct RoutingMetalRouteGeometryTests {
 
     let points = RoutingMetalRouteGeometry.points(for: route)
 
-    #expect(points.count == RoutingMetalRouteGeometry.cubicSubdivisionCount + 1)
+    #expect(points.first == route.start)
+    #expect(points.last == CGPoint(x: 200, y: 0))
     #expect(
       RoutingMetalRouteGeometry.intersects(
         route,
         rectangle: CGRect(x: 90, y: 85, width: 20, height: 20)
       )
     )
+  }
+
+  @Test
+  func curveSubdivisionTracksScreenScale() {
+    let route = FlowingGraphEdgeRoute(
+      start: CGPoint(x: 0, y: 0),
+      segments: [
+        .cubic(
+          control1: CGPoint(x: 0, y: 400),
+          control2: CGPoint(x: 400, y: 400),
+          end: CGPoint(x: 400, y: 0)
+        )
+      ]
+    )
+
+    let normalScale = RoutingMetalRouteGeometry.points(for: route, scale: 1)
+    let magnified = RoutingMetalRouteGeometry.points(for: route, scale: 4)
+
+    #expect(magnified.count > normalScale.count)
+    #expect(normalScale.count > 19)
+  }
+
+  @Test
+  func strokeTrianglesShareVerticesAtPolylineJoints() {
+    let triangles = RoutingMetalStrokeTessellator.triangles(
+      for: [CGPoint(x: 0, y: 0), CGPoint(x: 10, y: 0), CGPoint(x: 10, y: 10)],
+      width: 2
+    )
+
+    #expect(triangles.count == 4)
+    #expect(triangles[0].point2 == triangles[2].point0)
+    #expect(triangles[1].point1 == triangles[2].point1)
   }
 }

@@ -1959,8 +1959,9 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       targetMoves: draggedNodeIDs.contains(edge.targetNodeID),
       translation: dragTranslation
     )
+    let routePoints = RoutingMetalRouteGeometry.points(for: route, scale: camera.zoom)
     appendStroke(
-      points: RoutingMetalRouteGeometry.points(for: route),
+      points: routePoints,
       width: edgeStrokeWidth(edge) / camera.zoom,
       color: edgeStrokeColor(edge, palette: palette),
       to: &geometry
@@ -1971,7 +1972,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     else {
       return
     }
-    let center = midpoint(of: RoutingMetalRouteGeometry.points(for: route))
+    let center = midpoint(of: routePoints)
     let labelFrame = CGRect(
       x: center.x - (entry.size.width + 14) / 2,
       y: center.y - (entry.size.height + 6) / 2,
@@ -2052,7 +2053,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       ]
     )
     appendStroke(
-      points: RoutingMetalRouteGeometry.points(for: route),
+      points: RoutingMetalRouteGeometry.points(for: route, scale: camera.zoom),
       width: Constants.connectionPreviewWidth / camera.zoom,
       color: (isValid ? palette.fern : palette.muted).withAlpha(0.82),
       to: &geometry
@@ -2082,23 +2083,14 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     color: SIMD4<Float>,
     to geometry: inout RoutingMetalFrameGeometry
   ) {
-    guard points.count > 1 else { return }
-    for pair in zip(points, points.dropFirst()) {
-      let start = pair.0
-      let end = pair.1
-      let dx = end.x - start.x
-      let dy = end.y - start.y
-      let length = max(hypot(dx, dy), .leastNonzeroMagnitude)
-      let normal = CGVector(dx: -dy / length * width / 2, dy: dx / length * width / 2)
-      let p0 = CGPoint(x: start.x + normal.dx, y: start.y + normal.dy)
-      let p1 = CGPoint(x: start.x - normal.dx, y: start.y - normal.dy)
-      let p2 = CGPoint(x: end.x + normal.dx, y: end.y + normal.dy)
-      let p3 = CGPoint(x: end.x - normal.dx, y: end.y - normal.dy)
+    for triangle in RoutingMetalStrokeTessellator.triangles(for: points, width: width) {
       geometry.triangles.append(
-        RoutingMetalTriangleInstance(point0: p0, point1: p1, point2: p2, color: color)
-      )
-      geometry.triangles.append(
-        RoutingMetalTriangleInstance(point0: p2, point1: p1, point2: p3, color: color)
+        RoutingMetalTriangleInstance(
+          point0: triangle.point0,
+          point1: triangle.point1,
+          point2: triangle.point2,
+          color: color
+        )
       )
     }
   }
