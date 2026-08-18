@@ -14,6 +14,7 @@ struct RoutingMetalNodeSupplement: Equatable {
   let audioSourceMeters: [RoutingAudioChannelMeterSignal]
   let audioChannelControls: [Int: RoutingAudioChannelControl]
   let applicationIcon: NSImage?
+  let resolvedOutputDeviceName: String?
   let outputCaptureState: RoutingOutputCaptureState?
   let audioOutputState: RoutingAudioOutputState?
   let fileOutputState: RoutingFileOutputState?
@@ -47,6 +48,7 @@ struct RoutingMetalNodeSupplement: Equatable {
     audioSourceMeters: [RoutingAudioChannelMeterSignal] = [],
     audioChannelControls: [Int: RoutingAudioChannelControl] = [:],
     applicationIcon: NSImage? = nil,
+    resolvedOutputDeviceName: String? = nil,
     outputCaptureState: RoutingOutputCaptureState? = nil,
     audioOutputState: RoutingAudioOutputState? = nil,
     fileOutputState: RoutingFileOutputState? = nil,
@@ -66,6 +68,7 @@ struct RoutingMetalNodeSupplement: Equatable {
     self.audioSourceMeters = audioSourceMeters
     self.audioChannelControls = audioChannelControls
     self.applicationIcon = applicationIcon
+    self.resolvedOutputDeviceName = resolvedOutputDeviceName
     self.outputCaptureState = outputCaptureState
     self.audioOutputState = audioOutputState
     self.fileOutputState = fileOutputState
@@ -187,7 +190,15 @@ struct RoutingMetalScene {
       case .virtualOutput(let selection, _):
         return selection?.displayName ?? "Choose a virtual output"
       case .outputAudio(let selection, _):
-        return selection?.displayName ?? "Choose an output device"
+        switch selection {
+        case .systemDefault:
+          return supplement.resolvedOutputDeviceName.map { "Follow System Default · \($0)" }
+            ?? "Follow System Default"
+        case .device(let selection):
+          return selection.displayName
+        case nil:
+          return "Choose an output device"
+        }
       case .virtualInput(let selection, _):
         return selection?.displayName ?? "Choose a virtual input"
       case .visualizer(let configuration):

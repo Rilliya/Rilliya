@@ -387,8 +387,15 @@ enum RoutingCanvasContentBuilder {
       value = selection?.displayName ?? "No virtual output selected"
       hint = "Choose a shared virtual output whose audio Rilliya will receive."
     case .outputAudio(let selection, _):
-      value = selection?.displayName ?? "No output device selected"
-      hint = "Select an audio output device that will receive routed channels."
+      switch selection {
+      case .systemDefault:
+        value = "Following the system default output"
+      case .device(let device):
+        value = device.displayName
+      case nil:
+        value = "No output device selected"
+      }
+      hint = "Choose the system default or a specific output device for routed channels."
     case .virtualInput(let selection, _):
       value = selection?.displayName ?? "No virtual input selected"
       hint = "Choose a shared virtual input that will receive routed audio."

@@ -622,6 +622,13 @@ final class RoutingWorkspaceModel {
     _ selection: RoutingOutputDeviceSelection?,
     for nodeID: UUID
   ) {
+    selectAudioOutput(selection.map(RoutingAudioOutputSelection.device), for: nodeID)
+  }
+
+  func selectAudioOutput(
+    _ selection: RoutingAudioOutputSelection?,
+    for nodeID: UUID
+  ) {
     guard let index = nodes.firstIndex(where: { $0.id == nodeID }) else { return }
     guard case .outputAudio(let currentSelection, let channelPresentation) = nodes[index].value,
       currentSelection != selection

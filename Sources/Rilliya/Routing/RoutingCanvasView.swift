@@ -605,6 +605,7 @@ struct RoutingCanvasView: View {
           isCapturing: false,
           captureConsumerCount: 0,
           visualizerSignal: nil,
+          resolvedOutputDeviceName: resolvedOutputDeviceName(for: selection),
           audioOutputState: outputController.state(for: node.id)
         )
       case .virtualInput(let selection, _):
@@ -763,11 +764,31 @@ struct RoutingCanvasView: View {
     } == true
   }
 
-  private func isOutputAvailable(_ selection: RoutingOutputDeviceSelection?) -> Bool {
-    guard let selection else { return false }
-    return audioCatalog.state.snapshot?.outputDevices.contains {
-      $0.id == selection.id && $0.isAlive
-    } == true
+  private func isOutputAvailable(_ selection: RoutingAudioOutputSelection?) -> Bool {
+    let devices = audioCatalog.state.snapshot?.outputDevices ?? []
+    switch selection {
+    case .systemDefault:
+      return devices.contains { $0.isAlive && $0.output?.isDefault == true }
+    case .device(let selection):
+      return devices.contains { $0.id == selection.id && $0.isAlive }
+    case nil:
+      return false
+    }
+  }
+
+  private func resolvedOutputDeviceName(
+    for selection: RoutingAudioOutputSelection?
+  ) -> String? {
+    let devices = audioCatalog.state.snapshot?.outputDevices ?? []
+    switch selection {
+    case .systemDefault:
+      return devices.first { $0.isAlive && $0.output?.isDefault == true }?.name
+    case .device(let selection):
+      return devices.first { $0.id == selection.id && $0.isAlive }?.name
+        ?? selection.displayName
+    case nil:
+      return nil
+    }
   }
 
   private func isOutputCaptureAvailable(_ selection: RoutingOutputCaptureSelection?) -> Bool {
@@ -948,8 +969,8 @@ struct RoutingCanvasView: View {
         channelPresentation: channelPresentation,
         state: outputController.state(for: node.id),
         audioCatalog: audioCatalog,
-        selectDevice: { selection in
-          workspace.selectOutputDevice(selection, for: node.id)
+        selectOutput: { selection in
+          workspace.selectAudioOutput(selection, for: node.id)
         },
         setChannelPresentation: { presentation in
           workspace.setOutputDeviceChannelPresentation(presentation, for: node.id)
@@ -2314,8 +2335,16 @@ private struct OutputAudioNodeView: View {
 
   @Environment(\.flowingAccent) private var accent
 
-  private var selection: RoutingOutputDeviceSelection? {
-    node.value.outputDeviceSelection
+  private var selection: RoutingAudioOutputSelection? {
+    node.value.audioOutputSelection
+  }
+
+  private var selectionName: String? {
+    switch selection {
+    case .systemDefault: "Follow System Default"
+    case .device(let selection): selection.displayName
+    case nil: nil
+    }
   }
 
   var body: some View {
@@ -2339,7 +2368,7 @@ private struct OutputAudioNodeView: View {
             Text("Output Audio")
               .font(.caption.weight(.medium))
               .foregroundStyle(FlowingPalette.muted)
-            Text(selection?.displayName ?? "Choose an output device")
+            Text(selectionName ?? "Choose an output device")
               .font(.callout.weight(.semibold))
               .foregroundStyle(FlowingPalette.ink)
               .lineLimit(1)
@@ -3953,7 +3982,7 @@ private struct SelectedInputAudioInspector: View {
   }
 }
 
-private enum RoutingOutputCapturePickerValue: Hashable {
+private enum RoutingOutputPickerValue: Hashable {
   case none
   case systemDefault
   case device(AudioDeviceID)
@@ -4209,7 +4238,7 @@ private struct SelectedSystemOutputInspector: View {
     }
   }
 
-  private var pickerSelection: Binding<RoutingOutputCapturePickerValue> {
+  private var pickerSelection: Binding<RoutingOutputPickerValue> {
     Binding(
       get: {
         switch selection {
@@ -4234,8 +4263,8 @@ private struct SelectedSystemOutputInspector: View {
     )
   }
 
-  private var pickerOptions: [FlowingSelectOption<RoutingOutputCapturePickerValue>] {
-    var options: [FlowingSelectOption<RoutingOutputCapturePickerValue>] = [
+  private var pickerOptions: [FlowingSelectOption<RoutingOutputPickerValue>] {
+    var options: [FlowingSelectOption<RoutingOutputPickerValue>] = [
       FlowingSelectOption(.none, label: "No Output Source"),
       FlowingSelectOption(
         .systemDefault,
@@ -4546,20 +4575,34 @@ private struct SelectedVirtualAudioEndpointInspector: View {
 }
 
 private struct SelectedOutputAudioInspector: View {
-  let selection: RoutingOutputDeviceSelection?
+  let selection: RoutingAudioOutputSelection?
   let channelPresentation: RoutingChannelPresentation
   let state: RoutingAudioOutputState
   let audioCatalog: AudioCatalogController
-  let selectDevice: (RoutingOutputDeviceSelection?) -> Void
+  let selectOutput: (RoutingAudioOutputSelection?) -> Void
   let setChannelPresentation: (RoutingChannelPresentation) -> Void
 
   private var devices: [AudioDevice] {
     audioCatalog.state.snapshot?.outputDevices ?? []
   }
 
+  private var defaultDevice: AudioDevice? {
+    devices.first { $0.isAlive && $0.output?.isDefault == true }
+  }
+
   private var selectedDevice: AudioDevice? {
-    guard let selection else { return nil }
-    return devices.first { $0.id == selection.id }
+    switch selection {
+    case .systemDefault:
+      defaultDevice
+    case .device(let selection):
+      devices.first { $0.id == selection.id }
+    case nil:
+      nil
+    }
+  }
+
+  private var selectedDeviceName: String? {
+    selectedDevice?.name ?? selection?.displayName
   }
 
   var body: some View {
@@ -4572,7 +4615,7 @@ private struct SelectedOutputAudioInspector: View {
           Text("Output Audio")
             .font(.headline)
             .foregroundStyle(FlowingPalette.ink)
-          Text("Choose any hardware or virtual output device.")
+          Text("Follow the system default or choose a specific output device.")
             .font(.caption)
             .foregroundStyle(FlowingPalette.muted)
         }
@@ -4597,6 +4640,10 @@ private struct SelectedOutputAudioInspector: View {
         )
         .font(.caption.monospacedDigit())
         .foregroundStyle(FlowingPalette.muted)
+      } else if selection != nil, let selectedDeviceName {
+        Text("\(selectedDeviceName) · Unavailable")
+          .font(.caption)
+          .foregroundStyle(FlowingPalette.muted)
       }
 
       outputStateContent
@@ -4696,25 +4743,56 @@ private struct SelectedOutputAudioInspector: View {
     }
   }
 
-  private var pickerSelection: Binding<String> {
+  private var pickerSelection: Binding<RoutingOutputPickerValue> {
     Binding(
-      get: { selection?.id.rawValue ?? "" },
-      set: { selectedID in
-        guard selectedID != selection?.id.rawValue else { return }
-        selectDevice(selection(for: selectedID))
+      get: {
+        switch selection {
+        case .systemDefault: .systemDefault
+        case .device(let device): .device(device.id)
+        case nil: .none
+        }
+      },
+      set: { value in
+        switch value {
+        case .none:
+          selectOutput(nil)
+        case .systemDefault:
+          selectOutput(.systemDefault)
+        case .device(let deviceID):
+          guard let device = devices.first(where: { $0.id == deviceID }) else { return }
+          selectOutput(
+            .device(RoutingOutputDeviceSelection(id: device.id, displayName: device.name))
+          )
+        }
       }
     )
   }
 
-  private var pickerOptions: [FlowingSelectOption<String>] {
-    [FlowingSelectOption("", label: "No Output Device")]
-      + devices.map { device in
-        let suffix = device.output?.isDefault == true ? " · Default" : ""
-        return FlowingSelectOption(
-          device.id.rawValue,
-          label: device.name + suffix
+  private var pickerOptions: [FlowingSelectOption<RoutingOutputPickerValue>] {
+    var options: [FlowingSelectOption<RoutingOutputPickerValue>] = [
+      FlowingSelectOption(.none, label: "No Output Device"),
+      FlowingSelectOption(
+        .systemDefault,
+        label: defaultDevice.map { "Follow System Default · \($0.name)" }
+          ?? "Follow System Default · Unavailable"
+      ),
+    ]
+    if case .device(let pinned) = selection,
+      !devices.contains(where: { $0.id == pinned.id })
+    {
+      options.append(
+        FlowingSelectOption(.device(pinned.id), label: "\(pinned.displayName) · Unavailable")
+      )
+    }
+    options.append(
+      contentsOf: devices.map { device in
+        FlowingSelectOption(
+          .device(device.id),
+          label: device.name + (device.output?.isDefault == true ? " · Current Default" : "")
         )
       }
+    )
+    return options
   }
 
   private var portDisplayMode: Binding<RoutingPortDisplayMode> {
@@ -4746,12 +4824,6 @@ private struct SelectedOutputAudioInspector: View {
     )
   }
 
-  private func selection(for selectedID: String) -> RoutingOutputDeviceSelection? {
-    guard !selectedID.isEmpty,
-      let device = devices.first(where: { $0.id.rawValue == selectedID })
-    else { return nil }
-    return RoutingOutputDeviceSelection(id: device.id, displayName: device.name)
-  }
 }
 
 private struct RoutingAudioChannelControlsView: View {

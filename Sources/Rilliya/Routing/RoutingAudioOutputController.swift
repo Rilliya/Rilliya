@@ -1,5 +1,6 @@
 import Foundation
 import Observation
+import RilliyaCapture
 import RilliyaCore
 import RilliyaPlayback
 import RilliyaRealtime
@@ -139,6 +140,29 @@ private enum RoutingAudioOutputDesiredState: Equatable {
   case ready(RoutingAudioOutputRequestSignature)
 }
 
+enum RoutingAudioOutputSelectionResolver {
+  static func resolve(
+    _ selection: RoutingAudioOutputSelection?,
+    catalogSnapshot: AudioCatalogSnapshot?
+  ) throws -> RoutingOutputDeviceSelection? {
+    switch selection {
+    case nil:
+      return nil
+    case .device(let selection):
+      return selection
+    case .systemDefault:
+      guard
+        let device = catalogSnapshot?.outputDevices.first(where: {
+          $0.isAlive && $0.output?.isDefault == true
+        })
+      else {
+        throw DeviceOutputCaptureError.noDefaultOutputDevice
+      }
+      return RoutingOutputDeviceSelection(id: device.id, displayName: device.name)
+    }
+  }
+}
+
 extension RoutingAudioOutputPlan {
   fileprivate var desiredState: RoutingAudioOutputDesiredState {
     switch self {
@@ -186,6 +210,7 @@ final class RoutingAudioOutputController {
     outputCaptureController: RoutingOutputCaptureController = RoutingOutputCaptureController(),
     filePlaybackController: RoutingFilePlaybackController = RoutingFilePlaybackController(),
     networkReceiveController: RoutingNetworkReceiveController = RoutingNetworkReceiveController(),
+    audioCatalogSnapshot: AudioCatalogSnapshot? = nil,
     virtualAudioCatalog: VirtualAudioEndpointCatalog = .empty
   ) {
     let plans = makePlans(
@@ -195,6 +220,7 @@ final class RoutingAudioOutputController {
       outputCaptureController: outputCaptureController,
       filePlaybackController: filePlaybackController,
       networkReceiveController: networkReceiveController,
+      audioCatalogSnapshot: audioCatalogSnapshot,
       virtualAudioCatalog: virtualAudioCatalog
     )
     let knownNodeIDs = Set(plans.keys)
@@ -360,6 +386,7 @@ final class RoutingAudioOutputController {
     outputCaptureController: RoutingOutputCaptureController,
     filePlaybackController: RoutingFilePlaybackController,
     networkReceiveController: RoutingNetworkReceiveController,
+    audioCatalogSnapshot: AudioCatalogSnapshot?,
     virtualAudioCatalog: VirtualAudioEndpointCatalog
   ) -> [UUID: RoutingAudioOutputPlan] {
     var plans: [UUID: RoutingAudioOutputPlan] = [:]
@@ -372,9 +399,18 @@ final class RoutingAudioOutputController {
       let incomingEdges = Dictionary(grouping: activeEdges, by: { $0.target.nodeID })
       for outputNode in workspace.nodes {
         let selection: RoutingOutputDeviceSelection?
+        var selectionFailure: RoutingNodeFailure?
         switch outputNode.value {
         case .outputAudio(let physicalSelection, _):
-          selection = physicalSelection
+          do {
+            selection = try RoutingAudioOutputSelectionResolver.resolve(
+              physicalSelection,
+              catalogSnapshot: audioCatalogSnapshot
+            )
+          } catch {
+            selection = nil
+            selectionFailure = RoutingNodeFailure(error)
+          }
         case .virtualInput(let virtualSelection, _):
           selection = virtualSelection.flatMap { selection in
             guard
@@ -390,9 +426,12 @@ final class RoutingAudioOutputController {
         default:
           continue
         }
-        guard let selection,
-          incomingEdges[outputNode.id]?.isEmpty == false
-        else {
+        let hasIncomingAudio = incomingEdges[outputNode.id]?.isEmpty == false
+        if let selectionFailure, hasIncomingAudio {
+          plans[outputNode.id] = .blocked(selectionFailure)
+          continue
+        }
+        guard let selection, hasIncomingAudio else {
           plans[outputNode.id] = .idle
           continue
         }

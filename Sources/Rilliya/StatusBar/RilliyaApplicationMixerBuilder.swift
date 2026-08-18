@@ -22,7 +22,7 @@ enum RilliyaApplicationMixerBuilder {
 
     let outputSelection = RoutingOutputDeviceSelection(id: device.id, displayName: device.name)
     let outputValue = RoutingNodeValue.outputAudio(
-      selection: outputSelection,
+      selection: .device(outputSelection),
       channelPresentation: .aggregate
     )
     var nodes = [

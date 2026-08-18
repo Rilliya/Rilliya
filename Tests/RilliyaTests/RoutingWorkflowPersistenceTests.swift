@@ -218,6 +218,32 @@ struct RoutingWorkflowPersistenceTests {
   }
 
   @Test
+  func audioOutputSelectionsRoundTripWithoutResolvingTheDefaultToADevice() throws {
+    let deviceID = try #require(AudioDeviceID(rawValue: "test.output.pinned"))
+    let values: [RoutingNodeValue] = [
+      .outputAudio(selection: nil, channelPresentation: .aggregate),
+      .outputAudio(selection: .systemDefault, channelPresentation: .aggregate),
+      .outputAudio(
+        selection: .device(
+          RoutingOutputDeviceSelection(id: deviceID, displayName: "Pinned Output")
+        ),
+        channelPresentation: .separate(channelCount: 2)
+      ),
+    ]
+
+    for value in values {
+      let encoded = try JSONEncoder().encode(value)
+      let decoded = try JSONDecoder().decode(RoutingNodeValue.self, from: encoded)
+      #expect(decoded == value)
+    }
+
+    let defaultData = try JSONEncoder().encode(values[1])
+    let defaultJSON = try #require(String(data: defaultData, encoding: .utf8))
+    #expect(defaultJSON.contains("systemDefault"))
+    #expect(!defaultJSON.contains(deviceID.rawValue))
+  }
+
+  @Test
   func storeRoundTripRestoresGraphsSelectionViewportAndWorkflowOverrides() async throws {
     let fixture = try makeFixture()
     let store = RoutingWorkflowPersistenceStore(fileURL: fixture.fileURL)
@@ -282,6 +308,62 @@ struct RoutingWorkflowPersistenceTests {
     )
     #expect(!restoredLibrary.selectedWorkflow.runsAutomaticallyOnLaunch)
     #expect(!restoredLibrary.selectedWorkflow.isRunning)
+  }
+
+  @Test
+  func storeRoundTripPreservesDefaultAndFixedAudioOutputSelections() async throws {
+    let fixture = try makeFixture()
+    let store = RoutingWorkflowPersistenceStore(fileURL: fixture.fileURL)
+    defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+    let library = try fixture.snapshot.makeLibrary()
+    let workspace = library.selectedWorkflow.workspace
+    let defaultOutputID = workspace.addOutputAudioNode(centeredAt: .zero)
+    workspace.selectAudioOutput(.systemDefault, for: defaultOutputID)
+    let fixedOutputID = workspace.addOutputAudioNode(centeredAt: CGPoint(x: 400, y: 0))
+    let deviceID = try #require(AudioDeviceID(rawValue: "test.output.persisted"))
+    workspace.selectAudioOutput(
+      .device(RoutingOutputDeviceSelection(id: deviceID, displayName: "Persisted Output")),
+      for: fixedOutputID
+    )
+
+    try await store.save(RoutingWorkflowLibrarySnapshot(library: library))
+    let restoredSnapshot = try #require(try await store.load())
+    let restored = try restoredSnapshot.makeLibrary()
+
+    #expect(
+      restored.selectedWorkflow.workspace.node(id: defaultOutputID)?.value.audioOutputSelection
+        == .systemDefault
+    )
+    #expect(
+      restored.selectedWorkflow.workspace.node(id: fixedOutputID)?.value.audioOutputSelection
+        == .device(
+          RoutingOutputDeviceSelection(id: deviceID, displayName: "Persisted Output")
+        )
+    )
+  }
+
+  @Test
+  func schemaVersionTwoIsRejectedBeforeDecodingTheOldOutputSelectionShape() async throws {
+    let fixture = try makeFixture()
+    let store = RoutingWorkflowPersistenceStore(fileURL: fixture.fileURL)
+    defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+    try FileManager.default.createDirectory(
+      at: fixture.directoryURL,
+      withIntermediateDirectories: true
+    )
+    let oldDocument = Data(
+      """
+      {"schemaVersion":2,"library":{"oldOutputAudioSelectionShape":true}}
+      """.utf8
+    )
+    try oldDocument.write(to: fixture.fileURL)
+
+    do {
+      _ = try await store.load()
+      Issue.record("Expected the pre-1.0 schema to be discarded")
+    } catch RoutingWorkflowPersistenceError.unsupportedSchemaVersion(let version) {
+      #expect(version == 2)
+    }
   }
 
   @Test

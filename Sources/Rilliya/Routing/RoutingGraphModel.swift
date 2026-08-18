@@ -77,6 +77,20 @@ enum RoutingOutputCaptureSelection: Codable, Equatable, Hashable, Sendable {
   }
 }
 
+enum RoutingAudioOutputSelection: Codable, Equatable, Hashable, Sendable {
+  case systemDefault
+  case device(RoutingOutputDeviceSelection)
+
+  var displayName: String {
+    switch self {
+    case .systemDefault:
+      "System Default Output"
+    case .device(let selection):
+      selection.displayName
+    }
+  }
+}
+
 extension RoutingInputDeviceSelection: Codable {
   private enum CodingKeys: String, CodingKey {
     case id
@@ -153,7 +167,7 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
     channelPresentation: RoutingChannelPresentation
   )
   case outputAudio(
-    selection: RoutingOutputDeviceSelection?,
+    selection: RoutingAudioOutputSelection?,
     channelPresentation: RoutingChannelPresentation
   )
   case virtualInput(
@@ -191,6 +205,11 @@ enum RoutingNodeValue: Codable, Equatable, Sendable {
   }
 
   var outputDeviceSelection: RoutingOutputDeviceSelection? {
+    guard case .outputAudio(.device(let selection), _) = self else { return nil }
+    return selection
+  }
+
+  var audioOutputSelection: RoutingAudioOutputSelection? {
     guard case .outputAudio(let selection, _) = self else { return nil }
     return selection
   }

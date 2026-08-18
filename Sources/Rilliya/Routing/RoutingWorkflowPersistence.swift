@@ -403,8 +403,13 @@ private enum RoutingWorkflowPersistenceLimits {
 }
 
 actor RoutingWorkflowPersistenceStore {
+  private struct DocumentHeader: Decodable {
+    let schemaVersion: Int
+  }
+
   private struct Document: Codable {
-    static let currentSchemaVersion = 2
+    // Rilliya is pre-1.0, so the output-audio selection shape is intentionally not migrated.
+    static let currentSchemaVersion = 3
 
     let schemaVersion: Int
     let library: RoutingWorkflowLibrarySnapshot
@@ -472,11 +477,12 @@ actor RoutingWorkflowPersistenceStore {
       throw RoutingWorkflowPersistenceError.documentTooLarge
     }
     let data = try Data(contentsOf: url, options: .mappedIfSafe)
-    let document = try JSONDecoder().decode(Document.self, from: data)
-    guard document.schemaVersion == Document.currentSchemaVersion else {
-      throw RoutingWorkflowPersistenceError.unsupportedSchemaVersion(document.schemaVersion)
+    let decoder = JSONDecoder()
+    let header = try decoder.decode(DocumentHeader.self, from: data)
+    guard header.schemaVersion == Document.currentSchemaVersion else {
+      throw RoutingWorkflowPersistenceError.unsupportedSchemaVersion(header.schemaVersion)
     }
-    return document
+    return try decoder.decode(Document.self, from: data)
   }
 
   nonisolated static func defaultFileURL() -> URL {

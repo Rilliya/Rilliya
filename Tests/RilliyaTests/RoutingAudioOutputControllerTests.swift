@@ -495,6 +495,89 @@ struct RoutingAudioOutputControllerTests {
     #expect(await eventually { await outputStarter.startCount == 2 })
   }
 
+  @Test @MainActor
+  func systemDefaultOutputFollowsTheLiveCatalogDefault() async throws {
+    let firstDeviceID = try #require(AudioDeviceID(rawValue: "test.output.default.first"))
+    let secondDeviceID = try #require(AudioDeviceID(rawValue: "test.output.default.second"))
+    let outputID = UUID()
+    let outputStarter = OutputTestPlaybackStarter()
+    let outputController = RoutingAudioOutputController(playbackStarter: outputStarter)
+    let workflow = try makeGeneratorWorkflow(outputID: outputID, selection: .systemDefault)
+
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: RoutingCaptureController(captureStarter: OutputTestCaptureStarter()),
+      inputCaptureController: RoutingInputCaptureController(),
+      audioCatalogSnapshot: try outputCatalog(defaultDeviceID: firstDeviceID)
+    )
+    #expect(await eventually { await outputStarter.lastStartedDeviceID == firstDeviceID })
+
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: RoutingCaptureController(captureStarter: OutputTestCaptureStarter()),
+      inputCaptureController: RoutingInputCaptureController(),
+      audioCatalogSnapshot: try outputCatalog(defaultDeviceID: secondDeviceID)
+    )
+    #expect(await eventually { await outputStarter.lastStartedDeviceID == secondDeviceID })
+    #expect(await outputStarter.startCount == 2)
+    outputController.stopAll()
+  }
+
+  @Test @MainActor
+  func systemDefaultOutputFailsWhenTheCatalogHasNoLiveDefault() async throws {
+    let outputID = UUID()
+    let outputStarter = OutputTestPlaybackStarter()
+    let outputController = RoutingAudioOutputController(playbackStarter: outputStarter)
+    let workflow = try makeGeneratorWorkflow(outputID: outputID, selection: .systemDefault)
+
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: RoutingCaptureController(captureStarter: OutputTestCaptureStarter()),
+      inputCaptureController: RoutingInputCaptureController(),
+      audioCatalogSnapshot: AudioCatalogSnapshot(processes: [], devices: [])
+    )
+
+    #expect(await eventually { outputController.state(for: outputID).isFailed })
+    guard case .failed(let failure) = outputController.state(for: outputID) else { return }
+    #expect(failure == RoutingNodeFailure(DeviceOutputCaptureError.noDefaultOutputDevice))
+    #expect(await outputStarter.startCount == 0)
+  }
+
+  @Test @MainActor
+  func fixedOutputIgnoresCatalogDefaultChanges() async throws {
+    let fixedDeviceID = try #require(AudioDeviceID(rawValue: "test.output.fixed"))
+    let firstDefaultID = try #require(AudioDeviceID(rawValue: "test.output.other.first"))
+    let secondDefaultID = try #require(AudioDeviceID(rawValue: "test.output.other.second"))
+    let outputID = UUID()
+    let outputStarter = OutputTestPlaybackStarter()
+    let outputController = RoutingAudioOutputController(playbackStarter: outputStarter)
+    let workflow = try makeGeneratorWorkflow(
+      outputID: outputID,
+      selection: .device(
+        RoutingOutputDeviceSelection(id: fixedDeviceID, displayName: "Fixed Output")
+      )
+    )
+
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: RoutingCaptureController(captureStarter: OutputTestCaptureStarter()),
+      inputCaptureController: RoutingInputCaptureController(),
+      audioCatalogSnapshot: try outputCatalog(defaultDeviceID: firstDefaultID)
+    )
+    #expect(await eventually { await outputStarter.lastStartedDeviceID == fixedDeviceID })
+
+    outputController.reconcile(
+      workflows: [workflow],
+      captureController: RoutingCaptureController(captureStarter: OutputTestCaptureStarter()),
+      inputCaptureController: RoutingInputCaptureController(),
+      audioCatalogSnapshot: try outputCatalog(defaultDeviceID: secondDefaultID)
+    )
+    await Task.yield()
+    #expect(await outputStarter.lastStartedDeviceID == fixedDeviceID)
+    #expect(await outputStarter.startCount == 1)
+    outputController.stopAll()
+  }
+
   @MainActor
   private func makeWorkflow(
     sourceID: UUID,
@@ -515,6 +598,50 @@ struct RoutingAudioOutputControllerTests {
       try connect(sourceID: sourceID, targetID: outputID, in: workflow.workspace)
     }
     return workflow
+  }
+
+  @MainActor
+  private func makeGeneratorWorkflow(
+    outputID: UUID,
+    selection: RoutingAudioOutputSelection
+  ) throws -> RoutingWorkflowModel {
+    let workflow = RoutingWorkflowModel(name: "Output Selection")
+    let generatorID = workflow.workspace.addSignalGeneratorNode(centeredAt: .zero)
+    _ = workflow.workspace.addOutputAudioNode(
+      centeredAt: CGPoint(x: 400, y: 0),
+      id: outputID
+    )
+    workflow.workspace.selectAudioOutput(selection, for: outputID)
+    try connect(sourceID: generatorID, targetID: outputID, in: workflow.workspace)
+    workflow.run()
+    return workflow
+  }
+
+  private func outputCatalog(defaultDeviceID: AudioDeviceID) throws -> AudioCatalogSnapshot {
+    let channelID = AudioChannelID(
+      ownerID: .destination(.deviceOutput(defaultDeviceID)),
+      index: try #require(AudioChannelIndex(rawValue: 0))
+    )
+    return AudioCatalogSnapshot(
+      processes: [],
+      devices: [
+        AudioDevice(
+          id: defaultDeviceID,
+          name: defaultDeviceID.rawValue,
+          transportType: 0,
+          nominalSampleRate: 48_000,
+          isAlive: true,
+          isRunning: true,
+          input: nil,
+          output: AudioDeviceEndpoint(
+            direction: .output,
+            isDefault: true,
+            channels: [AudioChannel(id: channelID)],
+            streams: []
+          )
+        )
+      ]
+    )
   }
 
   @MainActor

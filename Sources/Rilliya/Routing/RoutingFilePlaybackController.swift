@@ -334,7 +334,11 @@ enum RoutingFilePlaybackRequirementResolver {
         let sampleRate: Double
         switch outputNode.value {
         case .outputAudio(let selection, _):
-          guard let selection,
+          guard
+            let selection = try? RoutingAudioOutputSelectionResolver.resolve(
+              selection,
+              catalogSnapshot: catalogSnapshot
+            ),
             let deviceSampleRate = sampleRates[selection.id],
             deviceSampleRate.isFinite,
             deviceSampleRate > 0

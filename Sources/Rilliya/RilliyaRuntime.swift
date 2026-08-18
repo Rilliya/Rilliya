@@ -218,6 +218,7 @@ final class RilliyaRuntime {
       outputCaptureController: outputCaptureController,
       filePlaybackController: filePlaybackController,
       networkReceiveController: networkReceiveController,
+      audioCatalogSnapshot: audioCatalog.state.snapshot,
       virtualAudioCatalog: virtualAudioController.catalog
     )
     networkSendController.reconcile(

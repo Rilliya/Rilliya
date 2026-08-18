@@ -532,6 +532,30 @@ struct RoutingMetalSceneTests {
   }
 
   @Test @MainActor
+  func audioOutputFollowingTheDefaultShowsItsResolvedDeviceOnTheCanvas() throws {
+    let model = RoutingWorkspaceModel()
+    let nodeID = model.addOutputAudioNode(centeredAt: CGPoint(x: 100, y: 100))
+    model.selectAudioOutput(.systemDefault, for: nodeID)
+
+    let scene = RoutingMetalScene(
+      content: try #require(model.canvasContent),
+      supplements: [
+        nodeID: RoutingMetalNodeSupplement(
+          isRunning: true,
+          isCapturing: false,
+          captureConsumerCount: 0,
+          visualizerSignal: nil,
+          resolvedOutputDeviceName: "Studio Display"
+        )
+      ]
+    )
+    let node = try #require(scene.nodes.first)
+
+    #expect(node.subtitle == "Follow System Default · Studio Display")
+    #expect(node.status == "Ready for routed audio")
+  }
+
+  @Test @MainActor
   func virtualAudioNodesExposeTheMissingDriverActionOnTheCanvas() throws {
     let model = RoutingWorkspaceModel()
     let outputID = model.addVirtualOutputNode(centeredAt: CGPoint(x: 100, y: 100))

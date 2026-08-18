@@ -1,8 +1,10 @@
 import Foundation
+import RilliyaCore
 import RilliyaFilePlayback
 import RilliyaRealtime
 import Testing
 import os.lock
+
 @testable import Rilliya
 
 struct RoutingFilePlaybackControllerTests {
@@ -153,6 +155,95 @@ struct RoutingFilePlaybackControllerTests {
           RoutingFilePlaybackRequest(url: url, sampleRate: 48_000, loopMode: .infinite)
         )
     )
+  }
+
+  @Test @MainActor
+  func systemDefaultOutputResolvesFilePlaybackAtTheLiveDefaultSampleRate() throws {
+    let playbackID = UUID()
+    let outputID = UUID()
+    let url = URL(fileURLWithPath: "/tmp/default-output-source.m4a")
+    let workspace = try RoutingWorkspaceModel(
+      restoringID: UUID(),
+      nodes: [
+        RoutingWorkspaceNode(
+          id: playbackID,
+          value: .filePlayback(
+            configuration: RoutingFilePlaybackConfiguration(
+              selection: RoutingAudioFileSelection(
+                url: url,
+                displayName: "Source",
+                channelCount: 2,
+                nativeSampleRate: 44_100
+              ),
+              loopMode: .infinite
+            )
+          ),
+          frame: CGRect(x: 0, y: 0, width: 252, height: 128)
+        ),
+        RoutingWorkspaceNode(
+          id: outputID,
+          value: .outputAudio(selection: .systemDefault, channelPresentation: .aggregate),
+          frame: CGRect(x: 500, y: 0, width: 252, height: 128)
+        ),
+      ],
+      edges: [
+        RoutingWorkspaceEdge(
+          id: UUID(),
+          source: RoutingWorkspacePortAddress(
+            nodeID: playbackID,
+            portID: RoutingGraphPortID(direction: .output, channel: .all)
+          ),
+          target: RoutingWorkspacePortAddress(
+            nodeID: outputID,
+            portID: RoutingGraphPortID(direction: .input, channel: .all)
+          )
+        )
+      ]
+    )
+    let workflow = RoutingWorkflowModel(
+      name: "Default Output", workspace: workspace, isRunning: true)
+    let defaultDeviceID = try #require(AudioDeviceID(rawValue: "test.output.default"))
+    let channelID = AudioChannelID(
+      ownerID: .destination(.deviceOutput(defaultDeviceID)),
+      index: try #require(AudioChannelIndex(rawValue: 0))
+    )
+    let catalog = AudioCatalogSnapshot(
+      processes: [],
+      devices: [
+        AudioDevice(
+          id: defaultDeviceID,
+          name: "Default Output",
+          transportType: 0,
+          nominalSampleRate: 96_000,
+          isAlive: true,
+          isRunning: true,
+          input: nil,
+          output: AudioDeviceEndpoint(
+            direction: .output,
+            isDefault: true,
+            channels: [AudioChannel(id: channelID)],
+            streams: []
+          )
+        )
+      ]
+    )
+
+    let available = RoutingFilePlaybackRequirementResolver.resolve(
+      workflows: [workflow],
+      catalogSnapshot: catalog
+    )
+    #expect(
+      available[playbackID]
+        == .ready(
+          RoutingFilePlaybackRequest(url: url, sampleRate: 96_000, loopMode: .infinite)
+        )
+    )
+
+    let unavailable = RoutingFilePlaybackRequirementResolver.resolve(
+      workflows: [workflow],
+      catalogSnapshot: AudioCatalogSnapshot(processes: [], devices: [])
+    )
+    #expect(unavailable[playbackID] == nil)
   }
 
   @Test @MainActor
