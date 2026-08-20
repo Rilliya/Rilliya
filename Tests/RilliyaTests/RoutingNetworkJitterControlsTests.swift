@@ -71,6 +71,17 @@ struct RoutingNetworkJitterControlsTests {
     #expect(try JSONDecoder().decode(RoutingNetworkJitterControls.self, from: encoded) == controls)
   }
 
+  @Test("The logarithmic slider reaches every millisecond in the supported range")
+  func logarithmicSliderRoundTripsEveryTarget() {
+    for milliseconds in RoutingNetworkJitterControls
+      .minimumTargetMilliseconds...RoutingNetworkJitterControls.maximumTargetMilliseconds
+    {
+      let position = RoutingNetworkJitterTargetScale.position(for: milliseconds)
+
+      #expect(RoutingNetworkJitterTargetScale.milliseconds(at: position) == milliseconds)
+    }
+  }
+
   /// A hand-edited document must not crash the app, and must not reach the buffer with a value
   /// it would reject.
   @Test(

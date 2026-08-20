@@ -7664,19 +7664,23 @@ private struct NetworkAudioJitterControls: View {
         .layoutPriority(1)
       } content: {
         VStack(alignment: .leading, spacing: 12) {
-          HStack {
-            Text("Target Delay")
-              .font(.caption.weight(.semibold))
-              .foregroundStyle(FlowingPalette.muted)
-            Spacer(minLength: 8)
-            FlowingStepper(
+          VStack(alignment: .leading, spacing: 7) {
+            HStack {
+              Text("Target Delay")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(FlowingPalette.muted)
+              Spacer(minLength: 8)
+              Text("\(jitter.targetMilliseconds) ms")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(FlowingPalette.ink)
+            }
+            FlowingSlider(
               "Jitter buffer target delay",
-              value: targetMilliseconds,
-              in: RoutingNetworkJitterControls
-                .minimumTargetMilliseconds...RoutingNetworkJitterControls
-                .maximumTargetMilliseconds,
-              step: 1,
-              formatValue: { "\($0) ms" }
+              value: targetPosition,
+              in: 0...1,
+              formatValue: {
+                "\(RoutingNetworkJitterTargetScale.milliseconds(at: $0)) milliseconds"
+              }
             )
           }
           Text(
@@ -7701,14 +7705,17 @@ private struct NetworkAudioJitterControls: View {
               .foregroundStyle(FlowingPalette.faint)
           }
         }
+        .padding(EdgeInsets(top: 6, leading: 10, bottom: 10, trailing: 10))
       }
     }
   }
 
-  private var targetMilliseconds: Binding<Int> {
+  private var targetPosition: Binding<Double> {
     Binding(
-      get: { jitter.targetMilliseconds },
-      set: { target in
+      get: { RoutingNetworkJitterTargetScale.position(for: jitter.targetMilliseconds) },
+      set: { position in
+        let target = RoutingNetworkJitterTargetScale.milliseconds(at: position)
+        guard target != jitter.targetMilliseconds else { return }
         var updated = jitter
         updated.targetMilliseconds = target
         update(updated)

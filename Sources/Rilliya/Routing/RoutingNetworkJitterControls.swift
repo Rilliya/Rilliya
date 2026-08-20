@@ -77,3 +77,19 @@ struct RoutingNetworkJitterControls: Codable, Equatable, Hashable, Sendable {
     )
   }
 }
+
+enum RoutingNetworkJitterTargetScale {
+  private static let minimum = Double(RoutingNetworkJitterControls.minimumTargetMilliseconds)
+  private static let maximum = Double(RoutingNetworkJitterControls.maximumTargetMilliseconds)
+  private static let span = log(maximum / minimum)
+
+  static func position(for milliseconds: Int) -> Double {
+    let value = min(max(Double(milliseconds), minimum), maximum)
+    return log(value / minimum) / span
+  }
+
+  static func milliseconds(at position: Double) -> Int {
+    let value = minimum * exp(min(max(position, 0), 1) * span)
+    return Int(value.rounded())
+  }
+}
