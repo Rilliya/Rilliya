@@ -6,6 +6,7 @@ import SwiftUI
 
 struct RilliyaVirtualAudioPreferencesPane: View {
   @Bindable var controller: RilliyaVirtualAudioController
+  @State private var isConfirmingDriverRemoval = false
 
   var body: some View {
     PreferencesPaneStack {
@@ -25,12 +26,25 @@ struct RilliyaVirtualAudioPreferencesPane: View {
         await controller.refresh()
       }
     }
+    .flowingConfirmationDialog(
+      "Uninstall the virtual audio driver?",
+      message:
+        "Rilliya will stay installed, but its virtual devices will be removed. Workflows using them will stop until you reinstall the driver. Core Audio will restart, briefly interrupting other apps. macOS will ask for an administrator password.",
+      isPresented: $isConfirmingDriverRemoval,
+      confirmationTitle: "Uninstall Driver",
+      kind: .destructive,
+      confirmationIsDefault: false
+    ) {
+      Task {
+        await controller.uninstallDriver()
+      }
+    }
   }
 
   private var driverSection: some View {
     PreferencesSection(
       "Virtual Audio Driver",
-      footer: "Install once to add Rilliya virtual devices to macOS. A restart is required."
+      footer: driverFooter
     ) {
       switch controller.availability {
       case .available:
@@ -38,7 +52,13 @@ struct RilliyaVirtualAudioPreferencesPane: View {
           symbol: "checkmark.seal",
           title: "Driver",
           value: "Installed"
-        )
+        ) {
+          Button("Uninstall…", role: .destructive) {
+            isConfirmingDriverRemoval = true
+          }
+          .buttonStyle(FlowingSoftButtonStyle())
+          .disabled(controller.isWorking)
+        }
       case .notInstalled:
         PreferencesRow(
           symbol: "externaldrive.badge.plus",
@@ -60,6 +80,12 @@ struct RilliyaVirtualAudioPreferencesPane: View {
         PreferencesEmptyRow(issue, symbol: "exclamationmark.triangle")
       }
     }
+  }
+
+  private var driverFooter: String? {
+    controller.availability == .notInstalled
+      ? "Install once to add Rilliya virtual devices to macOS. A restart is required."
+      : nil
   }
 
   private var endpointSection: some View {

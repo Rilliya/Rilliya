@@ -88,6 +88,57 @@ struct RilliyaVirtualAudioControllerTests {
     #expect(controller.issue?.contains("could not open") == true)
     #expect(installer.openCount == 1)
   }
+
+  @Test
+  func uninstallingClearsDriverStateAndEndpoints() async throws {
+    let store = FakeRilliyaVirtualAudioEndpointStore(availability: .available)
+    let uninstaller = FakeRilliyaVirtualAudioDriverUninstaller()
+    let controller = RilliyaVirtualAudioController(store: store, uninstaller: uninstaller)
+    await controller.refresh()
+    await controller.create(
+      try VirtualAudioEndpointConfiguration(name: "Virtual Input", direction: .input)
+    )
+
+    await controller.uninstallDriver()
+
+    #expect(uninstaller.uninstallCount == 1)
+    #expect(controller.availability == .notInstalled)
+    #expect(controller.catalog == .empty)
+    #expect(controller.issue == nil)
+    #expect(!controller.isWorking)
+  }
+
+  @Test
+  func uninstallerFailuresPreserveDriverState() async {
+    let store = FakeRilliyaVirtualAudioEndpointStore(availability: .available)
+    let uninstaller = FakeRilliyaVirtualAudioDriverUninstaller(
+      failure: RilliyaVirtualAudioDriverUninstallerError.failed
+    )
+    let controller = RilliyaVirtualAudioController(store: store, uninstaller: uninstaller)
+    await controller.refresh()
+
+    await controller.uninstallDriver()
+
+    #expect(controller.availability == .available)
+    #expect(controller.issue?.contains("could not remove") == true)
+    #expect(!controller.isWorking)
+  }
+
+  @Test
+  func cancelingAdministratorApprovalDoesNotBecomeAnIssue() async {
+    let store = FakeRilliyaVirtualAudioEndpointStore(availability: .available)
+    let uninstaller = FakeRilliyaVirtualAudioDriverUninstaller(
+      failure: RilliyaVirtualAudioDriverUninstallerError.canceled
+    )
+    let controller = RilliyaVirtualAudioController(store: store, uninstaller: uninstaller)
+    await controller.refresh()
+
+    await controller.uninstallDriver()
+
+    #expect(controller.availability == .available)
+    #expect(controller.issue == nil)
+    #expect(!controller.isWorking)
+  }
 }
 
 @MainActor
@@ -108,6 +159,25 @@ private final class FakeRilliyaVirtualAudioDriverInstaller:
 
   func openInstaller() throws {
     openCount += 1
+    if let failure {
+      throw failure
+    }
+  }
+}
+
+@MainActor
+private final class FakeRilliyaVirtualAudioDriverUninstaller:
+  RilliyaVirtualAudioDriverUninstalling
+{
+  let failure: (any Error)?
+  private(set) var uninstallCount = 0
+
+  init(failure: (any Error)? = nil) {
+    self.failure = failure
+  }
+
+  func uninstall() async throws {
+    uninstallCount += 1
     if let failure {
       throw failure
     }

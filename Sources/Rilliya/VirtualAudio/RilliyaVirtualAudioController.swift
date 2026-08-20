@@ -10,6 +10,11 @@ protocol RilliyaVirtualAudioDriverInstalling {
   func openInstaller() throws
 }
 
+@MainActor
+protocol RilliyaVirtualAudioDriverUninstalling {
+  func uninstall() async throws
+}
+
 enum RilliyaVirtualAudioDriverInstallerError: Error, LocalizedError {
   case installerNotBundled
   case installerCouldNotBeOpened
@@ -50,6 +55,59 @@ struct SystemRilliyaVirtualAudioDriverInstaller: RilliyaVirtualAudioDriverInstal
       subdirectory: Self.resourceSubdirectory
     )
   }
+}
+
+enum RilliyaVirtualAudioDriverUninstallerError: Error, LocalizedError {
+  case canceled
+  case couldNotStart
+  case failed
+
+  var errorDescription: String? {
+    switch self {
+    case .canceled:
+      "Virtual audio driver removal was canceled."
+    case .couldNotStart:
+      "macOS could not start the virtual audio driver uninstaller."
+    case .failed:
+      "macOS could not remove the virtual audio driver."
+    }
+  }
+}
+
+@MainActor
+struct SystemRilliyaVirtualAudioDriverUninstaller: RilliyaVirtualAudioDriverUninstalling {
+  func uninstall() async throws {
+    let script = Self.script
+    let result = try await Task.detached(priority: .userInitiated) {
+      let process = Process()
+      let errorPipe = Pipe()
+      process.executableURL = URL(fileURLWithPath: "/usr/bin/osascript")
+      process.arguments = ["-e", script]
+      process.standardError = errorPipe
+
+      do {
+        try process.run()
+      } catch {
+        throw RilliyaVirtualAudioDriverUninstallerError.couldNotStart
+      }
+
+      process.waitUntilExit()
+      let errorData = errorPipe.fileHandleForReading.readDataToEndOfFile()
+      let errorText = String(decoding: errorData, as: UTF8.self)
+      return (process.terminationStatus, errorText)
+    }.value
+
+    guard result.0 == 0 else {
+      if result.1.contains("(-128)") {
+        throw RilliyaVirtualAudioDriverUninstallerError.canceled
+      }
+      throw RilliyaVirtualAudioDriverUninstallerError.failed
+    }
+  }
+
+  private static let script = """
+    do shell script "/bin/rm -rf '/Library/Audio/Plug-Ins/HAL/RilliyaVADriver.driver' && (/usr/bin/killall coreaudiod 2>/dev/null || /usr/bin/true)" with administrator privileges
+    """
 }
 
 protocol RilliyaVirtualAudioEndpointStoring: Sendable {
@@ -108,14 +166,18 @@ final class RilliyaVirtualAudioController {
 
   @ObservationIgnored private let store: any RilliyaVirtualAudioEndpointStoring
   @ObservationIgnored private let installer: any RilliyaVirtualAudioDriverInstalling
+  @ObservationIgnored private let uninstaller: any RilliyaVirtualAudioDriverUninstalling
 
   init(
     store: any RilliyaVirtualAudioEndpointStoring = SystemRilliyaVirtualAudioEndpointStore(),
     installer: any RilliyaVirtualAudioDriverInstalling =
-      SystemRilliyaVirtualAudioDriverInstaller()
+      SystemRilliyaVirtualAudioDriverInstaller(),
+    uninstaller: any RilliyaVirtualAudioDriverUninstalling =
+      SystemRilliyaVirtualAudioDriverUninstaller()
   ) {
     self.store = store
     self.installer = installer
+    self.uninstaller = uninstaller
   }
 
   var isInstallerBundled: Bool {
@@ -180,6 +242,21 @@ final class RilliyaVirtualAudioController {
   func openInstaller() {
     do {
       try installer.openInstaller()
+      issue = nil
+    } catch {
+      issue = Self.message(for: error)
+    }
+  }
+
+  func uninstallDriver() async {
+    guard beginOperation() else { return }
+    defer { isWorking = false }
+    do {
+      try await uninstaller.uninstall()
+      availability = .notInstalled
+      catalog = .empty
+      issue = nil
+    } catch RilliyaVirtualAudioDriverUninstallerError.canceled {
       issue = nil
     } catch {
       issue = Self.message(for: error)
