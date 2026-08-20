@@ -7643,20 +7643,25 @@ private struct NetworkAudioJitterControls: View {
       FlowingDisclosure(
         isExpanded: $isExpanded,
         minimumHeaderHeight: 38,
-        contentInsets: EdgeInsets(top: 6, leading: 10, bottom: 10, trailing: 10)
+        contentInsets: EdgeInsets(top: 6, leading: 10, bottom: 6, trailing: 10)
       ) {
-        HStack(spacing: 8) {
+        HStack(alignment: .center, spacing: 8) {
           Image(systemName: "timer")
             .font(.caption)
             .foregroundStyle(FlowingPalette.muted)
+            .frame(width: 16, height: 16)
           Text("Buffering")
             .font(.caption.weight(.semibold))
             .foregroundStyle(FlowingPalette.ink)
-          Spacer(minLength: 8)
+          Spacer(minLength: 12)
           Text("\(jitter.targetMilliseconds) ms · \(jitter.correction.displayName)")
             .font(.caption.monospacedDigit())
             .foregroundStyle(FlowingPalette.faint)
+            .lineLimit(1)
+            .multilineTextAlignment(.trailing)
         }
+        .frame(maxWidth: .infinity)
+        .layoutPriority(1)
       } content: {
         VStack(alignment: .leading, spacing: 12) {
           HStack {
