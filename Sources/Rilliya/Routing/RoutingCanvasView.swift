@@ -3375,6 +3375,7 @@ private struct RoutingNodeColorOverrideCard: View {
           selection: selection,
           inheritedAccentID: inheritedAccentID,
           inheritedLabel: "Use Node Default",
+          showsAccentNames: false,
           setSelection: setSelection
         )
         .padding(.horizontal, 10)

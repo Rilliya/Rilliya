@@ -5,6 +5,7 @@ struct RoutingAccentGrid: View {
   let selection: RoutingAccentID?
   let inheritedAccentID: RoutingAccentID
   let inheritedLabel: String
+  let showsAccentNames: Bool
   let setSelection: (RoutingAccentID?) -> Void
 
   private let columns = Array(repeating: GridItem(.flexible(), spacing: 7), count: 7)
@@ -43,7 +44,7 @@ struct RoutingAccentGrid: View {
         ForEach(Array(RoutingAccentID.families.enumerated()), id: \.offset) { _, family in
           LazyVGrid(columns: columns, spacing: 7) {
             ForEach(family.accents, id: \.self) { accentID in
-              FlowingChip("") {
+              FlowingChip(showsAccentNames ? accentID.displayName : "") {
                 setSelection(accentID)
               }
               .flowingAccent(accentID.accent)

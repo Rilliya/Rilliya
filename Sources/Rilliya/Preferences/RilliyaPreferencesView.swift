@@ -659,6 +659,7 @@ private struct RilliyaNodeColorPreferenceRow: View {
   let selection: RoutingAccentID?
   let setSelection: (RoutingAccentID?) -> Void
 
+  private let iconTextLeadingOffset: CGFloat = 34
   @State private var isExpanded = false
 
   var body: some View {
@@ -674,9 +675,11 @@ private struct RilliyaNodeColorPreferenceRow: View {
           selection: selection,
           inheritedAccentID: kind.builtInAccentID,
           inheritedLabel: "Use Rilliya Default",
+          showsAccentNames: true,
           setSelection: setSelection
         )
         .padding(.horizontal, 14)
+        .padding(.leading, iconTextLeadingOffset)
         .padding(.vertical, 8)
       }
     }
