@@ -9,6 +9,7 @@ private enum RilliyaPreferencesPage: Hashable {
   case customization
   case nodeDefaults(RilliyaNodeDefaultsCategory)
   case virtualAudio
+  case networkAudio
   case about
 }
 
@@ -34,7 +35,7 @@ private struct RilliyaPreferencesRoot: View {
             PreferencesPage(
               id: .general,
               title: "General",
-              subtitle: "Appearance and application behavior",
+              subtitle: "Appearance and startup",
               icon: .system("gearshape")
             ) {
               RilliyaGeneralPreferencesPane(settings: settings)
@@ -42,15 +43,15 @@ private struct RilliyaPreferencesRoot: View {
             PreferencesPage(
               id: .canvas,
               title: "Canvas",
-              subtitle: "Overview, insertion, and connections",
+              subtitle: "Interaction and display",
               icon: .system("point.3.connected.trianglepath.dotted")
             ) {
               RilliyaCanvasPreferencesPane(settings: settings)
             },
             PreferencesPage(
               id: .customization,
-              title: "Customization",
-              subtitle: "Default colors for every audio node",
+              title: "Node Colors",
+              subtitle: "Colors by node type",
               icon: .system("paintpalette")
             ) {
               RilliyaCustomizationPreferencesPane(settings: settings)
@@ -64,11 +65,19 @@ private struct RilliyaPreferencesRoot: View {
             PreferencesPage(
               id: .virtualAudio,
               title: "Virtual Devices",
-              subtitle: "Install the driver and manage shared endpoints",
+              subtitle: "Shared Core Audio devices",
               icon: .system("waveform.badge.plus")
             ) {
               RilliyaVirtualAudioPreferencesPane(controller: virtualAudioController)
-            }
+            },
+            PreferencesPage(
+              id: .networkAudio,
+              title: "Network Audio",
+              subtitle: "Key storage",
+              icon: .system("network.badge.shield.half.filled")
+            ) {
+              RilliyaNetworkAudioPreferencesPane(settings: settings)
+            },
           ]
         ),
         PreferencesPageGroup(
@@ -78,7 +87,7 @@ private struct RilliyaPreferencesRoot: View {
             PreferencesPage(
               id: .nodeDefaults(.sources),
               title: "Sources",
-              subtitle: "Capture, playback, and generators",
+              subtitle: "Inputs and generators",
               icon: .system("waveform.badge.plus")
             ) {
               RilliyaNodeDefaultsPreferencesPane(settings: settings, category: .sources)
@@ -86,7 +95,7 @@ private struct RilliyaPreferencesRoot: View {
             PreferencesPage(
               id: .nodeDefaults(.destinations),
               title: "Destinations",
-              subtitle: "Playback, files, and network sends",
+              subtitle: "Playback, files, and network",
               icon: .system("speaker.wave.2")
             ) {
               RilliyaNodeDefaultsPreferencesPane(settings: settings, category: .destinations)
@@ -94,7 +103,7 @@ private struct RilliyaPreferencesRoot: View {
             PreferencesPage(
               id: .nodeDefaults(.routing),
               title: "Routing & Level",
-              subtitle: "Mix, gain, and channel maps",
+              subtitle: "Mixing and channel layout",
               icon: .system("point.3.connected.trianglepath.dotted")
             ) {
               RilliyaNodeDefaultsPreferencesPane(settings: settings, category: .routing)
@@ -102,7 +111,7 @@ private struct RilliyaPreferencesRoot: View {
             PreferencesPage(
               id: .nodeDefaults(.measurement),
               title: "Measurement",
-              subtitle: "Visualizer presentation",
+              subtitle: "Meters and visualizers",
               icon: .system("waveform")
             ) {
               RilliyaNodeDefaultsPreferencesPane(settings: settings, category: .measurement)
@@ -110,7 +119,7 @@ private struct RilliyaPreferencesRoot: View {
             PreferencesPage(
               id: .nodeDefaults(.processing),
               title: "Dynamics & Effects",
-              subtitle: "Delay, gating, and compression",
+              subtitle: "Delay and dynamics",
               icon: .system("slider.horizontal.3")
             ) {
               RilliyaNodeDefaultsPreferencesPane(settings: settings, category: .processing)
@@ -123,7 +132,7 @@ private struct RilliyaPreferencesRoot: View {
             PreferencesPage(
               id: .about,
               title: "About",
-              subtitle: "Version, requirements, and acknowledgements",
+              subtitle: "Version and credits",
               icon: .system("info.circle"),
               headerIcon: .application
             ) {
@@ -153,8 +162,7 @@ private struct RilliyaNodeDefaultsPreferencesPane: View {
     PreferencesPaneStack {
       PreferencesSection(
         category.title,
-        footer:
-          "Only enabled values replace Rilliya's starting values. Existing nodes are never changed."
+        footer: "Enabled values apply to new nodes only."
       ) {
         RilliyaNodeDefaultsRows(
           settings: settings,
@@ -364,15 +372,11 @@ private struct RilliyaGeneralPreferencesPane: View {
 
   var body: some View {
     PreferencesPaneStack {
-      PreferencesSection(
-        "Application",
-        footer:
-          "Keep at least one of Dock or menu bar visibility enabled. macOS controls login-item approval in System Settings."
-      ) {
+      PreferencesSection("Appearance") {
         PreferencesPopupRow(
           symbol: "circle.lefthalf.filled",
           title: "Appearance",
-          caption: "Follow macOS or keep Rilliya in a light or dark appearance.",
+          caption: "Use the system appearance or choose light or dark.",
           minimumControlWidth: 120,
           selection: Binding(
             get: { settings.appearance },
@@ -388,11 +392,16 @@ private struct RilliyaGeneralPreferencesPane: View {
           ]
         )
 
-        PreferencesRowSeparator(leadingEdge: .iconText)
+      }
+
+      PreferencesSection(
+        "Availability",
+        footer: "Keep either the Dock or menu bar enabled."
+      ) {
         PreferencesSwitchRow(
           symbol: "dock.rectangle",
           title: "Show in Dock",
-          caption: "Keep Rilliya in the Dock and application switcher.",
+          caption: "Show Rilliya in the Dock and app switcher.",
           isOn: Binding(
             get: { settings.showsInDock },
             set: { isVisible in
@@ -406,7 +415,7 @@ private struct RilliyaGeneralPreferencesPane: View {
         PreferencesSwitchRow(
           symbol: "menubar.rectangle",
           title: "Show in menu bar",
-          caption: "Keep quick workflow and application controls in the menu bar.",
+          caption: "Show quick controls in the menu bar.",
           isOn: Binding(
             get: { settings.showsInStatusBar },
             set: { isVisible in
@@ -419,7 +428,7 @@ private struct RilliyaGeneralPreferencesPane: View {
         PreferencesSwitchRow(
           symbol: "power",
           title: "Launch at login",
-          caption: "Open Rilliya after you sign in so launch-enabled workflows can resume.",
+          caption: "Open Rilliya when you sign in.",
           isOn: Binding(
             get: { launchAtLoginController.isEnabled },
             set: { isEnabled in
@@ -457,60 +466,28 @@ private struct RilliyaCanvasPreferencesPane: View {
 
   var body: some View {
     PreferencesPaneStack {
-      PreferencesSection(
-        "Canvas Overview",
-        footer:
-          "Workflows inherit this setting until the overview button on that canvas creates a workflow-specific override."
-      ) {
-        PreferencesSwitchRow(
-          symbol: "map",
-          title: "Show overview by default",
-          caption: "Display the minimap when a workflow has nodes.",
-          isOn: $settings.showsMiniMapByDefault
-        )
-      }
-
-      PreferencesSection(
-        "Network Audio Keys",
-        footer:
-          "The Keychain keeps the key out of the workflow file. It grants access per signed "
-          + "build, so a development build asks once each time it is rebuilt."
-      ) {
-        PreferencesSegmentedRow(
-          symbol: "key",
-          title: "Store new keys in",
-          caption: "Choose where a generated or pasted shared key is kept.",
-          controlWidth: 240,
-          selection: $settings.networkAudioKeySourceID,
-          // Built from what is registered rather than written down, so a source added by someone
-          // else appears here without this view knowing anything about it.
-          options: RoutingNetworkAudioKeySourceRegistry.shared.all
-            .filter(\.acceptsProvidedKeys)
-            .map { FlowingSegmentOption($0.id, label: $0.displayName) }
-        )
-      }
-
-      PreferencesSection(
-        "Node Palette",
-        footer: "Dragging a node onto the canvas always remains available."
-      ) {
+      PreferencesSection("Interaction") {
         PreferencesSwitchRow(
           symbol: "cursorarrow.click",
           title: "Click to add nodes",
-          caption: "Let a single click add a node near the visible workspace center.",
+          caption: "Add a node by clicking its palette item.",
           isOn: $settings.addsNodesOnPaletteClick
         )
       }
 
-      PreferencesSection(
-        "Connection Information",
-        footer:
-          "Format details appear only after Rilliya has learned the source's live audio format."
-      ) {
+      PreferencesSection("Display") {
+        PreferencesSwitchRow(
+          symbol: "map",
+          title: "Show overview by default",
+          caption: "Show the minimap when a workflow contains nodes.",
+          isOn: $settings.showsMiniMapByDefault
+        )
+
+        PreferencesRowSeparator(leadingEdge: .iconText)
         PreferencesSegmentedRow(
           symbol: "cable.connector.horizontal",
           title: "Connection labels",
-          caption: "Choose how much information appears directly on the canvas.",
+          caption: "Show channel or format details on connections.",
           controlWidth: 240,
           selection: $settings.connectionInformationLevel,
           options: [
@@ -524,28 +501,22 @@ private struct RilliyaCanvasPreferencesPane: View {
         PreferencesSwitchRow(
           symbol: "xmark.circle",
           title: "Mark disabled ports",
-          caption: "Show an X inside disabled ports in addition to reduced contrast.",
+          caption: "Add an X to disabled ports.",
           isOn: $settings.showsDisabledPortCrosses
         )
-      }
 
-      PreferencesSection(
-        "Waveform",
-        footer:
-          "How often a visualizer redraws what it is hearing. Anything past the display's refresh rate is drawn over before it is seen, and a rate a machine cannot keep up with will simply fall behind."
-      ) {
+        PreferencesRowSeparator(leadingEdge: .iconText)
         RilliyaWaveformRatePreferenceRows(settings: settings)
       }
 
       PreferencesSection(
-        "Channel Splitting",
-        footer:
-          "Native follows the selected output device stream. A preset exposes that many leading channels without claiming they were the application's original source layout."
+        "Routing",
+        footer: "Native follows the selected output device."
       ) {
         PreferencesPopupRow(
           symbol: "slider.horizontal.2.square",
           title: "Default separated layout",
-          caption: "Choose the channel count used when a connected route is split automatically.",
+          caption: "Choose the layout used when a route is split.",
           minimumControlWidth: 150,
           selection: $settings.defaultSeparateChannelLayout,
           options: [
@@ -561,6 +532,31 @@ private struct RilliyaCanvasPreferencesPane: View {
   }
 }
 
+private struct RilliyaNetworkAudioPreferencesPane: View {
+  @Bindable var settings: RilliyaSettings
+
+  var body: some View {
+    PreferencesPaneStack {
+      PreferencesSection(
+        "Keys",
+        footer:
+          "Keychain keeps keys out of workflow files. Development builds may request access after rebuilding."
+      ) {
+        PreferencesSegmentedRow(
+          symbol: "key",
+          title: "Store new keys in",
+          caption: "Choose where network audio keys are saved.",
+          controlWidth: 240,
+          selection: $settings.networkAudioKeySourceID,
+          options: RoutingNetworkAudioKeySourceRegistry.shared.all
+            .filter(\.acceptsProvidedKeys)
+            .map { FlowingSegmentOption($0.id, label: $0.displayName) }
+        )
+      }
+    }
+  }
+}
+
 private struct RilliyaCustomizationPreferencesPane: View {
   @Bindable var settings: RilliyaSettings
 
@@ -569,8 +565,7 @@ private struct RilliyaCustomizationPreferencesPane: View {
 
       PreferencesSection(
         "Node Colors",
-        footer:
-          "These colors are the default for each node type. A node-specific color chosen in a workflow takes priority."
+        footer: "Workflow-specific colors override these defaults."
       ) {
         ForEach(Array(RoutingNodeKind.allCases.enumerated()), id: \.element) { index, kind in
           if index > 0 {
@@ -733,11 +728,6 @@ final class RilliyaPreferencesWindowController {
   }
 }
 
-/// Chooses how often a waveform reports what it has heard.
-///
-/// Three rates are offered because they are the ones displays run at. Anything else is typed,
-/// because a rate this cannot foresee is still the person's to choose: the only value refused is
-/// one below a single update a second, which would report nothing at all.
 private struct RilliyaWaveformRatePreferenceRows: View {
   @Bindable var settings: RilliyaSettings
   @State private var typed = ""
@@ -745,8 +735,8 @@ private struct RilliyaWaveformRatePreferenceRows: View {
   var body: some View {
     PreferencesPopupRow(
       symbol: "waveform.path",
-      title: "Updates per second",
-      caption: "Thirty matches what an audio device meters itself at.",
+      title: "Waveform refresh rate",
+      caption: "Choose how often visualizers redraw.",
       minimumControlWidth: 150,
       selection: presetSelection,
       options: RilliyaSettings.waveformUpdatePresets.map {
@@ -758,7 +748,7 @@ private struct RilliyaWaveformRatePreferenceRows: View {
       PreferencesRow(
         icon: .system("number"),
         title: "Custom rate",
-        caption: "Updates per second."
+        caption: "Enter a rate of 1 or more per second."
       ) {
         TextField("", text: $typed)
           .textFieldStyle(.roundedBorder)

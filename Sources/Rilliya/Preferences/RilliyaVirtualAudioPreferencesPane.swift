@@ -30,8 +30,7 @@ struct RilliyaVirtualAudioPreferencesPane: View {
   private var driverSection: some View {
     PreferencesSection(
       "Virtual Audio Driver",
-      footer:
-        "The driver publishes Rilliya-managed input and output devices to macOS. Installing it requires an administrator password and a restart so Core Audio can load it."
+      footer: "Install once to add Rilliya virtual devices to macOS. A restart is required."
     ) {
       switch controller.availability {
       case .available:
@@ -66,15 +65,14 @@ struct RilliyaVirtualAudioPreferencesPane: View {
   private var endpointSection: some View {
     PreferencesSection(
       "Shared Virtual Devices",
-      footer:
-        "Devices are global to Rilliya and can be referenced by several workflows. Pause workflows that use a device before changing its direction or format."
+      footer: "Devices can be shared across workflows. Pause active workflows before editing one."
     ) {
       RilliyaVirtualAudioEndpointCreator(controller: controller)
 
       if controller.catalog.endpoints.isEmpty {
         PreferencesRowSeparator(leadingEdge: .iconText)
         PreferencesEmptyRow(
-          "No virtual devices yet. Create an input for other applications to capture, or an output for Rilliya to receive.",
+          "No virtual devices yet. Create an input or output to get started.",
           symbol: "waveform.badge.plus"
         )
       } else {
@@ -112,7 +110,7 @@ private struct RilliyaVirtualAudioEndpointCreator: View {
       PreferencesExpandableRow(
         symbol: "plus.circle",
         title: "Create a virtual device",
-        caption: "Add a globally shared Core Audio input or output.",
+        caption: "Add a shared virtual input or output.",
         isExpanded: $isExpanded
       )
       PreferencesDependentRows(isVisible: isExpanded) {
@@ -133,7 +131,7 @@ private struct RilliyaVirtualAudioEndpointCreator: View {
     PreferencesRowSeparator(leadingEdge: .content)
     PreferencesRow(
       title: "Create device",
-      caption: "The new device becomes available to Core Audio clients immediately."
+      caption: "Available to Core Audio immediately."
     ) {
       Button("Create") {
         guard let configuration else { return }
@@ -230,7 +228,7 @@ private struct RilliyaVirtualAudioEndpointEditor: View {
   private var actionRow: some View {
     PreferencesRow(
       title: "Device configuration",
-      caption: "Running devices reject format changes instead of interrupting active audio."
+      caption: "Active devices reject format changes."
     ) {
       HStack(spacing: 8) {
         Button("Remove", role: .destructive) {
@@ -277,7 +275,7 @@ private struct RilliyaVirtualAudioNameRow: View {
   var body: some View {
     PreferencesRow(
       title: "Name",
-      caption: "This name appears in audio device lists throughout macOS."
+      caption: "Shown in macOS audio device lists."
     ) {
       FlowingTextField(
         "Device name",
@@ -316,7 +314,7 @@ private struct RilliyaVirtualAudioSampleRateRow: View {
   var body: some View {
     PreferencesRow(
       title: "Sample rate",
-      caption: "Choose the device's native PCM sample rate."
+      caption: "Set the native PCM sample rate."
     ) {
       FlowingSelect(
         label: "Sample rate",
@@ -336,7 +334,7 @@ private struct RilliyaVirtualAudioChannelCountRow: View {
   var body: some View {
     PreferencesRow(
       title: "Channels",
-      caption: "Expose between 1 and 256 noninterleaved Float32 channels."
+      caption: "Expose 1–256 Float32 channels."
     ) {
       FlowingStepper(
         "Channel count",
