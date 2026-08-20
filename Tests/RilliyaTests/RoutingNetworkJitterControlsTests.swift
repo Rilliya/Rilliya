@@ -71,15 +71,33 @@ struct RoutingNetworkJitterControlsTests {
     #expect(try JSONDecoder().decode(RoutingNetworkJitterControls.self, from: encoded) == controls)
   }
 
-  @Test("The logarithmic slider reaches every millisecond in the supported range")
-  func logarithmicSliderRoundTripsEveryTarget() {
-    for milliseconds in RoutingNetworkJitterControls
-      .minimumTargetMilliseconds...RoutingNetworkJitterControls.maximumTargetMilliseconds
-    {
-      let position = RoutingNetworkJitterTargetScale.position(for: milliseconds)
+  @Test("Common network conditions have presets and every other delay is custom")
+  func targetDelayChoices() {
+    #expect(RoutingNetworkJitterTargetSelection.presets == [5, 20, 50])
+    #expect(RoutingNetworkJitterTargetSelection.choice(for: 5) == .preset(5))
+    #expect(RoutingNetworkJitterTargetSelection.choice(for: 20) == .preset(20))
+    #expect(RoutingNetworkJitterTargetSelection.choice(for: 50) == .preset(50))
+    #expect(RoutingNetworkJitterTargetSelection.choice(for: 2) == .custom)
+    #expect(RoutingNetworkJitterTargetSelection.choice(for: 500) == .custom)
+  }
 
-      #expect(RoutingNetworkJitterTargetScale.milliseconds(at: position) == milliseconds)
-    }
+  @Test("A custom delay must be a whole number inside the supported range")
+  func customTargetValidation() {
+    #expect(RoutingNetworkJitterTargetSelection.validatedCustomTarget(" 275 ") == 275)
+    #expect(RoutingNetworkJitterTargetSelection.validatedCustomTarget("1") == nil)
+    #expect(RoutingNetworkJitterTargetSelection.validatedCustomTarget("501") == nil)
+    #expect(RoutingNetworkJitterTargetSelection.validatedCustomTarget("20.5") == nil)
+    #expect(RoutingNetworkJitterTargetSelection.validatedCustomTarget("fast") == nil)
+  }
+
+  @Test("A large custom target reserves enough receive storage")
+  func customTargetReservesReceiveStorage() throws {
+    let controls = RoutingNetworkJitterControls(targetMilliseconds: 500, correction: .overlap)
+    let capacity = controls.requiredReceiveCapacityFrameCount(sampleRate: 96_000)
+
+    #expect(capacity == 52_800)
+    #expect(capacity <= AudioRealtimeFrameBuffer.maximumCapacityFrameCount)
+    #expect(try controls.resolve().targetLatency == .milliseconds(500))
   }
 
   /// A hand-edited document must not crash the app, and must not reach the buffer with a value

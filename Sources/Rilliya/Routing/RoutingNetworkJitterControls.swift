@@ -40,7 +40,11 @@ enum RoutingNetworkJitterCorrection: String, Codable, CaseIterable, Sendable {
 /// that behaves rather than a ceiling. Documents saved before this existed decode to ``initial``.
 struct RoutingNetworkJitterControls: Codable, Equatable, Hashable, Sendable {
   static let minimumTargetMilliseconds = 2
-  static let maximumTargetMilliseconds = 200
+  static let maximumTargetMilliseconds = 500
+
+  private static let automaticTargetCeilingMilliseconds = 200
+  private static let targetRecoveryHeadroomMilliseconds = 50
+  private static let defaultReceiveCapacityFrameCount = 32_768
 
   /// Two packets of slack, which is what a wired local network needs.
   static let initial = RoutingNetworkJitterControls(targetMilliseconds: 5, correction: .overlap)
@@ -73,23 +77,54 @@ struct RoutingNetworkJitterControls: Codable, Equatable, Hashable, Sendable {
   func resolve() throws -> AudioJitterBufferConfiguration {
     try AudioJitterBufferConfiguration(
       targetLatency: .milliseconds(targetMilliseconds),
+      maximumLatency: .milliseconds(maximumLatencyMilliseconds),
       correction: correction.libraryValue
+    )
+  }
+
+  func requiredReceiveCapacityFrameCount(sampleRate: Double) -> Int {
+    max(
+      Self.defaultReceiveCapacityFrameCount,
+      Int(ceil(sampleRate * Double(maximumLatencyMilliseconds) / 1_000))
+    )
+  }
+
+  private var maximumLatencyMilliseconds: Int {
+    max(
+      Self.automaticTargetCeilingMilliseconds,
+      targetMilliseconds + Self.targetRecoveryHeadroomMilliseconds
     )
   }
 }
 
-enum RoutingNetworkJitterTargetScale {
-  private static let minimum = Double(RoutingNetworkJitterControls.minimumTargetMilliseconds)
-  private static let maximum = Double(RoutingNetworkJitterControls.maximumTargetMilliseconds)
-  private static let span = log(maximum / minimum)
+enum RoutingNetworkJitterTargetChoice: Hashable {
+  case preset(Int)
+  case custom
+}
 
-  static func position(for milliseconds: Int) -> Double {
-    let value = min(max(Double(milliseconds), minimum), maximum)
-    return log(value / minimum) / span
+enum RoutingNetworkJitterTargetSelection {
+  static let presets = [5, 20, 50]
+
+  static func choice(for milliseconds: Int) -> RoutingNetworkJitterTargetChoice {
+    presets.contains(milliseconds) ? .preset(milliseconds) : .custom
   }
 
-  static func milliseconds(at position: Double) -> Int {
-    let value = minimum * exp(min(max(position, 0), 1) * span)
-    return Int(value.rounded())
+  static func label(for milliseconds: Int) -> String {
+    switch milliseconds {
+    case 5: "Wired · 5 ms"
+    case 20: "Wi-Fi · 20 ms"
+    case 50: "Tunnel · 50 ms"
+    default: "\(milliseconds) ms"
+    }
+  }
+
+  static func validatedCustomTarget(_ text: String) -> Int? {
+    guard let milliseconds = Int(text.trimmingCharacters(in: .whitespaces)) else { return nil }
+    guard
+      (RoutingNetworkJitterControls
+        .minimumTargetMilliseconds...RoutingNetworkJitterControls
+        .maximumTargetMilliseconds).contains(milliseconds)
+    else { return nil }
+    return milliseconds
   }
 }

@@ -69,6 +69,9 @@ struct SystemRoutingNetworkReceiveStarter: RoutingNetworkReceiveStarting {
         configuration: NetworkAudioReceiverConfiguration(
           port: configuration.port,
           format: format,
+          capacityFrameCount: configuration.jitter.requiredReceiveCapacityFrameCount(
+            sampleRate: format.sampleRate
+          ),
           jitter: try configuration.jitter.resolve(),
           waveformUpdatesPerSecond: waveformUpdatesPerSecond,
           keyProvider: keyProvider

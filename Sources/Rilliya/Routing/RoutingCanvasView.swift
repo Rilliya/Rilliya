@@ -7634,6 +7634,20 @@ private struct NetworkAudioJitterControls: View {
   let update: (RoutingNetworkJitterControls) -> Void
 
   @State private var isExpanded = false
+  @State private var targetChoice: RoutingNetworkJitterTargetChoice
+  @State private var customTargetText: String
+
+  init(
+    jitter: RoutingNetworkJitterControls,
+    update: @escaping (RoutingNetworkJitterControls) -> Void
+  ) {
+    self.jitter = jitter
+    self.update = update
+    _targetChoice = State(
+      initialValue: RoutingNetworkJitterTargetSelection.choice(for: jitter.targetMilliseconds)
+    )
+    _customTargetText = State(initialValue: String(jitter.targetMilliseconds))
+  }
 
   var body: some View {
     FlowingCard(
@@ -7674,14 +7688,27 @@ private struct NetworkAudioJitterControls: View {
                 .font(.caption.monospacedDigit())
                 .foregroundStyle(FlowingPalette.ink)
             }
-            FlowingSlider(
-              "Jitter buffer target delay",
-              value: targetPosition,
-              in: 0...1,
-              formatValue: {
-                "\(RoutingNetworkJitterTargetScale.milliseconds(at: $0)) milliseconds"
-              }
+            FlowingSelect(
+              label: "Jitter buffer target delay",
+              selection: targetSelection,
+              options: targetOptions,
+              minimumWidth: 164
             )
+            .fixedSize(horizontal: false, vertical: true)
+
+            if targetChoice == .custom {
+              FlowingTextField(
+                "Custom target delay",
+                text: $customTargetText,
+                placeholder: "2–500 ms",
+                systemImage: "number",
+                validation: customTargetValidation,
+                onSubmit: commitCustomTarget
+              )
+              .onChange(of: customTargetText) { _, _ in
+                commitCustomTarget()
+              }
+            }
           }
           Text(
             "Audio waits this long before it plays, which is what absorbs an uneven network. A wired network settles at a few milliseconds; Wi-Fi or a tunnel needs more. The receiver raises this on its own after a dropout."
@@ -7710,17 +7737,49 @@ private struct NetworkAudioJitterControls: View {
     }
   }
 
-  private var targetPosition: Binding<Double> {
+  private var targetSelection: Binding<RoutingNetworkJitterTargetChoice> {
     Binding(
-      get: { RoutingNetworkJitterTargetScale.position(for: jitter.targetMilliseconds) },
-      set: { position in
-        let target = RoutingNetworkJitterTargetScale.milliseconds(at: position)
-        guard target != jitter.targetMilliseconds else { return }
-        var updated = jitter
-        updated.targetMilliseconds = target
-        update(updated)
+      get: { targetChoice },
+      set: { choice in
+        targetChoice = choice
+        switch choice {
+        case .preset(let milliseconds):
+          customTargetText = String(milliseconds)
+          updateTarget(milliseconds)
+        case .custom:
+          customTargetText = String(jitter.targetMilliseconds)
+        }
       }
     )
+  }
+
+  private var targetOptions: [FlowingSelectOption<RoutingNetworkJitterTargetChoice>] {
+    RoutingNetworkJitterTargetSelection.presets.map { milliseconds in
+      FlowingSelectOption(
+        .preset(milliseconds),
+        label: RoutingNetworkJitterTargetSelection.label(for: milliseconds)
+      )
+    } + [FlowingSelectOption(.custom, label: "Custom…")]
+  }
+
+  private var customTargetValidation: FlowingFieldValidation {
+    parsedCustomTarget == nil ? .error("Enter a whole number from 2 through 500.") : .none
+  }
+
+  private var parsedCustomTarget: Int? {
+    RoutingNetworkJitterTargetSelection.validatedCustomTarget(customTargetText)
+  }
+
+  private func commitCustomTarget() {
+    guard targetChoice == .custom, let milliseconds = parsedCustomTarget else { return }
+    updateTarget(milliseconds)
+  }
+
+  private func updateTarget(_ milliseconds: Int) {
+    guard milliseconds != jitter.targetMilliseconds else { return }
+    var updated = jitter
+    updated.targetMilliseconds = milliseconds
+    update(updated)
   }
 
   private var correction: Binding<RoutingNetworkJitterCorrection> {
