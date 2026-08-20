@@ -33,6 +33,24 @@ struct RoutingNodeFailureTests {
 
     #expect(failure.summary == "Clock conflict")
     #expect(failure.message == "The long explanation.")
+    #expect(failure.title(fallback: "Node stopped") == "Clock conflict")
+  }
+
+  @Test
+  func anUnphrasedFailureUsesTheInspectorFallbackTitle() {
+    let failure = RoutingNodeFailure(message: "The long explanation.")
+
+    #expect(failure.title(fallback: "Node stopped") == "Node stopped")
+  }
+
+  @Test(arguments: [
+    RoutingNetworkAudioKeychainError.notFound,
+    RoutingNetworkAudioKeychainError.accessDenied,
+  ])
+  func unavailableKeysUseOnePhraseAcrossTheCanvasAndInspector(
+    error: RoutingNetworkAudioKeychainError
+  ) {
+    #expect(RoutingNodeFailure(error).summary == "Key unavailable")
   }
 
   @Test(arguments: [

@@ -28,6 +28,35 @@ struct RoutingNodeFailure: Equatable, Hashable, Sendable {
       message: error.localizedDescription
     )
   }
+
+  func title(fallback: String) -> String {
+    summary ?? fallback
+  }
+}
+
+struct RoutingNodeIssueView: View {
+  let title: String
+  let message: String
+
+  init(_ failure: RoutingNodeFailure, fallbackTitle: String) {
+    title = failure.title(fallback: fallbackTitle)
+    message = failure.message
+  }
+
+  init(title: String, message: String) {
+    self.title = title
+    self.message = message
+  }
+
+  var body: some View {
+    FlowingCallout(
+      message,
+      title: title,
+      systemImage: "exclamationmark.circle.fill",
+      tone: .critical,
+      presentation: .inline
+    )
+  }
 }
 
 /// Maps a recognized error to the short phrase a canvas node shows without being selected.
@@ -47,6 +76,8 @@ enum RoutingNodeFailureSummary {
     case let error as ProcessOutputCaptureError: summary(for: error)
     case let error as AudioFileFrameStreamError: summary(for: error)
     case let error as AudioFileWriterError: summary(for: error)
+    case is RoutingNetworkAudioKeySourceError, is RoutingNetworkAudioKeychainError:
+      "Key unavailable"
     default: nil
     }
   }

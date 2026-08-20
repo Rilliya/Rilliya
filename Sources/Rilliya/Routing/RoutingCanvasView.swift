@@ -3569,12 +3569,7 @@ private struct SelectedApplicationInspector: View {
       .accessibilityLabel("Capturing application audio")
     case .failed(let failure):
       VStack(alignment: .leading, spacing: 8) {
-        FlowingCallout(
-          failure.message,
-          title: "Capture failed",
-          systemImage: "exclamationmark.triangle",
-          tone: .warning
-        )
+        RoutingNodeIssueView(failure, fallbackTitle: "Capture failed")
         if isRouted, runningProcessID != nil {
           Button("Try Again") {
             captureController.retry(nodeID: nodeID)
@@ -3890,12 +3885,7 @@ private struct SelectedInputAudioInspector: View {
       .accessibilityLabel("Capturing input audio")
     case .failed(let failure):
       VStack(alignment: .leading, spacing: 8) {
-        FlowingCallout(
-          failure.message,
-          title: "Input capture failed",
-          systemImage: "exclamationmark.triangle",
-          tone: .warning
-        )
+        RoutingNodeIssueView(failure, fallbackTitle: "Input capture failed")
         if isRouted, selection?.id != nil {
           Button("Try Again") {
             captureController.retry(nodeID: nodeID)
@@ -4222,12 +4212,7 @@ private struct SelectedSystemOutputInspector: View {
       .accessibilityLabel("Capturing system output audio")
     case .failed(let failure):
       VStack(alignment: .leading, spacing: 8) {
-        FlowingCallout(
-          failure.message,
-          title: "System output capture failed",
-          systemImage: "exclamationmark.triangle",
-          tone: .warning
-        )
+        RoutingNodeIssueView(failure, fallbackTitle: "System output capture failed")
         if isRouted {
           Button("Try Again") {
             captureController.retry(nodeID: nodeID)
@@ -4568,7 +4553,7 @@ private struct SelectedVirtualAudioEndpointInspector: View {
         .font(.caption.monospacedDigit())
         .foregroundStyle(FlowingAccent.lagoon.foreground)
       case .failed(let failure):
-        FlowingCallout(failure.message, title: "Virtual output stopped", tone: .warning)
+        RoutingNodeIssueView(failure, fallbackTitle: "Virtual output stopped")
       }
     }
   }
@@ -4713,7 +4698,7 @@ private struct SelectedOutputAudioInspector: View {
       .font(.caption.monospacedDigit())
       .foregroundStyle(FlowingAccent.fern.foreground)
     case .failed(let failure):
-      FlowingCallout(failure.message, title: "Output stopped", tone: .warning)
+      RoutingNodeIssueView(failure, fallbackTitle: "Output stopped")
     }
   }
 
@@ -5498,12 +5483,7 @@ private struct SelectedFilePlaybackInspector: View {
       fileSelectionControl
 
       if let fileIssue {
-        FlowingCallout(
-          fileIssue,
-          title: "File unavailable",
-          systemImage: "exclamationmark.triangle",
-          tone: .critical
-        )
+        RoutingNodeIssueView(title: "File unavailable", message: fileIssue)
       }
 
       HStack(spacing: 12) {
@@ -5562,15 +5542,17 @@ private struct SelectedFilePlaybackInspector: View {
       }
       .disabled(configuration.selection == nil)
 
-      FlowingCallout(
-        statusDescription,
-        title: statusTitle,
-        systemImage: statusSymbol,
-        tone: statusTone
-      )
-      if case .failed = state {
+      if case .failed(let failure) = state {
+        RoutingNodeIssueView(failure, fallbackTitle: "Playback stopped")
         Button("Try Again", action: onRetry)
           .buttonStyle(FlowingSoftButtonStyle())
+      } else {
+        FlowingCallout(
+          statusDescription,
+          title: statusTitle,
+          systemImage: statusSymbol,
+          tone: statusTone
+        )
       }
     }
     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
@@ -5932,15 +5914,17 @@ private struct SelectedFileOutputInspector: View {
         }
       }
 
-      FlowingCallout(
-        statusDescription,
-        title: statusTitle,
-        systemImage: statusSymbol,
-        tone: statusTone
-      )
-      if case .failed = state {
+      if case .failed(let failure) = state {
+        RoutingNodeIssueView(failure, fallbackTitle: "Recording stopped")
         Button("Try Again", action: onRetry)
           .buttonStyle(FlowingSoftButtonStyle())
+      } else {
+        FlowingCallout(
+          statusDescription,
+          title: statusTitle,
+          systemImage: statusSymbol,
+          tone: statusTone
+        )
       }
     }
     .shadow(color: .black.opacity(0.08), radius: 12, y: 5)
@@ -6326,15 +6310,17 @@ private struct SelectedNetworkSendInspector: View {
         edit { $0.secret = secret }
       }
 
-      FlowingCallout(
-        stateDescription,
-        title: stateTitle,
-        systemImage: stateSymbol,
-        tone: stateTone
-      )
-      if case .failed = state {
+      if case .failed(let failure) = state {
+        RoutingNodeIssueView(failure, fallbackTitle: "Send stopped")
         Button("Try Again", action: onRetry)
           .buttonStyle(FlowingSoftButtonStyle())
+      } else {
+        FlowingCallout(
+          stateDescription,
+          title: stateTitle,
+          systemImage: stateSymbol,
+          tone: stateTone
+        )
       }
 
       Text(
@@ -6501,15 +6487,17 @@ private struct SelectedNetworkReceiveInspector: View {
         edit { $0.jitter = jitter }
       }
 
-      FlowingCallout(
-        stateDescription,
-        title: stateTitle,
-        systemImage: stateSymbol,
-        tone: stateTone
-      )
-      if case .failed = state {
+      if case .failed(let failure) = state {
+        RoutingNodeIssueView(failure, fallbackTitle: "Receive stopped")
         Button("Try Again", action: onRetry)
           .buttonStyle(FlowingSoftButtonStyle())
+      } else {
+        FlowingCallout(
+          stateDescription,
+          title: stateTitle,
+          systemImage: stateSymbol,
+          tone: stateTone
+        )
       }
 
       Text(
@@ -7479,12 +7467,19 @@ private struct NetworkAudioSecretControls: View {
             }
           }
         }
-        FlowingCallout(
-          statusDescription,
-          title: statusTitle,
-          systemImage: statusSymbol,
-          tone: statusTone
-        )
+        if case .unreadable(let reason) = availability {
+          RoutingNodeIssueView(
+            title: "Key unavailable",
+            message: "\(reason) This node cannot start until the key is entered again."
+          )
+        } else {
+          FlowingCallout(
+            statusDescription,
+            title: statusTitle,
+            systemImage: statusSymbol,
+            tone: statusTone
+          )
+        }
       }
     }
     .task(id: secret) { refresh() }
