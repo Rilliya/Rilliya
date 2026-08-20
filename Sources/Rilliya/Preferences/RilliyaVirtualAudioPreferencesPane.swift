@@ -312,10 +312,7 @@ private struct RilliyaVirtualAudioSampleRateRow: View {
   @Binding var sampleRate: Double
 
   var body: some View {
-    PreferencesRow(
-      title: "Sample rate",
-      caption: "Set the native PCM sample rate."
-    ) {
+    PreferencesRow(title: "Sample rate") {
       FlowingSelect(
         label: "Sample rate",
         selection: $sampleRate,

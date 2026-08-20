@@ -192,7 +192,7 @@ private struct RilliyaNodeDefaultsRow: View {
   private var channelPresentationControls: some View {
     RilliyaDefaultParameter(
       title: "Port presentation",
-      caption: "Choose how a new node exposes its audio channels.",
+      caption: "Audio channel layout for new nodes.",
       value: channelDefaults.channelPresentation,
       fallback: .aggregate,
       update: { value in editChannelDefaults { $0.channelPresentation = value } },
@@ -200,7 +200,6 @@ private struct RilliyaNodeDefaultsRow: View {
         PreferencesPopupRow(
           symbol: "point.3.connected.trianglepath.dotted",
           title: "Presentation",
-          caption: "Keep all channels together or expose a fixed number separately.",
           minimumControlWidth: 170,
           selection: selection,
           options: Self.channelPresentationOptions
@@ -213,7 +212,7 @@ private struct RilliyaNodeDefaultsRow: View {
     VStack(spacing: 0) {
       RilliyaDefaultParameter(
         title: "Input mode",
-        caption: "Choose one cable or one cable per channel.",
+        caption: "One cable or one cable per channel.",
         value: visualizerDefaults.inputMode,
         fallback: RoutingVisualizerConfiguration.initial.inputMode,
         update: { value in editVisualizerDefaults { $0.inputMode = value } }
@@ -223,7 +222,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       RilliyaDefaultParameter(
         title: "Display mode",
-        caption: "Choose a mixed waveform or separate lanes.",
+        caption: "Mixed waveform or separate lanes.",
         value: visualizerDefaults.displayMode,
         fallback: RoutingVisualizerConfiguration.initial.displayMode,
         update: { value in editVisualizerDefaults { $0.displayMode = value } }
@@ -233,7 +232,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       RilliyaDefaultParameter(
         title: "Output mode",
-        caption: "Choose one cable or one cable per channel.",
+        caption: "One cable or one cable per channel.",
         value: visualizerDefaults.outputMode,
         fallback: RoutingVisualizerConfiguration.initial.outputMode,
         update: { value in editVisualizerDefaults { $0.outputMode = value } }
@@ -243,7 +242,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       RilliyaDefaultParameter(
         title: "Channel set",
-        caption: "Choose the channels shown by separate lanes.",
+        caption: "Channels shown in separate lanes.",
         value: visualizerDefaults.channelSelection,
         fallback: RoutingVisualizerConfiguration.initial.channelSelection,
         update: { value in editVisualizerDefaults { $0.channelSelection = value } }
@@ -251,7 +250,6 @@ private struct RilliyaNodeDefaultsRow: View {
         PreferencesPopupRow(
           symbol: "waveform",
           title: "Channels",
-          caption: "The selected layout becomes the preview for a new visualizer.",
           minimumControlWidth: 160,
           selection: selection,
           options: RoutingVisualizerChannelPreset.allCases.map { preset in
@@ -276,7 +274,7 @@ private struct RilliyaNodeDefaultsRow: View {
   private var audioMixerControls: some View {
     RilliyaDefaultParameter(
       title: "Channel layout",
-      caption: "Choose the number of mixer inputs and output channels.",
+      caption: "Mixer input and output channel count.",
       value: audioMixerDefaults.channelCount,
       fallback: RoutingAudioMixerConfiguration.initial.channelCount,
       update: { value in editAudioMixerDefaults { $0.channelCount = value } },
@@ -284,7 +282,6 @@ private struct RilliyaNodeDefaultsRow: View {
         PreferencesPopupRow(
           symbol: "slider.horizontal.3",
           title: "Channels",
-          caption: "New mixers start with this channel layout.",
           minimumControlWidth: 150,
           selection: selection,
           options: [1, 2, 4, 6, 8].map {
@@ -299,7 +296,7 @@ private struct RilliyaNodeDefaultsRow: View {
     VStack(spacing: 0) {
       RilliyaDefaultParameter(
         title: "Level",
-        caption: "Choose the starting gain in decibels.",
+        caption: "Starting gain in decibels.",
         value: gainDefaults.gainDecibels,
         fallback: RoutingGainConfiguration.initial.gainDecibels,
         update: { value in editGainDefaults { $0.gainDecibels = value } }
@@ -317,7 +314,6 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       booleanParameter(
         title: "Mute",
-        caption: "Choose whether a new Gain node starts muted.",
         value: gainDefaults.isMuted,
         fallback: RoutingGainConfiguration.initial.isMuted,
         update: { value in editGainDefaults { $0.isMuted = value } }
@@ -325,7 +321,6 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       booleanParameter(
         title: "Polarity",
-        caption: "Choose whether a new Gain node starts inverted.",
         value: gainDefaults.isPolarityInverted,
         fallback: RoutingGainConfiguration.initial.isPolarityInverted,
         trueLabel: "Inverted",
@@ -338,7 +333,7 @@ private struct RilliyaNodeDefaultsRow: View {
   private var channelRouterControls: some View {
     RilliyaDefaultParameter(
       title: "Routing map",
-      caption: "Store channel counts and every output mapping as one consistent default.",
+      caption: "Input, output, and channel mappings.",
       value: channelRouterDefaults.routing,
       fallback: RoutingChannelRouterConfiguration.initial,
       update: { value in editChannelRouterDefaults { $0.routing = value } },
@@ -352,7 +347,6 @@ private struct RilliyaNodeDefaultsRow: View {
     VStack(spacing: 0) {
       RilliyaDefaultParameter(
         title: "Waveform",
-        caption: "Choose the source shape for a new generator.",
         value: signalGeneratorDefaults.waveform,
         fallback: RoutingSignalGeneratorConfiguration.initial.waveform,
         update: { value in editSignalGeneratorDefaults { $0.waveform = value } }
@@ -370,7 +364,6 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       RilliyaDefaultParameter(
         title: "Frequency",
-        caption: "Choose the starting tone frequency.",
         value: signalGeneratorDefaults.frequency,
         fallback: RoutingSignalGeneratorConfiguration.initial.frequency,
         update: { value in editSignalGeneratorDefaults { $0.frequency = value } }
@@ -386,7 +379,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       RilliyaDefaultParameter(
         title: "Amplitude",
-        caption: "Choose the starting full-scale amplitude.",
+        caption: "Starting full-scale amplitude.",
         value: signalGeneratorDefaults.amplitude,
         fallback: RoutingSignalGeneratorConfiguration.initial.amplitude,
         update: { value in editSignalGeneratorDefaults { $0.amplitude = value } }
@@ -406,7 +399,7 @@ private struct RilliyaNodeDefaultsRow: View {
   private var filePlaybackControls: some View {
     RilliyaDefaultParameter(
       title: "Looping",
-      caption: "Choose how many times a newly selected file plays.",
+      caption: "Number of plays for a selected file.",
       value: filePlaybackDefaults.loopMode,
       fallback: RoutingFilePlaybackConfiguration.initial.loopMode,
       update: { value in editFilePlaybackDefaults { $0.loopMode = value } },
@@ -429,7 +422,7 @@ private struct RilliyaNodeDefaultsRow: View {
     VStack(spacing: 0) {
       RilliyaDefaultParameter(
         title: "File format",
-        caption: "Store the container and its compatible encoding together.",
+        caption: "Container and compatible encoding.",
         value: fileOutputDefaults.format,
         fallback: RoutingFileOutputFormatDefault(
           container: RoutingFileOutputConfiguration.initial.container,
@@ -451,7 +444,6 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       RilliyaDefaultParameter(
         title: "Sample rate",
-        caption: "Choose the rate requested by a new file output.",
         value: fileOutputDefaults.sampleRate,
         fallback: RoutingFileOutputConfiguration.initial.sampleRate,
         update: { value in editFileOutputDefaults { $0.sampleRate = value } }
@@ -469,7 +461,6 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       RilliyaDefaultParameter(
         title: "Channels",
-        caption: "Choose the channel count requested by a new file output.",
         value: fileOutputDefaults.channelCount,
         fallback: RoutingFileOutputConfiguration.initial.channelCount,
         update: { value in editFileOutputDefaults { $0.channelCount = value } }
@@ -490,7 +481,7 @@ private struct RilliyaNodeDefaultsRow: View {
     VStack(spacing: 0) {
       booleanParameter(
         title: "Sender format",
-        caption: "Choose whether a new receiver learns its format automatically.",
+        caption: "New receivers can learn the sender's format.",
         value: networkReceiveDefaults.adoptsSenderFormat,
         fallback: RoutingNetworkReceiveConfiguration.initial.adoptsSenderFormat,
         trueLabel: "Automatic",
@@ -500,7 +491,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       RilliyaDefaultParameter(
         title: "Sample rate",
-        caption: "Choose the manual rate or automatic fallback.",
+        caption: "Manual rate or automatic fallback.",
         value: networkReceiveDefaults.sampleRate,
         fallback: RoutingNetworkReceiveConfiguration.initial.sampleRate,
         update: { value in editNetworkReceiveDefaults { $0.sampleRate = value } }
@@ -518,7 +509,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       RilliyaDefaultParameter(
         title: "Channels",
-        caption: "Choose the manual channel count or automatic fallback.",
+        caption: "Manual channel count or automatic fallback.",
         value: networkReceiveDefaults.channelCount,
         fallback: RoutingNetworkReceiveConfiguration.initial.channelCount,
         update: { value in editNetworkReceiveDefaults { $0.channelCount = value } }
@@ -536,7 +527,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       RilliyaDefaultParameter(
         title: "Buffer target",
-        caption: "Choose how long a new receiver waits before playback.",
+        caption: "Playback delay for new receivers.",
         value: networkReceiveDefaults.jitterTargetMilliseconds,
         fallback: RoutingNetworkJitterControls.initial.targetMilliseconds,
         update: { value in editNetworkReceiveDefaults { $0.jitterTargetMilliseconds = value } }
@@ -555,7 +546,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       RilliyaDefaultParameter(
         title: "Catch-up method",
-        caption: "Choose how a new receiver shortens a long queue.",
+        caption: "How new receivers shorten a long queue.",
         value: networkReceiveDefaults.jitterCorrection,
         fallback: RoutingNetworkJitterControls.initial.correction,
         update: { value in editNetworkReceiveDefaults { $0.jitterCorrection = value } }
@@ -577,7 +568,6 @@ private struct RilliyaNodeDefaultsRow: View {
     VStack(spacing: 0) {
       RilliyaDefaultParameter(
         title: "Delay time",
-        caption: "Choose the starting delay interval.",
         value: delayDefaults.delaySeconds,
         fallback: RoutingDelayConfiguration.initial.delaySeconds,
         update: { value in editDelayDefaults { $0.delaySeconds = value } }
@@ -595,7 +585,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       RilliyaDefaultParameter(
         title: "Feedback",
-        caption: "Choose how much delayed signal returns to the input.",
+        caption: "Delayed signal returned to the input.",
         value: delayDefaults.feedback,
         fallback: RoutingDelayConfiguration.initial.feedback,
         update: { value in editDelayDefaults { $0.feedback = value } }
@@ -614,7 +604,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       RilliyaDefaultParameter(
         title: "Dry/wet mix",
-        caption: "Choose the balance between direct and delayed audio.",
+        caption: "Balance of direct and delayed audio.",
         value: delayDefaults.dryWetMix,
         fallback: RoutingDelayConfiguration.initial.dryWetMix,
         update: { value in editDelayDefaults { $0.dryWetMix = value } }
@@ -635,7 +625,7 @@ private struct RilliyaNodeDefaultsRow: View {
     VStack(spacing: 0) {
       floatSliderParameter(
         title: "Threshold",
-        caption: "Choose the level where a new gate opens.",
+        caption: "Level where a new gate opens.",
         value: noiseGateDefaults.thresholdDecibels,
         fallback: RoutingNoiseGateConfiguration.initial.thresholdDecibels,
         range: Double(
@@ -648,7 +638,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       floatSliderParameter(
         title: "Hysteresis",
-        caption: "Choose the separation between opening and closing levels.",
+        caption: "Separation between opening and closing levels.",
         value: noiseGateDefaults.hysteresisDecibels,
         fallback: RoutingNoiseGateConfiguration.initial.hysteresisDecibels,
         range: 0...Double(RoutingNoiseGateConfiguration.maximumHysteresisDecibels),
@@ -659,7 +649,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       doubleSliderParameter(
         title: "Attack",
-        caption: "Choose how quickly a new gate opens.",
+        caption: "How quickly a new gate opens.",
         value: noiseGateDefaults.attackSeconds,
         fallback: RoutingNoiseGateConfiguration.initial.attackSeconds,
         range: 0...RoutingNoiseGateConfiguration.maximumAttackSeconds,
@@ -670,7 +660,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       doubleSliderParameter(
         title: "Hold",
-        caption: "Choose how long a new gate stays open.",
+        caption: "How long a new gate stays open.",
         value: noiseGateDefaults.holdSeconds,
         fallback: RoutingNoiseGateConfiguration.initial.holdSeconds,
         range: 0...RoutingNoiseGateConfiguration.maximumHoldSeconds,
@@ -681,7 +671,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       doubleSliderParameter(
         title: "Release",
-        caption: "Choose how quickly a new gate closes.",
+        caption: "How quickly a new gate closes.",
         value: noiseGateDefaults.releaseSeconds,
         fallback: RoutingNoiseGateConfiguration.initial.releaseSeconds,
         range: 0...RoutingNoiseGateConfiguration.maximumReleaseSeconds,
@@ -692,7 +682,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       floatSliderParameter(
         title: "Reduction",
-        caption: "Choose how much a closed gate attenuates.",
+        caption: "Attenuation while the gate is closed.",
         value: noiseGateDefaults.reductionDecibels,
         fallback: RoutingNoiseGateConfiguration.initial.reductionDecibels,
         range: 0...Double(RoutingNoiseGateConfiguration.maximumReductionDecibels),
@@ -707,7 +697,7 @@ private struct RilliyaNodeDefaultsRow: View {
     VStack(spacing: 0) {
       floatSliderParameter(
         title: "Threshold",
-        caption: "Choose the level where compression begins.",
+        caption: "Level where compression begins.",
         value: compressorDefaults.thresholdDecibels,
         fallback: RoutingCompressorConfiguration.initial.thresholdDecibels,
         range: Double(
@@ -720,7 +710,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       floatSliderParameter(
         title: "Ratio",
-        caption: "Choose how strongly levels above the threshold are reduced.",
+        caption: "Reduction above the threshold.",
         value: compressorDefaults.ratio,
         fallback: RoutingCompressorConfiguration.initial.ratio,
         range: Double(
@@ -733,7 +723,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       floatSliderParameter(
         title: "Knee",
-        caption: "Choose how gradually compression reaches its ratio.",
+        caption: "Transition into the selected ratio.",
         value: compressorDefaults.kneeDecibels,
         fallback: RoutingCompressorConfiguration.initial.kneeDecibels,
         range: 0...Double(RoutingCompressorConfiguration.maximumKneeDecibels),
@@ -744,7 +734,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       doubleSliderParameter(
         title: "Attack",
-        caption: "Choose how quickly compression engages.",
+        caption: "How quickly compression engages.",
         value: compressorDefaults.attackSeconds,
         fallback: RoutingCompressorConfiguration.initial.attackSeconds,
         range: 0...RoutingCompressorConfiguration.maximumAttackSeconds,
@@ -755,7 +745,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       doubleSliderParameter(
         title: "Release",
-        caption: "Choose how quickly compression relaxes.",
+        caption: "How quickly compression relaxes.",
         value: compressorDefaults.releaseSeconds,
         fallback: RoutingCompressorConfiguration.initial.releaseSeconds,
         range: 0...RoutingCompressorConfiguration.maximumReleaseSeconds,
@@ -766,7 +756,7 @@ private struct RilliyaNodeDefaultsRow: View {
       parameterSeparator
       floatSliderParameter(
         title: "Makeup gain",
-        caption: "Choose the level added after compression.",
+        caption: "Gain added after compression.",
         value: compressorDefaults.makeupGainDecibels,
         fallback: RoutingCompressorConfiguration.initial.makeupGainDecibels,
         range: Double(
@@ -801,7 +791,7 @@ private struct RilliyaNodeDefaultsRow: View {
 
   private func booleanParameter(
     title: String,
-    caption: String,
+    caption: String? = nil,
     value: Bool?,
     fallback: Bool,
     trueLabel: String = "On",
@@ -1180,7 +1170,7 @@ private struct RilliyaNodeDefaultsRow: View {
 
 private struct RilliyaDefaultParameter<Value, Control: View>: View {
   let title: String
-  let caption: String
+  let caption: String?
   let value: Value?
   let fallback: Value
   let update: (Value?) -> Void
@@ -1188,7 +1178,7 @@ private struct RilliyaDefaultParameter<Value, Control: View>: View {
 
   init(
     title: String,
-    caption: String,
+    caption: String? = nil,
     value: Value?,
     fallback: Value,
     update: @escaping (Value?) -> Void,

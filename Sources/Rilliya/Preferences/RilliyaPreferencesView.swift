@@ -51,7 +51,6 @@ private struct RilliyaPreferencesRoot: View {
             PreferencesPage(
               id: .customization,
               title: "Node Colors",
-              subtitle: "Colors by node type",
               icon: .system("paintpalette")
             ) {
               RilliyaCustomizationPreferencesPane(settings: settings)
@@ -200,7 +199,7 @@ struct RilliyaNetworkSendDefaultsRow: View {
       PreferencesDependentRows(isVisible: isExpanded, showsSeparator: false) {
         parameterToggle(
           title: "Wire format",
-          caption: "Choose how new send nodes encode audio.",
+          caption: "Audio encoding for new send nodes.",
           isOn: wireEncodingEnabled
         )
         PreferencesDependentRows(isVisible: wireEncodingEnabled.wrappedValue, showsSeparator: true)
@@ -208,7 +207,6 @@ struct RilliyaNetworkSendDefaultsRow: View {
           PreferencesPopupRow(
             symbol: "waveform",
             title: "Format",
-            caption: "The representation placed on the network.",
             minimumControlWidth: 170,
             selection: wireEncoding,
             options: RoutingNetworkWireEncoding.allCases.map {
@@ -237,14 +235,12 @@ struct RilliyaNetworkSendDefaultsRow: View {
         PreferencesRowSeparator(leadingEdge: .iconText)
         parameterToggle(
           title: "Sample rate",
-          caption: "The rate requested by a new send node.",
           isOn: sampleRateEnabled
         )
         PreferencesDependentRows(isVisible: sampleRateEnabled.wrappedValue, showsSeparator: true) {
           PreferencesPopupRow(
             symbol: "waveform.path.ecg",
             title: "Rate",
-            caption: "Choose a common audio sample rate.",
             minimumControlWidth: 150,
             selection: sampleRate,
             options: [44_100.0, 48_000.0, 96_000.0].map {
@@ -255,7 +251,6 @@ struct RilliyaNetworkSendDefaultsRow: View {
         PreferencesRowSeparator(leadingEdge: .iconText)
         parameterToggle(
           title: "Channels",
-          caption: "The channel count requested by a new send node.",
           isOn: channelCountEnabled
         )
         PreferencesDependentRows(isVisible: channelCountEnabled.wrappedValue, showsSeparator: true)
@@ -263,7 +258,6 @@ struct RilliyaNetworkSendDefaultsRow: View {
           PreferencesPopupRow(
             symbol: "speaker.wave.2",
             title: "Channels",
-            caption: "Choose the number of channels to send.",
             minimumControlWidth: 150,
             selection: channelCount,
             options: [1, 2, 4, 6, 8].map {
@@ -277,7 +271,7 @@ struct RilliyaNetworkSendDefaultsRow: View {
 
   private func parameterToggle(
     title: String,
-    caption: String,
+    caption: String? = nil,
     isOn: Binding<Bool>
   ) -> some View {
     PreferencesSwitchRow(
@@ -375,8 +369,7 @@ private struct RilliyaGeneralPreferencesPane: View {
       PreferencesSection("Appearance") {
         PreferencesPopupRow(
           symbol: "circle.lefthalf.filled",
-          title: "Appearance",
-          caption: "Use the system appearance or choose light or dark.",
+          title: "Theme",
           minimumControlWidth: 120,
           selection: Binding(
             get: { settings.appearance },
@@ -401,7 +394,6 @@ private struct RilliyaGeneralPreferencesPane: View {
         PreferencesSwitchRow(
           symbol: "dock.rectangle",
           title: "Show in Dock",
-          caption: "Show Rilliya in the Dock and app switcher.",
           isOn: Binding(
             get: { settings.showsInDock },
             set: { isVisible in
@@ -415,7 +407,6 @@ private struct RilliyaGeneralPreferencesPane: View {
         PreferencesSwitchRow(
           symbol: "menubar.rectangle",
           title: "Show in menu bar",
-          caption: "Show quick controls in the menu bar.",
           isOn: Binding(
             get: { settings.showsInStatusBar },
             set: { isVisible in
@@ -428,7 +419,6 @@ private struct RilliyaGeneralPreferencesPane: View {
         PreferencesSwitchRow(
           symbol: "power",
           title: "Launch at login",
-          caption: "Open Rilliya when you sign in.",
           isOn: Binding(
             get: { launchAtLoginController.isEnabled },
             set: { isEnabled in
@@ -470,7 +460,6 @@ private struct RilliyaCanvasPreferencesPane: View {
         PreferencesSwitchRow(
           symbol: "cursorarrow.click",
           title: "Click to add nodes",
-          caption: "Add a node by clicking its palette item.",
           isOn: $settings.addsNodesOnPaletteClick
         )
       }
@@ -479,7 +468,6 @@ private struct RilliyaCanvasPreferencesPane: View {
         PreferencesSwitchRow(
           symbol: "map",
           title: "Show overview by default",
-          caption: "Show the minimap when a workflow contains nodes.",
           isOn: $settings.showsMiniMapByDefault
         )
 
@@ -487,7 +475,6 @@ private struct RilliyaCanvasPreferencesPane: View {
         PreferencesSegmentedRow(
           symbol: "cable.connector.horizontal",
           title: "Connection labels",
-          caption: "Show channel or format details on connections.",
           controlWidth: 240,
           selection: $settings.connectionInformationLevel,
           options: [
@@ -501,7 +488,6 @@ private struct RilliyaCanvasPreferencesPane: View {
         PreferencesSwitchRow(
           symbol: "xmark.circle",
           title: "Mark disabled ports",
-          caption: "Add an X to disabled ports.",
           isOn: $settings.showsDisabledPortCrosses
         )
 
@@ -516,7 +502,6 @@ private struct RilliyaCanvasPreferencesPane: View {
         PreferencesPopupRow(
           symbol: "slider.horizontal.2.square",
           title: "Default separated layout",
-          caption: "Choose the layout used when a route is split.",
           minimumControlWidth: 150,
           selection: $settings.defaultSeparateChannelLayout,
           options: [
@@ -545,7 +530,6 @@ private struct RilliyaNetworkAudioPreferencesPane: View {
         PreferencesSegmentedRow(
           symbol: "key",
           title: "Store new keys in",
-          caption: "Choose where network audio keys are saved.",
           controlWidth: 240,
           selection: $settings.networkAudioKeySourceID,
           options: RoutingNetworkAudioKeySourceRegistry.shared.all
@@ -564,7 +548,7 @@ private struct RilliyaCustomizationPreferencesPane: View {
     PreferencesPaneStack {
 
       PreferencesSection(
-        "Node Colors",
+        "Defaults",
         footer: "Workflow-specific colors override these defaults."
       ) {
         ForEach(Array(RoutingNodeKind.allCases.enumerated()), id: \.element) { index, kind in
@@ -736,7 +720,6 @@ private struct RilliyaWaveformRatePreferenceRows: View {
     PreferencesPopupRow(
       symbol: "waveform.path",
       title: "Waveform refresh rate",
-      caption: "Choose how often visualizers redraw.",
       minimumControlWidth: 150,
       selection: presetSelection,
       options: RilliyaSettings.waveformUpdatePresets.map {
