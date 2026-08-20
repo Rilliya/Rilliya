@@ -122,6 +122,8 @@ struct RoutingMetalViewport: View {
                   ScrollView(.vertical, showsIndicators: false) {
                     inspector
                   }
+                  .scrollContentBackground(.hidden)
+                  .background(Color.clear)
                   .id(inspectorID)
                   .compositingGroup()
                   .transition(inspectorTransition)
