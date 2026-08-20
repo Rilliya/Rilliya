@@ -121,10 +121,10 @@ struct RoutingMetalViewport: View {
                   // inspector than inside a short one while everything around it stayed put.
                   ScrollView(.vertical, showsIndicators: false) {
                     inspector
-                      .id(inspectorID)
-                      .compositingGroup()
-                      .transition(inspectorTransition)
                   }
+                  .id(inspectorID)
+                  .compositingGroup()
+                  .transition(inspectorTransition)
                   .scrollBounceBehavior(.basedOnSize)
                 }
               }
