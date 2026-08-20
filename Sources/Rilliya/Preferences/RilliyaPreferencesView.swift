@@ -152,25 +152,6 @@ private struct RilliyaNodeDefaultsPreferencesPane: View {
   var body: some View {
     PreferencesPaneStack {
       PreferencesSection(
-        "Search",
-        footer: "Search by node name or parameter in this group."
-      ) {
-        PreferencesRow(
-          symbol: "magnifyingglass",
-          title: "Find defaults",
-          caption: "Filter \(category.title.lowercased()) nodes and their parameters."
-        ) {
-          FlowingTextField(
-            "Search node defaults",
-            text: $searchText,
-            placeholder: "Search nodes and parameters",
-            systemImage: "magnifyingglass"
-          )
-          .frame(width: 250)
-        }
-      }
-
-      PreferencesSection(
         category.title,
         footer:
           "Only enabled values replace Rilliya's starting values. Existing nodes are never changed."
@@ -180,6 +161,16 @@ private struct RilliyaNodeDefaultsPreferencesPane: View {
           expandedKind: $expandedKind,
           kinds: category.kinds(matching: searchText)
         )
+      }
+      .overlay(alignment: .topTrailing) {
+        FlowingTextField(
+          "Search \(category.title.lowercased()) defaults",
+          text: $searchText,
+          placeholder: "Search \(category.title.lowercased())",
+          systemImage: "magnifyingglass"
+        )
+        .frame(width: 240)
+        .offset(y: -12)
       }
     }
   }
