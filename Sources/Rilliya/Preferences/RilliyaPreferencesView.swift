@@ -162,16 +162,17 @@ private struct RilliyaNodeDefaultsPreferencesPane: View {
           kinds: category.kinds(matching: searchText)
         )
       }
-      .overlay(alignment: .topTrailing) {
-        FlowingTextField(
-          "Search \(category.title.lowercased()) defaults",
-          text: $searchText,
-          placeholder: "Search \(category.title.lowercased())",
-          systemImage: "magnifyingglass"
-        )
-        .frame(width: 240)
-        .offset(y: -12)
-      }
+    }
+    .overlay(alignment: .topTrailing) {
+      FlowingTextField(
+        "Search \(category.title.lowercased()) defaults",
+        text: $searchText,
+        placeholder: "Search \(category.title.lowercased())",
+        systemImage: "magnifyingglass"
+      )
+      .frame(width: 210)
+      .id(category)
+      .offset(y: -62)
     }
   }
 }
