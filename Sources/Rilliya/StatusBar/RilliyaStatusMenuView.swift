@@ -49,6 +49,7 @@ struct RilliyaStatusMenuView: View {
     }
     .padding(14)
     .frame(width: RilliyaStatusMenuLayout.width)
+    .background(FlowingPalette.canvas.opacity(0.76))
     .flowingAccent(.fern)
     .flowingSurfaces(statusMenuSurfaces)
     .preferredColorScheme(settings.appearance.preferredColorScheme)
@@ -358,9 +359,9 @@ struct RilliyaStatusMenuView: View {
   private var statusMenuSurfaces: FlowingSurfaces {
     FlowingSurfaces(
       canvas: FlowingPalette.canvas,
-      card: FlowingPalette.control.opacity(0.78),
-      control: FlowingPalette.control.opacity(0.78),
-      field: FlowingPalette.field.opacity(0.72)
+      card: FlowingPalette.control.opacity(0.92),
+      control: FlowingPalette.control.opacity(0.9),
+      field: FlowingPalette.field.opacity(0.88)
     )
   }
 
