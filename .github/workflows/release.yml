@@ -6,7 +6,7 @@ on:
       version:
         description: Version from project.yml
         required: true
-        default: 0.1.0
+        default: 0.3.0
         type: string
       rilliya_va_driver_ref:
         description: Full 40-character RilliyaVADriver commit SHA
@@ -379,11 +379,15 @@ jobs:
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${assets[@]}" --clobber
           else
+            release_flags=()
+            if [[ "$RELEASE_VERSION" == *-* ]]; then
+              release_flags+=(--prerelease)
+            fi
             gh release create "$tag" "${assets[@]}" \
               --target "$GITHUB_SHA" \
               --title "Rilliya $RELEASE_VERSION" \
               --generate-notes \
-              --prerelease
+              "${release_flags[@]}"
           fi
 
       - name: Remove signing keychain

@@ -86,7 +86,8 @@ Installer identity. The package installs only:
 ```
 
 The driver installer and all three application disk images are notarized before
-the workflow creates a GitHub prerelease. The application embeds the same
+the workflow creates a GitHub release. Versions with a prerelease suffix are
+published as prereleases. The application embeds the same
 stapled installer that is also published as a standalone release asset.
 
 The shipped audio driver has no third-party runtime dependency. The application
