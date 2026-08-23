@@ -379,15 +379,18 @@ jobs:
           if gh release view "$tag" >/dev/null 2>&1; then
             gh release upload "$tag" "${assets[@]}" --clobber
           else
-            release_flags=()
+            create_release() {
+              gh release create "$tag" "${assets[@]}" \
+                --target "$GITHUB_SHA" \
+                --title "Rilliya $RELEASE_VERSION" \
+                --generate-notes \
+                "$@"
+            }
             if [[ "$RELEASE_VERSION" == *-* ]]; then
-              release_flags+=(--prerelease)
+              create_release --prerelease
+            else
+              create_release
             fi
-            gh release create "$tag" "${assets[@]}" \
-              --target "$GITHUB_SHA" \
-              --title "Rilliya $RELEASE_VERSION" \
-              --generate-notes \
-              "${release_flags[@]}"
           fi
 
       - name: Remove signing keychain
