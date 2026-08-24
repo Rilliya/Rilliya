@@ -855,6 +855,16 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         )
       }
     }
+    if let shapeBuffer {
+      drawInstances(
+        geometry.foregroundShapeRange,
+        instanceType: RoutingMetalShapeInstance.self,
+        buffer: shapeBuffer,
+        pipeline: shapePipeline,
+        encoder: encoder,
+        uniforms: &uniforms
+      )
+    }
     encoder.endEncoding()
     let inFlightSemaphore = inFlightSemaphore
     commandBuffer.addCompletedHandler { _ in
@@ -895,9 +905,6 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         to: &frameGeometry
       )
     }
-    if let marqueeWorldRect, marqueeWorldRect.width > 0, marqueeWorldRect.height > 0 {
-      appendMarquee(marqueeWorldRect, palette: palette, to: &frameGeometry)
-    }
     frameGeometry.backgroundTriangleRange = frameGeometry.triangles.indices
     frameGeometry.backgroundShapeRange = frameGeometry.shapes.indices
     frameGeometry.backgroundAtlasRange = frameGeometry.atlasItems.indices
@@ -914,6 +921,11 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
         )
       )
     }
+    let foregroundShapeStart = frameGeometry.shapes.endIndex
+    if let marqueeWorldRect, marqueeWorldRect.width > 0, marqueeWorldRect.height > 0 {
+      appendMarquee(marqueeWorldRect, palette: palette, to: &frameGeometry)
+    }
+    frameGeometry.foregroundShapeRange = foregroundShapeStart..<frameGeometry.shapes.endIndex
     return frameGeometry
   }
 
@@ -2721,6 +2733,7 @@ private struct RoutingMetalFrameGeometry {
   var backgroundShapeRange = 0..<0
   var backgroundAtlasRange = 0..<0
   var nodeRanges: [RoutingMetalNodeRange] = []
+  var foregroundShapeRange = 0..<0
 
   mutating func removeAll(keepingCapacity: Bool) {
     shapes.removeAll(keepingCapacity: keepingCapacity)
@@ -2730,6 +2743,7 @@ private struct RoutingMetalFrameGeometry {
     backgroundShapeRange = 0..<0
     backgroundAtlasRange = 0..<0
     nodeRanges.removeAll(keepingCapacity: keepingCapacity)
+    foregroundShapeRange = 0..<0
   }
 }
 
