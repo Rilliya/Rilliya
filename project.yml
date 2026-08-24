@@ -62,7 +62,7 @@ targets:
         ENABLE_APP_SANDBOX: NO
         ENABLE_HARDENED_RUNTIME: YES
         GENERATE_INFOPLIST_FILE: NO
-        MARKETING_VERSION: 0.3.0
+        MARKETING_VERSION: 0.3.1
         PRODUCT_BUNDLE_IDENTIFIER: moe.uwucocoa.rilliya
         PRODUCT_NAME: Rilliya
       configs:

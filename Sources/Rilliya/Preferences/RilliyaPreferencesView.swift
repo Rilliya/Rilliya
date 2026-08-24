@@ -146,7 +146,7 @@ private struct RilliyaPreferencesRoot: View {
 
   private static var versionText: String {
     let info = Bundle.main.infoDictionary
-    let version = info?["CFBundleShortVersionString"] as? String ?? "0.3.0"
+    let version = info?["CFBundleShortVersionString"] as? String ?? "0.3.1"
     return "Version \(version)"
   }
 }
