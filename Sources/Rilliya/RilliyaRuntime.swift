@@ -8,6 +8,7 @@ import RilliyaCore
 @Observable
 final class RilliyaRuntime {
   var workflowLibrary = RoutingWorkflowLibrary.launchConfigured()
+  let onboarding = RilliyaOnboardingCoordinator()
   let applicationCatalog = InstalledApplicationCatalogController()
   let audioCatalog = AudioCatalogController()
   let iconResolver = NSWorkspaceInstalledApplicationIconResolver()

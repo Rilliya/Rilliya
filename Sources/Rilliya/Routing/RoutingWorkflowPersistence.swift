@@ -403,6 +403,16 @@ private enum RoutingWorkflowPersistenceLimits {
 }
 
 actor RoutingWorkflowPersistenceStore {
+  enum RestorationSource: Equatable, Sendable {
+    case primary
+    case backup
+  }
+
+  enum LoadResult: Equatable, Sendable {
+    case noDocument
+    case restored(RoutingWorkflowLibrarySnapshot, source: RestorationSource)
+  }
+
   private struct DocumentHeader: Decodable {
     let schemaVersion: Int
   }
@@ -424,14 +434,29 @@ actor RoutingWorkflowPersistenceStore {
   }
 
   func load() throws -> RoutingWorkflowLibrarySnapshot? {
+    switch try loadResult() {
+    case .noDocument:
+      nil
+    case .restored(let snapshot, _):
+      snapshot
+    }
+  }
+
+  func loadResult() throws -> LoadResult {
     let fileManager = FileManager.default
-    let candidates = [fileURL, backupURL].filter { fileManager.fileExists(atPath: $0.path) }
-    guard !candidates.isEmpty else { return nil }
+    let candidates: [(url: URL, source: RestorationSource)] = [
+      (fileURL, .primary),
+      (backupURL, .backup),
+    ].filter { fileManager.fileExists(atPath: $0.url.path) }
+    guard !candidates.isEmpty else { return .noDocument }
 
     var lastError: Error?
     for candidate in candidates {
       do {
-        return try decodeDocument(at: candidate).library
+        return .restored(
+          try decodeDocument(at: candidate.url).library,
+          source: candidate.source
+        )
       } catch {
         lastError = error
       }

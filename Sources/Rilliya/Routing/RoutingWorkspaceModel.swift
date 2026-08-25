@@ -1411,6 +1411,31 @@ final class RoutingWorkspaceModel {
     return connectionValidation(source: source, target: target)
   }
 
+  @discardableResult
+  func connectAggregateAudio(sourceNodeID: UUID, targetNodeID: UUID) -> Bool {
+    let source = RoutingWorkspacePortAddress(
+      nodeID: sourceNodeID,
+      portID: RoutingGraphPortID(direction: .output, channel: .all)
+    )
+    let target = RoutingWorkspacePortAddress(
+      nodeID: targetNodeID,
+      portID: RoutingGraphPortID(direction: .input, channel: .all)
+    )
+    guard sourceNodeID != targetNodeID,
+      case .valid = connectionValidation(source: source, target: target)
+    else {
+      return false
+    }
+    if let index = edges.firstIndex(where: { $0.source == source && $0.target == target }) {
+      guard !edges[index].isEnabled else { return true }
+      edges[index].isEnabled = true
+    } else {
+      edges.append(RoutingWorkspaceEdge(id: UUID(), source: source, target: target))
+    }
+    rebuildCanvas()
+    return true
+  }
+
   private func connectionValidation(
     source: RoutingWorkspacePortAddress,
     target: RoutingWorkspacePortAddress,

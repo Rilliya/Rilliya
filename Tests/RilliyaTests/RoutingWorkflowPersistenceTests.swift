@@ -379,9 +379,23 @@ struct RoutingWorkflowPersistenceTests {
     try await store.save(newerSnapshot)
     try Data("not-json".utf8).write(to: fixture.fileURL, options: .atomic)
 
-    let recovered = try #require(try await store.load())
+    let result = try await store.loadResult()
 
+    guard case .restored(let recovered, let source) = result else {
+      Issue.record("Expected backup recovery")
+      return
+    }
     #expect(recovered == fixture.snapshot)
+    #expect(source == .backup)
+  }
+
+  @Test
+  func missingDocumentHasExplicitRestorationOutcome() async throws {
+    let fixture = try makeFixture()
+    let store = RoutingWorkflowPersistenceStore(fileURL: fixture.fileURL)
+    defer { try? FileManager.default.removeItem(at: fixture.directoryURL) }
+
+    #expect(try await store.loadResult() == .noDocument)
   }
 
   @Test

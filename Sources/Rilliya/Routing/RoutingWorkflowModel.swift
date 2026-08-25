@@ -98,6 +98,16 @@ final class RoutingWorkflowLibrary {
     workflows.first { $0.id == selectedWorkflowID } ?? workflows[0]
   }
 
+  var isPristineForOnboarding: Bool {
+    guard workflows.count == 1, let workflow = workflows.first else { return false }
+    return workflow.name == "Flow 1"
+      && workflow.workspace.nodes.isEmpty
+      && workflow.workspace.edges.isEmpty
+      && !workflow.isRunning
+      && !workflow.runsAutomaticallyOnLaunch
+      && workflow.miniMapVisibilityOverride == nil
+  }
+
   @discardableResult
   func addWorkflow() -> RoutingWorkflowModel {
     let workflow = RoutingWorkflowModel(name: nextWorkflowName())

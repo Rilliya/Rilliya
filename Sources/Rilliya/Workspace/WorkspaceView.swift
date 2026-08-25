@@ -117,6 +117,14 @@ struct WorkspaceView: View {
           .frame(maxWidth: 360)
         }
       }
+
+      if runtime.onboarding.isPresented {
+        RilliyaOnboardingOverlay(
+          coordinator: runtime.onboarding,
+          createWorkflows: createOnboardingWorkflows
+        )
+        .zIndex(100)
+      }
     }
     .background(FlowingPalette.canvas)
     .background(NativeWindowChromeAttachment())
@@ -146,25 +154,59 @@ struct WorkspaceView: View {
   }
 
   private var usesWorkflowPersistence: Bool {
+    if runtime.onboarding.isDesignPreview {
+      return false
+    }
     #if PROFILE
-      RoutingProfilingScenario.fromProcessArguments() == nil
+      return RoutingProfilingScenario.fromProcessArguments() == nil
     #else
-      true
+      return true
     #endif
+  }
+
+  private func createOnboardingWorkflows(
+    _ goals: [RilliyaOnboardingGoal]
+  ) async throws {
+    guard workflowLibrary.isPristineForOnboarding else {
+      throw RilliyaOnboardingTemplateError.workflowChanged
+    }
+    let previousLibrary = workflowLibrary
+    let candidate = try RilliyaOnboardingTemplateFactory(settings: settings).makeLibrary(for: goals)
+    workflowSaveTask?.cancel()
+    workflowLibrary = candidate
+    guard usesWorkflowPersistence else { return }
+    do {
+      try await workflowPersistenceStore.save(
+        RoutingWorkflowLibrarySnapshot(library: candidate)
+      )
+      workflowPersistenceIssue = nil
+    } catch {
+      workflowSaveTask?.cancel()
+      workflowLibrary = previousLibrary
+      throw error
+    }
   }
 
   private func restoreWorkflows() async {
     guard !didRestoreWorkflows else { return }
     guard usesWorkflowPersistence else {
       didRestoreWorkflows = true
+      runtime.onboarding.workflowRestorationDidFinish(.restored)
       return
     }
     do {
-      if let snapshot = try await workflowPersistenceStore.load() {
+      switch try await workflowPersistenceStore.loadResult() {
+      case .noDocument:
+        runtime.onboarding.workflowRestorationDidFinish(.noDocument)
+      case .restored(let snapshot, let source):
         workflowLibrary = try snapshot.makeLibrary()
+        runtime.onboarding.workflowRestorationDidFinish(
+          source == .primary ? .restored : .recoveredFromBackup
+        )
       }
     } catch {
       workflowPersistenceIssue = "Your previous workflows remain on disk. \(error)"
+      runtime.onboarding.workflowRestorationDidFinish(.failed)
     }
     didRestoreWorkflows = true
   }
