@@ -17,6 +17,8 @@ struct RoutingMetalViewport: View {
   let setAudioChannelGain: (UUID, Int, Double) -> Void
   let toggleAudioChannelMuted: (UUID, Int) -> Void
   let showsDisabledPortCrosses: Bool
+  let needsInitialContentFit: Bool
+  let completeInitialContentFit: () -> Void
   let isMiniMapVisible: Bool
   let setMiniMapVisible: (Bool) -> Void
 
@@ -38,6 +40,8 @@ struct RoutingMetalViewport: View {
     setAudioChannelGain: @escaping (UUID, Int, Double) -> Void,
     toggleAudioChannelMuted: @escaping (UUID, Int) -> Void,
     showsDisabledPortCrosses: Bool,
+    needsInitialContentFit: Bool,
+    completeInitialContentFit: @escaping () -> Void,
     isMiniMapVisible: Bool,
     setMiniMapVisible: @escaping (Bool) -> Void
   ) {
@@ -53,11 +57,13 @@ struct RoutingMetalViewport: View {
     self.setAudioChannelGain = setAudioChannelGain
     self.toggleAudioChannelMuted = toggleAudioChannelMuted
     self.showsDisabledPortCrosses = showsDisabledPortCrosses
+    self.needsInitialContentFit = needsInitialContentFit
+    self.completeInitialContentFit = completeInitialContentFit
     self.isMiniMapVisible = isMiniMapVisible
     self.setMiniMapVisible = setMiniMapVisible
     _controller = StateObject(
       wrappedValue: RoutingMetalCanvasController(
-        initialZoom: context.configuration.canvas.initialZoom
+        initialViewport: context.session.wrappedValue.viewport
       )
     )
   }
@@ -86,6 +92,8 @@ struct RoutingMetalViewport: View {
           onSetAudioChannelGain: setAudioChannelGain,
           onToggleAudioChannelMuted: toggleAudioChannelMuted,
           showsDisabledPortCrosses: showsDisabledPortCrosses,
+          needsInitialContentFit: needsInitialContentFit,
+          completeInitialContentFit: completeInitialContentFit,
           onViewportChange: updateViewport
         )
         .frame(maxWidth: .infinity, maxHeight: .infinity)

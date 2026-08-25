@@ -548,6 +548,8 @@ private struct RoutingWorkflowCanvas: View {
       sessionID: workflow.canvasSessionID,
       isWorkflowRunning: workflow.isRunning,
       session: $workflow.canvasSession,
+      needsInitialContentFit: workflow.needsInitialContentFit,
+      completeInitialContentFit: workflow.completeInitialContentFit,
       isMiniMapVisible: workflow.showsMiniMap(
         globalDefault: settings.showsMiniMapByDefault
       ),

@@ -16,6 +16,7 @@ struct RoutingWorkflowModelTests {
     #expect(library.selectedWorkflow.workspace.id == library.selectedWorkflow.id)
     #expect(!library.selectedWorkflow.isRunning)
     #expect(!library.selectedWorkflow.runsAutomaticallyOnLaunch)
+    #expect(library.selectedWorkflow.needsInitialContentFit)
   }
 
   @Test @MainActor
@@ -30,6 +31,7 @@ struct RoutingWorkflowModelTests {
     #expect(library.selectedWorkflow === second)
     #expect(first.workspace.nodes.count == 1)
     #expect(second.workspace.nodes.count == 1)
+    #expect(second.needsInitialContentFit)
     #expect(first.workspace.nodes.first?.value.title == "Application Audio")
     #expect(second.workspace.nodes.first?.value.title == "Visualizer")
     #expect(first.workspace.id != second.workspace.id)
@@ -39,6 +41,17 @@ struct RoutingWorkflowModelTests {
     #expect(library.selectedWorkflow === first)
     #expect(first.workspace.nodes.count == 1)
     #expect(second.workspace.nodes.count == 1)
+  }
+
+  @Test @MainActor
+  func initialContentFitIsConsumedOnlyOnce() {
+    let workflow = RoutingWorkflowLibrary().selectedWorkflow
+
+    #expect(workflow.needsInitialContentFit)
+    workflow.completeInitialContentFit()
+    #expect(!workflow.needsInitialContentFit)
+    workflow.completeInitialContentFit()
+    #expect(!workflow.needsInitialContentFit)
   }
 
   @Test @MainActor

@@ -19,12 +19,12 @@ struct RilliyaOnboardingTemplateTests {
     #expect(
       library.workflows.map { $0.workspace.nodes.map(\.value.title) }
         == [
-          ["Application Audio", "Output Audio"],
+          ["Application Audio", "Output Audio", "Visualizer"],
           ["Input Audio", "Output Audio"],
           ["Application Audio", "File Output"],
         ]
     )
-    #expect(library.workflows.allSatisfy { $0.workspace.edges.count == 1 })
+    #expect(library.workflows.map { $0.workspace.edges.count } == [2, 1, 1])
     #expect(library.workflows.allSatisfy { !$0.isRunning })
     #expect(library.workflows.allSatisfy { !$0.runsAutomaticallyOnLaunch })
     #expect(library.workflows.allSatisfy { !$0.canvasSession.selection.isEmpty })
@@ -51,8 +51,8 @@ struct RilliyaOnboardingTemplateTests {
     let restored = try RoutingWorkflowLibrarySnapshot(library: library).makeLibrary()
 
     #expect(restored.workflows.map(\.name) == ["Listen to an App", "Record an App"])
-    #expect(restored.workflows.map { $0.workspace.nodes.count } == [2, 2])
-    #expect(restored.workflows.map { $0.workspace.edges.count } == [1, 1])
+    #expect(restored.workflows.map { $0.workspace.nodes.count } == [3, 2])
+    #expect(restored.workflows.map { $0.workspace.edges.count } == [2, 1])
     #expect(!restored.workflows[0].isRunning)
     #expect(!restored.workflows[1].isRunning)
   }

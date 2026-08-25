@@ -1,4 +1,5 @@
 import AppKit
+import FlowingDayCanvas
 import FlowingDayGraphCanvas
 import QuartzCore
 import SwiftUI
@@ -64,5 +65,36 @@ struct RoutingMetalCanvasTests {
 
     // Whatever it settled on has to be something the GPU will actually render.
     #expect(device.supportsTextureSampleCount(canvas.sampleCount))
+  }
+
+  @Test @MainActor
+  func firstAttachmentRestoresTheWorkflowViewport() throws {
+    let workspace = RoutingWorkspaceModel()
+    let scene = RoutingMetalScene(
+      content: try #require(workspace.canvasContent),
+      supplements: [:]
+    )
+    let initialViewport = FlowingCanvasViewport(
+      transform: FlowingCanvasTransform(
+        zoom: 1.6,
+        offset: CGSize(width: 240, height: -120)
+      )
+    )
+    let controller = RoutingMetalCanvasController(initialViewport: initialViewport)
+    let canvas = RoutingMetalCanvasView(
+      scene: scene,
+      selection: [],
+      configuration: FlowingGraphCanvasConfiguration(),
+      contentInsets: EdgeInsets(),
+      mouseTool: .select,
+      showsDisabledPortCrosses: true,
+      controller: controller
+    )
+
+    controller.attach(canvas)
+
+    #expect(canvas.camera.zoom == 1.6)
+    #expect(canvas.camera.offset == CGSize(width: 240, height: -120))
+    #expect(controller.viewport.transform == initialViewport.transform)
   }
 }

@@ -10,6 +10,7 @@ final class RoutingWorkflowModel: Identifiable {
   private(set) var miniMapVisibilityOverride: Bool?
   private(set) var runsAutomaticallyOnLaunch: Bool
   private(set) var isRunning: Bool
+  private(set) var needsInitialContentFit: Bool
   let workspace: RoutingWorkspaceModel
   var canvasSession: FlowingGraphCanvasSessionState<RoutingCanvasSchema>
 
@@ -22,6 +23,7 @@ final class RoutingWorkflowModel: Identifiable {
     miniMapVisibilityOverride: Bool? = nil,
     runsAutomaticallyOnLaunch: Bool = false,
     isRunning: Bool = false,
+    needsInitialContentFit: Bool = false,
     canvasSession: FlowingGraphCanvasSessionState<RoutingCanvasSchema> =
       FlowingGraphCanvasSessionState()
   ) {
@@ -32,6 +34,7 @@ final class RoutingWorkflowModel: Identifiable {
     self.miniMapVisibilityOverride = miniMapVisibilityOverride
     self.runsAutomaticallyOnLaunch = runsAutomaticallyOnLaunch
     self.isRunning = isRunning
+    self.needsInitialContentFit = needsInitialContentFit
     self.canvasSession = canvasSession
     canvasSessionID = FlowingGraphCanvasSessionID()
   }
@@ -69,6 +72,10 @@ final class RoutingWorkflowModel: Identifiable {
   func setRunsAutomaticallyOnLaunch(_ shouldRun: Bool) {
     runsAutomaticallyOnLaunch = shouldRun
   }
+
+  func completeInitialContentFit() {
+    needsInitialContentFit = false
+  }
 }
 
 @MainActor
@@ -83,7 +90,7 @@ final class RoutingWorkflowLibrary {
   ) {
     let initialWorkflows =
       workflows.isEmpty
-      ? [RoutingWorkflowModel(name: "Flow 1")]
+      ? [RoutingWorkflowModel(name: "Flow 1", needsInitialContentFit: true)]
       : workflows
     precondition(Set(initialWorkflows.map(\.id)).count == initialWorkflows.count)
     self.workflows = initialWorkflows
@@ -110,7 +117,7 @@ final class RoutingWorkflowLibrary {
 
   @discardableResult
   func addWorkflow() -> RoutingWorkflowModel {
-    let workflow = RoutingWorkflowModel(name: nextWorkflowName())
+    let workflow = RoutingWorkflowModel(name: nextWorkflowName(), needsInitialContentFit: true)
     workflows.append(workflow)
     selectedWorkflowID = workflow.id
     return workflow

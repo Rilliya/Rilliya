@@ -235,6 +235,8 @@ struct RoutingCanvasView: View {
   let isWorkflowRunning: Bool
 
   @Binding var session: FlowingGraphCanvasSessionState<RoutingCanvasSchema>
+  let needsInitialContentFit: Bool
+  let completeInitialContentFit: () -> Void
   let isMiniMapVisible: Bool
   let setMiniMapVisible: (Bool) -> Void
 
@@ -353,9 +355,12 @@ struct RoutingCanvasView: View {
           },
           toggleAudioChannelMuted: workspace.toggleAudioChannelMuted,
           showsDisabledPortCrosses: settings.showsDisabledPortCrosses,
+          needsInitialContentFit: needsInitialContentFit,
+          completeInitialContentFit: completeInitialContentFit,
           isMiniMapVisible: isMiniMapVisible,
           setMiniMapVisible: setMiniMapVisible
         )
+        .id(context.sessionID)
       },
       accessibilitySnapshot: scene.accessibilitySnapshot(
         updating: workspace.accessibilitySnapshot

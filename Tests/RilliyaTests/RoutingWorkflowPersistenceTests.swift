@@ -279,6 +279,7 @@ struct RoutingWorkflowPersistenceTests {
     #expect(restoredFirst.canvasSession.viewport.transform.zoom == 1.4)
     #expect(restoredFirst.canvasSession.viewport.transform.offset.width == 48)
     #expect(restoredFirst.canvasSession.viewport.transform.offset.height == -32)
+    #expect(!restoredFirst.needsInitialContentFit)
 
     let restoredInput = try #require(
       restoredLibrary.selectedWorkflow.workspace.nodes.first?.value.inputDeviceSelection

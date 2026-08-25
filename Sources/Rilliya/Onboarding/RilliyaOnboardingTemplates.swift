@@ -54,11 +54,23 @@ struct RilliyaOnboardingTemplateFactory {
     else {
       throw RilliyaOnboardingTemplateError.invalidTemplate(goal)
     }
+    if goal == .listenToApplication {
+      let visualizerNodeID = workspace.addVisualizerNode(centeredAt: CGPoint(x: 170, y: 96))
+      guard
+        workspace.connectAggregateAudio(
+          sourceNodeID: sourceNodeID,
+          targetNodeID: visualizerNodeID
+        )
+      else {
+        throw RilliyaOnboardingTemplateError.invalidTemplate(goal)
+      }
+    }
 
     let workflow = RoutingWorkflowModel(
       id: workflowID,
       name: goal.workflowName,
-      workspace: workspace
+      workspace: workspace,
+      needsInitialContentFit: true
     )
     if let elementID = workspace.elementID(for: sourceNodeID) {
       workflow.canvasSession.selection = [elementID]
@@ -85,7 +97,9 @@ struct RilliyaOnboardingTemplateFactory {
   ) -> UUID {
     switch goal {
     case .listenToApplication, .routeInput:
-      workspace.addOutputAudioNode(centeredAt: CGPoint(x: 170, y: 0))
+      workspace.addOutputAudioNode(
+        centeredAt: CGPoint(x: 170, y: goal == .listenToApplication ? -96 : 0)
+      )
     case .recordApplication:
       workspace.addFileOutputNode(centeredAt: CGPoint(x: 170, y: 0))
     }

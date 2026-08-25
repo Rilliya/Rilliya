@@ -21,15 +21,27 @@ enum RoutingMetalEdgeStrokeMetrics {
 @MainActor
 final class RoutingMetalCanvasController: FlowingGraphCanvasMetalBackendController {
   @Published private(set) var mouseTool: RoutingCanvasMouseTool = .select
+  private let initialCamera: FlowingGraphCanvasMetalCamera
   private weak var routingCanvas: RoutingMetalCanvasView?
   private var hasAttachedCanvas = false
 
   override init(initialZoom: CGFloat) {
+    initialCamera = FlowingGraphCanvasMetalCamera(zoom: initialZoom)
     super.init(initialZoom: initialZoom)
   }
 
+  init(initialViewport: FlowingCanvasViewport) {
+    initialCamera = FlowingGraphCanvasMetalCamera(
+      zoom: initialViewport.transform.zoom,
+      offset: initialViewport.transform.offset
+    )
+    super.init(initialZoom: initialViewport.transform.zoom)
+  }
+
   func attach(_ canvas: RoutingMetalCanvasView) {
-    if hasAttachedCanvas, routingCanvas !== canvas {
+    if !hasAttachedCanvas {
+      canvas.restoreCamera(initialCamera)
+    } else if routingCanvas !== canvas {
       canvas.restoreCamera(
         FlowingGraphCanvasMetalCamera(
           zoom: viewport.transform.zoom,
@@ -89,6 +101,8 @@ struct RoutingMetalCanvas: NSViewRepresentable {
   let onSetAudioChannelGain: (UUID, Int, Double) -> Void
   let onToggleAudioChannelMuted: (UUID, Int) -> Void
   let showsDisabledPortCrosses: Bool
+  let needsInitialContentFit: Bool
+  let completeInitialContentFit: () -> Void
   let onViewportChange: (FlowingCanvasViewport, FlowingCanvasViewportChangePhase) -> Void
 
   func makeNSView(context: Context) -> RoutingMetalCanvasView {
@@ -99,7 +113,9 @@ struct RoutingMetalCanvas: NSViewRepresentable {
       contentInsets: contentInsets,
       mouseTool: mouseTool,
       showsDisabledPortCrosses: showsDisabledPortCrosses,
-      controller: controller
+      controller: controller,
+      needsInitialContentFit: needsInitialContentFit,
+      completeInitialContentFit: completeInitialContentFit
     )
     configure(view)
     controller.attach(view)
@@ -148,6 +164,8 @@ struct RoutingMetalCanvas: NSViewRepresentable {
     view.onPresentContextMenu = onPresentContextMenu
     view.onSetAudioChannelGain = onSetAudioChannelGain
     view.onToggleAudioChannelMuted = onToggleAudioChannelMuted
+    view.needsInitialContentFit = needsInitialContentFit
+    view.completeInitialContentFit = completeInitialContentFit
     view.onViewportChange = onViewportChange
   }
 }
@@ -166,6 +184,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   var onSetAudioChannelGain: ((UUID, Int, Double) -> Void)?
   var onToggleAudioChannelMuted: ((UUID, Int) -> Void)?
   var onViewportChange: ((FlowingCanvasViewport, FlowingCanvasViewportChangePhase) -> Void)?
+  var needsInitialContentFit: Bool
+  var completeInitialContentFit: (() -> Void)?
 
   private enum Constants {
     static let maximumFramesInFlight = 2
@@ -227,6 +247,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
   private var audioGainDrag: AudioGainDrag?
   private var mouseTool: RoutingCanvasMouseTool
   private var showsDisabledPortCrosses: Bool
+  private var hasCompletedInitialContentFit = false
 
   private struct AudioGainDrag {
     let nodeID: UUID
@@ -253,7 +274,9 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     contentInsets: EdgeInsets,
     mouseTool: RoutingCanvasMouseTool,
     showsDisabledPortCrosses: Bool,
-    controller: RoutingMetalCanvasController
+    controller: RoutingMetalCanvasController,
+    needsInitialContentFit: Bool = false,
+    completeInitialContentFit: (() -> Void)? = nil
   ) {
     guard let device = MTLCreateSystemDefaultDevice() else {
       preconditionFailure("Metal is unavailable")
@@ -263,6 +286,8 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     graphConfiguration = configuration
     self.mouseTool = mouseTool
     self.showsDisabledPortCrosses = showsDisabledPortCrosses
+    self.needsInitialContentFit = needsInitialContentFit
+    self.completeInitialContentFit = completeInitialContentFit
     textAtlas = RoutingMetalTextAtlas(device: device)
     let sampleCount =
       device.supportsTextureSampleCount(RoutingMetalEdgeStrokeMetrics.preferredSampleCount)
@@ -352,6 +377,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
 
   override func layout() {
     super.layout()
+    applyInitialContentFitIfPossible()
     onViewportChange?(viewport, .ended)
     requestDisplay()
   }
@@ -642,6 +668,7 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
     if let hoveredEdgeID, !scene.edges.contains(where: { $0.id == hoveredEdgeID }) {
       self.hoveredEdgeID = nil
     }
+    applyInitialContentFitIfPossible()
     requestDisplay()
   }
 
@@ -747,6 +774,18 @@ final class RoutingMetalCanvasView: FlowingGraphCanvasMetalBackendView {
       range: graphConfiguration.canvas.zoomRange
     )
     finishViewportChange()
+  }
+
+  private func applyInitialContentFitIfPossible() {
+    guard needsInitialContentFit, !hasCompletedInitialContentFit,
+      bounds.width > 0, bounds.height > 0, !scene.nodes.isEmpty
+    else { return }
+    hasCompletedInitialContentFit = true
+    Task { @MainActor [weak self] in
+      guard let self else { return }
+      fitContent()
+      completeInitialContentFit?()
+    }
   }
 
   override func renderFrame(in view: MTKView) {
