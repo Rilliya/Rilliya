@@ -41,17 +41,32 @@ struct RilliyaOnboardingTests {
   }
 
   @Test @MainActor
-  func backNavigationUsesTheReverseDirection() throws {
+  func backNavigationReturnsToThePreviousStep() throws {
     let coordinator = RilliyaOnboardingCoordinator(
       defaults: try makeDefaults(),
       arguments: ["Rilliya", "--onboarding-preview"]
     )
 
     coordinator.begin()
-    #expect(coordinator.navigationDirection == .forward)
+    #expect(coordinator.step == .capabilityModel)
 
     coordinator.goBack()
-    #expect(coordinator.navigationDirection == .backward)
+    #expect(coordinator.step == .welcome)
+  }
+
+  @Test @MainActor
+  func virtualAudioEducationReturnsToGoalSelection() throws {
+    let coordinator = RilliyaOnboardingCoordinator(
+      defaults: try makeDefaults(),
+      arguments: ["Rilliya", "--onboarding-preview"]
+    )
+
+    coordinator.begin()
+    coordinator.learnAboutVirtualAudio()
+    #expect(coordinator.step == .virtualAudio)
+
+    coordinator.goBack()
+    #expect(coordinator.step == .capabilityModel)
   }
 
   @Test @MainActor
@@ -65,9 +80,10 @@ struct RilliyaOnboardingTests {
     coordinator.workflowRestorationDidFinish(.noDocument)
     coordinator.begin()
     coordinator.toggle(.listenToApplication)
+    coordinator.learnAboutVirtualAudio()
     var receivedGoals: [RilliyaOnboardingGoal] = []
 
-    await coordinator.createSelectedWorkflows { goals in
+    await coordinator.completeOnboarding { goals in
       receivedGoals = goals
     }
 
@@ -89,8 +105,9 @@ struct RilliyaOnboardingTests {
     coordinator.workflowRestorationDidFinish(.noDocument)
     coordinator.begin()
     coordinator.toggle(.recordApplication)
+    coordinator.learnAboutVirtualAudio()
 
-    await coordinator.createSelectedWorkflows { _ in
+    await coordinator.completeOnboarding { _ in
       throw RilliyaOnboardingTemplateError.workflowChanged
     }
 
@@ -100,6 +117,28 @@ struct RilliyaOnboardingTests {
       coordinator.creationIssue
         == RilliyaOnboardingTemplateError.workflowChanged.localizedDescription)
     #expect(loadedRecord(from: defaults)?.status == .inProgress)
+  }
+
+  @Test @MainActor
+  func completingWithoutASelectionKeepsTheDefaultWorkflow() async throws {
+    let defaults = try makeDefaults()
+    let coordinator = RilliyaOnboardingCoordinator(
+      defaults: defaults,
+      arguments: ["Rilliya"],
+      automaticPresentationEnabled: true
+    )
+    coordinator.workflowRestorationDidFinish(.noDocument)
+    coordinator.begin()
+    coordinator.learnAboutVirtualAudio()
+    var attemptedCreation = false
+
+    await coordinator.completeOnboarding { _ in
+      attemptedCreation = true
+    }
+
+    #expect(!attemptedCreation)
+    #expect(!coordinator.isPresented)
+    #expect(loadedRecord(from: defaults)?.status == .completed)
   }
 
   @Test @MainActor
@@ -153,6 +192,27 @@ struct RilliyaOnboardingTests {
     restored.workflowRestorationDidFinish(.noDocument)
 
     #expect(!restored.isPresented)
+  }
+
+  @Test @MainActor
+  func goalSelectionCanBeSkippedBeforeVirtualAudioEducation() throws {
+    let defaults = try makeDefaults()
+    let coordinator = RilliyaOnboardingCoordinator(
+      defaults: defaults,
+      arguments: ["Rilliya"],
+      automaticPresentationEnabled: true
+    )
+    coordinator.workflowRestorationDidFinish(.noDocument)
+    coordinator.begin()
+
+    coordinator.learnAboutVirtualAudio()
+
+    #expect(coordinator.isPresented)
+    #expect(coordinator.step == .virtualAudio)
+    let record = try #require(loadedRecord(from: defaults))
+    #expect(record.status == .inProgress)
+    #expect(record.step == .virtualAudio)
+    #expect(record.selectedGoals.isEmpty)
   }
 
   @Test

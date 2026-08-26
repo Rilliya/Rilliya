@@ -4,6 +4,7 @@ import SwiftUI
 
 struct RilliyaOnboardingOverlay: View {
   @Bindable var coordinator: RilliyaOnboardingCoordinator
+  @Bindable var virtualAudioController: RilliyaVirtualAudioController
   let createWorkflows: @MainActor ([RilliyaOnboardingGoal]) async throws -> Void
 
   @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -20,19 +21,16 @@ struct RilliyaOnboardingOverlay: View {
         spacing: 0,
         contentInsets: EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
       ) {
-        ZStack {
-          switch coordinator.step {
-          case .welcome:
-            welcome
-              .transition(stepTransition)
-          case .capabilityModel:
-            capabilityModel
-              .transition(stepTransition)
-          case nil:
-            EmptyView()
+        GeometryReader { geometry in
+          ZStack(alignment: .topLeading) {
+            onboardingPage(welcome, index: 0, in: geometry.size)
+            onboardingPage(capabilityModel, index: 1, in: geometry.size)
+            onboardingPage(virtualAudio, index: 2, in: geometry.size)
           }
+          .frame(width: geometry.size.width, height: geometry.size.height, alignment: .topLeading)
+          .clipped()
         }
-        .frame(maxWidth: .infinity, minHeight: cardHeight)
+        .frame(height: cardHeight)
       }
       .frame(maxWidth: 780)
       .shadow(color: .black.opacity(0.12), radius: 34, y: 18)
@@ -140,38 +138,33 @@ struct RilliyaOnboardingOverlay: View {
 
           Spacer()
 
-          if coordinator.isDesignPreview {
-            Text("Design preview · workflows won't be saved")
-              .font(.caption)
-              .foregroundStyle(FlowingPalette.faint)
-          }
-
           Button {
-            Task {
-              await coordinator.createSelectedWorkflows(using: createWorkflows)
-            }
+            animate { coordinator.learnAboutVirtualAudio() }
           } label: {
-            HStack(spacing: 8) {
-              if coordinator.isCreatingWorkflows {
-                ProgressView()
-                  .controlSize(.small)
-              }
-              Text(selectionActionTitle)
-            }
+            Label(
+              coordinator.selectedGoals.isEmpty ? "Skip" : "Continue",
+              systemImage: "arrow.right"
+            )
+            .padding(.vertical, 3)
           }
           .buttonStyle(FlowingSoftButtonStyle(isProminent: true))
-          .disabled(coordinator.selectedGoals.isEmpty || coordinator.isCreatingWorkflows)
-        }
-
-        if let issue = coordinator.creationIssue {
-          Label(issue, systemImage: "exclamationmark.triangle.fill")
-            .font(.caption)
-            .foregroundStyle(FlowingAccent.pollen.foreground)
-            .fixedSize(horizontal: false, vertical: true)
         }
       }
       .padding(.horizontal, 30)
       .padding(.bottom, 28)
+    }
+  }
+
+  private var virtualAudio: some View {
+    VStack(spacing: 0) {
+      overlayHeader(step: 2)
+      RilliyaOnboardingVirtualAudioStep(
+        coordinator: coordinator,
+        virtualAudioController: virtualAudioController,
+        createWorkflows: createWorkflows
+      ) {
+        animate { coordinator.goBack() }
+      }
     }
   }
 
@@ -183,7 +176,7 @@ struct RilliyaOnboardingOverlay: View {
         .foregroundStyle(FlowingPalette.faint)
 
       HStack(spacing: 5) {
-        ForEach(0..<2, id: \.self) { index in
+        ForEach(0..<3, id: \.self) { index in
           Capsule()
             .fill(index == step ? FlowingAccent.fern.fill : FlowingPalette.hairline)
             .frame(width: index == step ? 22 : 8, height: 5)
@@ -210,35 +203,36 @@ struct RilliyaOnboardingOverlay: View {
     .padding(.bottom, 14)
   }
 
-  private var stepTransition: AnyTransition {
-    guard !reduceMotion else { return .opacity }
-    switch coordinator.navigationDirection {
-    case .forward:
-      return .asymmetric(
-        insertion: .move(edge: .trailing).combined(with: .opacity),
-        removal: .move(edge: .leading).combined(with: .opacity)
-      )
-    case .backward:
-      return .asymmetric(
-        insertion: .move(edge: .leading).combined(with: .opacity),
-        removal: .move(edge: .trailing).combined(with: .opacity)
-      )
+  private func onboardingPage<Content: View>(
+    _ content: Content,
+    index: Int,
+    in size: CGSize
+  ) -> some View {
+    let isCurrent = index == currentStepIndex
+    return
+      content
+      .frame(width: size.width, height: size.height, alignment: .top)
+      .offset(x: CGFloat(index - currentStepIndex) * size.width)
+      .allowsHitTesting(isCurrent)
+      .accessibilityHidden(!isCurrent)
+  }
+
+  private var currentStepIndex: Int {
+    switch coordinator.step {
+    case .welcome, nil: 0
+    case .capabilityModel: 1
+    case .virtualAudio: 2
     }
   }
 
   private var cardHeight: CGFloat {
-    guard coordinator.step == .capabilityModel else { return 510 }
-    return coordinator.creationIssue == nil ? 438 : 478
-  }
-
-  private var selectionActionTitle: String {
-    switch coordinator.selectedGoals.count {
-    case 0:
-      "Select a Workflow"
-    case 1:
-      "Create 1 Workflow"
-    default:
-      "Create \(coordinator.selectedGoals.count) Workflows"
+    switch coordinator.step {
+    case .capabilityModel:
+      return 438
+    case .virtualAudio:
+      return coordinator.creationIssue == nil ? 506 : 540
+    case .welcome, nil:
+      return 510
     }
   }
 

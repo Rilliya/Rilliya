@@ -11,11 +11,7 @@ enum RilliyaWorkflowRestorationOutcome: Equatable, Sendable {
 enum RilliyaOnboardingStep: String, Codable, Equatable, Sendable {
   case welcome
   case capabilityModel
-}
-
-enum RilliyaOnboardingNavigationDirection: Equatable, Sendable {
-  case forward
-  case backward
+  case virtualAudio
 }
 
 enum RilliyaOnboardingGoal: String, CaseIterable, Codable, Hashable, Sendable {
@@ -84,7 +80,6 @@ struct RilliyaOnboardingStateStore {
 final class RilliyaOnboardingCoordinator {
   private(set) var step: RilliyaOnboardingStep?
   private(set) var selectedGoals: [RilliyaOnboardingGoal] = []
-  private(set) var navigationDirection = RilliyaOnboardingNavigationDirection.forward
   private(set) var restorationOutcome: RilliyaWorkflowRestorationOutcome?
   private(set) var creationIssue: String?
   private(set) var isCreatingWorkflows = false
@@ -125,11 +120,22 @@ final class RilliyaOnboardingCoordinator {
   }
 
   func begin() {
-    transition(to: .capabilityModel, direction: .forward)
+    transition(to: .capabilityModel)
   }
 
   func goBack() {
-    transition(to: .welcome, direction: .backward)
+    switch step {
+    case .virtualAudio:
+      transition(to: .capabilityModel)
+    case .capabilityModel:
+      transition(to: .welcome)
+    case .welcome, nil:
+      break
+    }
+  }
+
+  func learnAboutVirtualAudio() {
+    transition(to: .virtualAudio)
   }
 
   func toggle(_ goal: RilliyaOnboardingGoal) {
@@ -141,10 +147,14 @@ final class RilliyaOnboardingCoordinator {
     persistInProgress()
   }
 
-  func createSelectedWorkflows(
+  func completeOnboarding(
     using create: @MainActor ([RilliyaOnboardingGoal]) async throws -> Void
   ) async {
-    guard !selectedGoals.isEmpty, !isCreatingWorkflows else { return }
+    guard !isCreatingWorkflows else { return }
+    guard !selectedGoals.isEmpty else {
+      complete()
+      return
+    }
     isCreatingWorkflows = true
     creationIssue = nil
     do {
@@ -171,11 +181,7 @@ final class RilliyaOnboardingCoordinator {
     step = nil
   }
 
-  private func transition(
-    to step: RilliyaOnboardingStep,
-    direction: RilliyaOnboardingNavigationDirection
-  ) {
-    navigationDirection = direction
+  private func transition(to step: RilliyaOnboardingStep) {
     self.step = step
     persistInProgress()
   }

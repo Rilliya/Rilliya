@@ -121,6 +121,7 @@ struct WorkspaceView: View {
       if runtime.onboarding.isPresented {
         RilliyaOnboardingOverlay(
           coordinator: runtime.onboarding,
+          virtualAudioController: virtualAudioController,
           createWorkflows: createOnboardingWorkflows
         )
         .zIndex(100)
